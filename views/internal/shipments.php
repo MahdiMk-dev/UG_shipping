@@ -26,6 +26,7 @@ $canEdit = in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch', 'Ware
                 <option value="departed">Departed</option>
                 <option value="airport">Airport</option>
                 <option value="arrived">Arrived</option>
+                <option value="partially_distributed">Partially distributed</option>
                 <option value="distributed">Distributed</option>
             </select>
             <select name="shipping_type">

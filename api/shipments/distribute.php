@@ -23,8 +23,8 @@ if (!$before) {
 }
 
 $status = $before['status'] ?? '';
-if ($status !== 'arrived') {
-    api_error('Shipment must be arrived to distribute', 422);
+if (!in_array($status, ['arrived', 'partially_distributed'], true)) {
+    api_error('Shipment must be arrived or partially distributed to distribute', 422);
 }
 
 $db->beginTransaction();
@@ -37,29 +37,38 @@ try {
     $updateOrders->execute(['pending_receipt', $user['id'] ?? null, $shipmentId, 'main_branch']);
     $updatedOrders = $updateOrders->rowCount();
 
-    $remainingStmt = $db->prepare(
+    $remainingMainStmt = $db->prepare(
         'SELECT COUNT(*) FROM orders WHERE shipment_id = ? AND deleted_at IS NULL '
-        . 'AND fulfillment_status = ? AND (sub_branch_id IS NULL OR sub_branch_id = 0)'
+        . 'AND fulfillment_status = ?'
     );
-    $remainingStmt->execute([$shipmentId, 'main_branch']);
-    $remainingWithoutBranch = (int) $remainingStmt->fetchColumn();
+    $remainingMainStmt->execute([$shipmentId, 'main_branch']);
+    $remainingMainBranch = (int) $remainingMainStmt->fetchColumn();
 
-    $shipmentDistributed = false;
-    if ($remainingWithoutBranch === 0) {
-        $updateShipment = $db->prepare(
-            'UPDATE shipments SET status = ?, updated_at = NOW(), updated_by_user_id = ? '
-            . 'WHERE id = ? AND deleted_at IS NULL'
-        );
-        $updateShipment->execute(['distributed', $user['id'] ?? null, $shipmentId]);
-        $shipmentDistributed = true;
-    }
+    $remainingInShipmentStmt = $db->prepare(
+        'SELECT COUNT(*) FROM orders WHERE shipment_id = ? AND deleted_at IS NULL '
+        . 'AND fulfillment_status = ?'
+    );
+    $remainingInShipmentStmt->execute([$shipmentId, 'in_shipment']);
+    $remainingInShipment = (int) $remainingInShipmentStmt->fetchColumn();
+
+    $remainingUndistributed = $remainingMainBranch + $remainingInShipment;
+    $newStatus = $remainingUndistributed === 0 ? 'distributed' : 'partially_distributed';
+    $shipmentDistributed = $newStatus === 'distributed';
+
+    $updateShipment = $db->prepare(
+        'UPDATE shipments SET status = ?, updated_at = NOW(), updated_by_user_id = ? '
+        . 'WHERE id = ? AND deleted_at IS NULL'
+    );
+    $updateShipment->execute([$newStatus, $user['id'] ?? null, $shipmentId]);
 
     $afterStmt = $db->prepare('SELECT * FROM shipments WHERE id = ?');
     $afterStmt->execute([$shipmentId]);
     $after = $afterStmt->fetch();
     audit_log($user, 'shipments.distribute', 'shipment', $shipmentId, $before, $after, [
         'updated_orders' => $updatedOrders,
-        'remaining_without_branch' => $remainingWithoutBranch,
+        'remaining_main_branch' => $remainingMainBranch,
+        'remaining_in_shipment' => $remainingInShipment,
+        'shipment_status' => $newStatus,
         'shipment_distributed' => $shipmentDistributed,
     ]);
 
@@ -74,6 +83,8 @@ try {
 api_json([
     'ok' => true,
     'updated_orders' => $updatedOrders,
-    'remaining_without_branch' => $remainingWithoutBranch,
+    'remaining_main_branch' => $remainingMainBranch,
+    'remaining_in_shipment' => $remainingInShipment,
+    'shipment_status' => $newStatus,
     'shipment_distributed' => $shipmentDistributed,
 ]);

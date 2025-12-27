@@ -5,7 +5,7 @@ require_once __DIR__ . '/../../app/api.php';
 require_once __DIR__ . '/../../app/permissions.php';
 
 api_require_method('GET');
-$user = require_role(['Admin', 'Owner']);
+$user = require_role(['Owner']);
 
 $stmt = db()->query('SELECT id, name FROM roles ORDER BY name ASC');
 $rows = $stmt->fetchAll();

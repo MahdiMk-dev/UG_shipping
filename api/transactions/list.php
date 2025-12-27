@@ -11,6 +11,8 @@ $filters = $_GET ?? [];
 $branchId = api_int($filters['branch_id'] ?? null);
 $customerId = api_int($filters['customer_id'] ?? null);
 $type = api_string($filters['type'] ?? null);
+$dateFrom = api_string($filters['date_from'] ?? null);
+$dateTo = api_string($filters['date_to'] ?? null);
 $limit = api_int($filters['limit'] ?? 50, 50);
 $offset = api_int($filters['offset'] ?? 0, 0);
 
@@ -19,6 +21,16 @@ $offset = max(0, $offset ?? 0);
 
 $where = ['t.deleted_at IS NULL'];
 $params = [];
+
+$role = $user['role'] ?? '';
+if ($role === 'Sub Branch') {
+    $branchId = api_int($user['branch_id'] ?? null);
+    if (!$branchId) {
+        api_error('Branch scope required', 403);
+    }
+} elseif (in_array($role, ['Warehouse', 'Staff'], true)) {
+    api_error('Forbidden', 403);
+}
 
 if ($branchId) {
     $where[] = 't.branch_id = ?';
@@ -37,6 +49,21 @@ if ($type) {
     }
     $where[] = 't.type = ?';
     $params[] = $type;
+}
+
+if ($dateFrom) {
+    if (strtotime($dateFrom) === false) {
+        api_error('Invalid date_from', 422);
+    }
+    $where[] = 'DATE(COALESCE(t.payment_date, t.created_at)) >= ?';
+    $params[] = $dateFrom;
+}
+if ($dateTo) {
+    if (strtotime($dateTo) === false) {
+        api_error('Invalid date_to', 422);
+    }
+    $where[] = 'DATE(COALESCE(t.payment_date, t.created_at)) <= ?';
+    $params[] = $dateTo;
 }
 
 $sql = 'SELECT t.id, t.branch_id, b.name AS branch_name, t.customer_id, c.name AS customer_name, '
@@ -62,7 +89,6 @@ foreach ($params as $index => $value) {
 $stmt->execute();
 $rows = $stmt->fetchAll();
 
-$role = $user['role'] ?? '';
 $showMeta = in_array($role, ['Admin', 'Owner', 'Main Branch'], true);
 if (!$showMeta) {
     foreach ($rows as &$row) {

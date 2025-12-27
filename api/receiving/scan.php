@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../app/api.php';
 require_once __DIR__ . '/../../app/auth.php';
 require_once __DIR__ . '/../../app/permissions.php';
+require_once __DIR__ . '/../../app/services/balance_service.php';
 
 api_require_method('POST');
 $user = auth_require_user();
@@ -23,8 +24,23 @@ $db->beginTransaction();
 
 try {
     $role = $user['role'] ?? '';
+    $isMainBranch = $role === 'Main Branch';
     $readOnly = is_read_only_role($user) && $role !== 'Warehouse';
     $branchScopeId = $user['branch_id'] ?? null;
+    $pendingStatus = $isMainBranch ? 'in_shipment' : 'pending_receipt';
+    $receivedStatus = $isMainBranch ? 'main_branch' : 'received_subbranch';
+
+    if ($isMainBranch) {
+        $shipmentStmt = $db->prepare('SELECT status FROM shipments WHERE id = ? AND deleted_at IS NULL');
+        $shipmentStmt->execute([$shipmentId]);
+        $shipment = $shipmentStmt->fetch();
+        if (!$shipment) {
+            api_error('Shipment not found', 404);
+        }
+        if (!in_array(($shipment['status'] ?? ''), ['arrived', 'partially_distributed'], true)) {
+            api_error('Shipment is not ready for receiving', 422);
+        }
+    }
 
     $orderWhere = [
         'shipment_id = ?',
@@ -32,7 +48,7 @@ try {
         'fulfillment_status = ?',
         'deleted_at IS NULL',
     ];
-    $orderParams = [$shipmentId, $trackingNumber, 'pending_receipt'];
+    $orderParams = [$shipmentId, $trackingNumber, $pendingStatus];
 
     $matchBranchId = $branchId;
     if ($readOnly && !$matchBranchId) {
@@ -44,7 +60,7 @@ try {
     }
 
     $orderStmt = $db->prepare(
-        'SELECT id, sub_branch_id FROM orders '
+        'SELECT id, sub_branch_id, total_price FROM orders '
         . 'WHERE ' . implode(' AND ', $orderWhere) . ' '
         . 'LIMIT 1'
     );
@@ -59,10 +75,30 @@ try {
         $matched = true;
         $matchedOrderId = (int) $order['id'];
         $matchedBranchId = $order['sub_branch_id'] ? (int) $order['sub_branch_id'] : null;
+        if ($isMainBranch) {
+            if ($branchScopeId) {
+                $matchedBranchId = (int) $branchScopeId;
+            } elseif ($branchId) {
+                $matchedBranchId = $branchId;
+            }
+        }
         $db->prepare(
             'UPDATE orders SET fulfillment_status = ?, updated_at = NOW(), updated_by_user_id = ? '
             . 'WHERE id = ?'
-        )->execute(['received_subbranch', $user['id'] ?? null, $matchedOrderId]);
+        )->execute([$receivedStatus, $user['id'] ?? null, $matchedOrderId]);
+
+        if (!$isMainBranch && $matchedBranchId) {
+            record_branch_balance(
+                $db,
+                $matchedBranchId,
+                (float) ($order['total_price'] ?? 0),
+                'order_received',
+                'order',
+                $matchedOrderId,
+                $user['id'] ?? null,
+                'Order received'
+            );
+        }
     }
 
     $scanBranchId = $matchedBranchId;

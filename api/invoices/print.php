@@ -50,8 +50,18 @@ if (!$invoice) {
     api_error('Invoice not found', 404);
 }
 
-if ($customer && (int) $invoice['customer_id'] !== (int) $customer['customer_id']) {
-    api_error('Forbidden', 403);
+if ($customer) {
+    $accountId = $customer['account_id'] ?? null;
+    if (!$accountId) {
+        api_error('Customer session is invalid', 401);
+    }
+    $check = $db->prepare(
+        'SELECT id FROM customers WHERE id = ? AND account_id = ? AND deleted_at IS NULL AND is_system = 0'
+    );
+    $check->execute([(int) $invoice['customer_id'], (int) $accountId]);
+    if (!$check->fetch()) {
+        api_error('Forbidden', 403);
+    }
 }
 
 $itemStmt = $db->prepare(
@@ -75,12 +85,26 @@ function h(?string $value): string
 $rowsHtml = '';
 foreach ($items as $item) {
     $snapshot = $item['order_snapshot'] ?? [];
+    $adjustments = $snapshot['adjustments'] ?? [];
+    $adjustmentParts = [];
+    if (is_array($adjustments)) {
+        foreach ($adjustments as $adjustment) {
+            $title = trim((string) ($adjustment['title'] ?? ''));
+            $computed = (float) ($adjustment['computed_amount'] ?? 0);
+            if ($title === '') {
+                continue;
+            }
+            $adjustmentParts[] = $title . ' ' . number_format($computed, 2);
+        }
+    }
+    $adjustmentLabel = $adjustmentParts ? implode('; ', $adjustmentParts) : '-';
     $rowsHtml .= '<tr>'
         . '<td>' . h((string) ($snapshot['tracking_number'] ?? '')) . '</td>'
         . '<td>' . h((string) ($snapshot['shipment_number'] ?? '')) . '</td>'
         . '<td>' . h((string) ($snapshot['unit_type'] ?? '')) . '</td>'
         . '<td class="right">' . h(number_format((float) ($snapshot['qty'] ?? 0), 2)) . '</td>'
         . '<td class="right">' . h(number_format((float) ($snapshot['rate'] ?? 0), 2)) . '</td>'
+        . '<td>' . h($adjustmentLabel) . '</td>'
         . '<td class="right">' . h(number_format((float) ($item['line_total'] ?? 0), 2)) . '</td>'
         . '</tr>';
 }
@@ -222,6 +246,7 @@ header('Content-Type: text/html; charset=utf-8');
                     <th>Unit</th>
                     <th class="right">Qty</th>
                     <th class="right">Rate</th>
+                    <th>Extras</th>
                     <th class="right">Line Total</th>
                 </tr>
             </thead>

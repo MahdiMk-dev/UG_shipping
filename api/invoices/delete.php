@@ -31,9 +31,6 @@ try {
         . 'WHERE id = ?'
     )->execute(['void', $user['id'] ?? null, $invoiceId]);
 
-    $db->prepare('UPDATE customers SET balance = balance + ? WHERE id = ?')
-        ->execute([(float) $invoice['total'], (int) $invoice['customer_id']]);
-
     $afterStmt = $db->prepare('SELECT * FROM invoices WHERE id = ?');
     $afterStmt->execute([$invoiceId]);
     $after = $afterStmt->fetch();

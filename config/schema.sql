@@ -89,13 +89,47 @@ CREATE TABLE IF NOT EXISTS audit_logs (
         FOREIGN KEY (user_id) REFERENCES users(id)
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS company_settings (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(160) NOT NULL,
+    address VARCHAR(255) NULL,
+    phone VARCHAR(40) NULL,
+    email VARCHAR(120) NULL,
+    website VARCHAR(120) NULL,
+    logo_url VARCHAR(255) NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NULL DEFAULT NULL,
+    updated_by_user_id INT UNSIGNED NULL
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS customer_accounts (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    phone VARCHAR(40) NULL,
+    username VARCHAR(80) NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    sub_branch_id INT UNSIGNED NULL,
+    last_login_at DATETIME NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_user_id INT UNSIGNED NULL,
+    updated_at DATETIME NULL DEFAULT NULL,
+    updated_by_user_id INT UNSIGNED NULL,
+    deleted_at DATETIME NULL,
+    UNIQUE KEY uk_customer_accounts_username (username),
+    UNIQUE KEY uk_customer_accounts_phone (phone),
+    KEY idx_customer_accounts_branch (sub_branch_id),
+    CONSTRAINT fk_customer_accounts_branch
+        FOREIGN KEY (sub_branch_id) REFERENCES branches(id)
+) ENGINE=InnoDB;
+
 CREATE TABLE IF NOT EXISTS customers (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    account_id INT UNSIGNED NULL,
     name VARCHAR(160) NOT NULL,
     code VARCHAR(50) NOT NULL,
     phone VARCHAR(40) NULL,
     address VARCHAR(255) NULL,
     sub_branch_id INT UNSIGNED NULL,
+    profile_country_id INT UNSIGNED NULL,
     balance DECIMAL(12,2) NOT NULL DEFAULT 0,
     is_system TINYINT NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -105,10 +139,21 @@ CREATE TABLE IF NOT EXISTS customers (
     deleted_at DATETIME NULL,
     code_active VARCHAR(50)
         GENERATED ALWAYS AS (CASE WHEN deleted_at IS NULL THEN code ELSE NULL END) STORED,
+    profile_country_active VARCHAR(80)
+        GENERATED ALWAYS AS (
+            CASE WHEN deleted_at IS NULL THEN CONCAT(account_id, ':', profile_country_id) ELSE NULL END
+        ) STORED,
     UNIQUE KEY uk_customers_code_active (code_active),
+    UNIQUE KEY uk_customers_account_country_active (profile_country_active),
+    KEY idx_customers_account (account_id),
     KEY idx_customers_sub_branch (sub_branch_id),
+    KEY idx_customers_profile_country (profile_country_id),
+    CONSTRAINT fk_customers_account
+        FOREIGN KEY (account_id) REFERENCES customer_accounts(id),
     CONSTRAINT fk_customers_sub_branch
-        FOREIGN KEY (sub_branch_id) REFERENCES branches(id)
+        FOREIGN KEY (sub_branch_id) REFERENCES branches(id),
+    CONSTRAINT fk_customers_profile_country
+        FOREIGN KEY (profile_country_id) REFERENCES countries(id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS customer_auth (
@@ -128,14 +173,207 @@ CREATE TABLE IF NOT EXISTS customer_auth (
         FOREIGN KEY (customer_id) REFERENCES customers(id)
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS partner_profiles (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    type ENUM('shipper','consignee') NOT NULL,
+    name VARCHAR(160) NOT NULL,
+    phone VARCHAR(40) NULL,
+    address VARCHAR(255) NULL,
+    country_id INT UNSIGNED NULL,
+    balance DECIMAL(12,2) NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_user_id INT UNSIGNED NULL,
+    updated_at DATETIME NULL DEFAULT NULL,
+    updated_by_user_id INT UNSIGNED NULL,
+    deleted_at DATETIME NULL,
+    KEY idx_partner_profiles_type (type),
+    KEY idx_partner_profiles_country (country_id),
+    CONSTRAINT fk_partner_profiles_country
+        FOREIGN KEY (country_id) REFERENCES countries(id)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS partner_invoices (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    partner_id INT UNSIGNED NOT NULL,
+    shipment_id INT UNSIGNED NULL,
+    invoice_no VARCHAR(80) NOT NULL,
+    status ENUM('open','partially_paid','paid','void') NOT NULL DEFAULT 'open',
+    total DECIMAL(12,2) NOT NULL,
+    paid_total DECIMAL(12,2) NOT NULL DEFAULT 0,
+    due_total DECIMAL(12,2) NOT NULL,
+    issued_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    issued_by_user_id INT UNSIGNED NULL,
+    note TEXT NULL,
+    updated_at DATETIME NULL DEFAULT NULL,
+    updated_by_user_id INT UNSIGNED NULL,
+    deleted_at DATETIME NULL,
+    invoice_no_active VARCHAR(80)
+        GENERATED ALWAYS AS (CASE WHEN deleted_at IS NULL THEN invoice_no ELSE NULL END) STORED,
+    UNIQUE KEY uk_partner_invoices_no_active (invoice_no_active),
+    KEY idx_partner_invoices_partner (partner_id),
+    KEY idx_partner_invoices_shipment (shipment_id),
+    CONSTRAINT fk_partner_invoices_partner
+        FOREIGN KEY (partner_id) REFERENCES partner_profiles(id)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS partner_transactions (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    partner_id INT UNSIGNED NOT NULL,
+    invoice_id INT UNSIGNED NULL,
+    branch_id INT UNSIGNED NOT NULL,
+    type ENUM('receipt','refund','adjustment') NOT NULL DEFAULT 'receipt',
+    payment_method_id INT UNSIGNED NOT NULL,
+    amount DECIMAL(12,2) NOT NULL,
+    payment_date DATE NULL,
+    note TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_user_id INT UNSIGNED NULL,
+    updated_at DATETIME NULL DEFAULT NULL,
+    updated_by_user_id INT UNSIGNED NULL,
+    deleted_at DATETIME NULL,
+    KEY idx_partner_transactions_partner (partner_id),
+    KEY idx_partner_transactions_invoice (invoice_id),
+    KEY idx_partner_transactions_branch (branch_id),
+    KEY idx_partner_transactions_method (payment_method_id),
+    CONSTRAINT fk_partner_transactions_partner
+        FOREIGN KEY (partner_id) REFERENCES partner_profiles(id),
+    CONSTRAINT fk_partner_transactions_invoice
+        FOREIGN KEY (invoice_id) REFERENCES partner_invoices(id),
+    CONSTRAINT fk_partner_transactions_branch
+        FOREIGN KEY (branch_id) REFERENCES branches(id),
+    CONSTRAINT fk_partner_transactions_method
+        FOREIGN KEY (payment_method_id) REFERENCES payment_methods(id)
+) ENGINE=InnoDB;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'customers'
+          AND COLUMN_NAME = 'account_id'
+    ),
+    'SELECT 1',
+    'ALTER TABLE customers ADD COLUMN account_id INT UNSIGNED NULL'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'customers'
+          AND COLUMN_NAME = 'profile_country_id'
+    ),
+    'SELECT 1',
+    'ALTER TABLE customers ADD COLUMN profile_country_id INT UNSIGNED NULL'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'customers'
+          AND COLUMN_NAME = 'profile_country_active'
+    ),
+    'SELECT 1',
+    'ALTER TABLE customers ADD COLUMN profile_country_active VARCHAR(80) GENERATED ALWAYS AS ('
+        'CASE WHEN deleted_at IS NULL THEN CONCAT(account_id, \':\', profile_country_id) ELSE NULL END'
+        ') STORED'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'customers'
+          AND INDEX_NAME = 'uk_customers_account_country_active'
+    ),
+    'SELECT 1',
+    'ALTER TABLE customers ADD UNIQUE KEY uk_customers_account_country_active (profile_country_active)'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'customers'
+          AND INDEX_NAME = 'idx_customers_account'
+    ),
+    'SELECT 1',
+    'ALTER TABLE customers ADD KEY idx_customers_account (account_id)'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'customers'
+          AND INDEX_NAME = 'idx_customers_profile_country'
+    ),
+    'SELECT 1',
+    'ALTER TABLE customers ADD KEY idx_customers_profile_country (profile_country_id)'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'customer_auth'
+    ),
+    'INSERT INTO customer_accounts (phone, username, password_hash, sub_branch_id, last_login_at, created_at, '
+        'created_by_user_id, updated_at, updated_by_user_id, deleted_at) '
+        'SELECT c.phone, ca.username, ca.password_hash, c.sub_branch_id, ca.last_login_at, ca.created_at, '
+        'ca.created_by_user_id, ca.updated_at, ca.updated_by_user_id, ca.deleted_at '
+        'FROM customer_auth ca '
+        'JOIN customers c ON c.id = ca.customer_id '
+        'WHERE ca.deleted_at IS NULL '
+        'ON DUPLICATE KEY UPDATE '
+        'phone = VALUES(phone), '
+        'password_hash = VALUES(password_hash), '
+        'sub_branch_id = VALUES(sub_branch_id), '
+        'last_login_at = VALUES(last_login_at), '
+        'updated_at = VALUES(updated_at), '
+        'updated_by_user_id = VALUES(updated_by_user_id)',
+    'SELECT 1'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+UPDATE customers c
+JOIN customer_auth ca ON ca.customer_id = c.id
+JOIN customer_accounts a ON a.username = ca.username
+SET c.account_id = a.id
+WHERE c.account_id IS NULL;
+
+
 CREATE TABLE IF NOT EXISTS shipments (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     shipment_number VARCHAR(80) NOT NULL,
     origin_country_id INT UNSIGNED NOT NULL,
-    status ENUM('active','departed','airport','arrived','distributed') NOT NULL DEFAULT 'active',
+    status ENUM('active','departed','airport','arrived','partially_distributed','distributed') NOT NULL DEFAULT 'active',
     shipping_type ENUM('air','sea','land') NOT NULL,
     shipper VARCHAR(160) NULL,
     consignee VARCHAR(160) NULL,
+    shipper_profile_id INT UNSIGNED NULL,
+    consignee_profile_id INT UNSIGNED NULL,
     shipment_date DATE NULL,
     way_of_shipment VARCHAR(120) NULL,
     type_of_goods VARCHAR(160) NULL,
@@ -158,9 +396,167 @@ CREATE TABLE IF NOT EXISTS shipments (
         GENERATED ALWAYS AS (CASE WHEN deleted_at IS NULL THEN shipment_number ELSE NULL END) STORED,
     UNIQUE KEY uk_shipments_number_active (shipment_number_active),
     KEY idx_shipments_origin (origin_country_id),
+    KEY idx_shipments_shipper_profile (shipper_profile_id),
+    KEY idx_shipments_consignee_profile (consignee_profile_id),
     CONSTRAINT fk_shipments_origin_country
-        FOREIGN KEY (origin_country_id) REFERENCES countries(id)
+        FOREIGN KEY (origin_country_id) REFERENCES countries(id),
+    CONSTRAINT fk_shipments_shipper_profile
+        FOREIGN KEY (shipper_profile_id) REFERENCES partner_profiles(id),
+    CONSTRAINT fk_shipments_consignee_profile
+        FOREIGN KEY (consignee_profile_id) REFERENCES partner_profiles(id)
 ) ENGINE=InnoDB;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'shipments'
+          AND COLUMN_NAME = 'status'
+          AND COLUMN_TYPE LIKE '%partially_distributed%'
+    ),
+    'SELECT 1',
+    'ALTER TABLE shipments MODIFY status '
+        'ENUM('
+            '\'active\','
+            '\'departed\','
+            '\'airport\','
+            '\'arrived\','
+            '\'partially_distributed\','
+            '\'distributed\''
+        ') NOT NULL DEFAULT \'active\''
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'shipments'
+          AND COLUMN_NAME = 'shipper_profile_id'
+    ),
+    'SELECT 1',
+    'ALTER TABLE shipments ADD COLUMN shipper_profile_id INT UNSIGNED NULL'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'shipments'
+          AND COLUMN_NAME = 'consignee_profile_id'
+    ),
+    'SELECT 1',
+    'ALTER TABLE shipments ADD COLUMN consignee_profile_id INT UNSIGNED NULL'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'shipments'
+          AND INDEX_NAME = 'idx_shipments_shipper_profile'
+    ),
+    'SELECT 1',
+    'ALTER TABLE shipments ADD KEY idx_shipments_shipper_profile (shipper_profile_id)'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'shipments'
+          AND INDEX_NAME = 'idx_shipments_consignee_profile'
+    ),
+    'SELECT 1',
+    'ALTER TABLE shipments ADD KEY idx_shipments_consignee_profile (consignee_profile_id)'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'shipments'
+          AND CONSTRAINT_NAME = 'fk_shipments_shipper_profile'
+    ),
+    'SELECT 1',
+    'ALTER TABLE shipments ADD CONSTRAINT fk_shipments_shipper_profile '
+        'FOREIGN KEY (shipper_profile_id) REFERENCES partner_profiles(id)'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'shipments'
+          AND CONSTRAINT_NAME = 'fk_shipments_consignee_profile'
+    ),
+    'SELECT 1',
+    'ALTER TABLE shipments ADD CONSTRAINT fk_shipments_consignee_profile '
+        'FOREIGN KEY (consignee_profile_id) REFERENCES partner_profiles(id)'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'partner_invoices'
+          AND COLUMN_NAME = 'shipment_id'
+    ),
+    'SELECT 1',
+    'ALTER TABLE partner_invoices ADD COLUMN shipment_id INT UNSIGNED NULL'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'partner_invoices'
+          AND INDEX_NAME = 'idx_partner_invoices_shipment'
+    ),
+    'SELECT 1',
+    'ALTER TABLE partner_invoices ADD KEY idx_partner_invoices_shipment (shipment_id)'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'partner_invoices'
+          AND CONSTRAINT_NAME = 'fk_partner_invoices_shipment'
+    ),
+    'SELECT 1',
+    'ALTER TABLE partner_invoices ADD CONSTRAINT fk_partner_invoices_shipment '
+        'FOREIGN KEY (shipment_id) REFERENCES shipments(id)'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 CREATE TABLE IF NOT EXISTS collections (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -235,7 +631,7 @@ CREATE TABLE IF NOT EXISTS orders (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     shipment_id INT UNSIGNED NOT NULL,
     customer_id INT UNSIGNED NOT NULL,
-    sub_branch_id INT UNSIGNED NOT NULL,
+    sub_branch_id INT UNSIGNED NULL,
     collection_id INT UNSIGNED NULL,
     tracking_number VARCHAR(80) NOT NULL,
     delivery_type ENUM('pickup','delivery') NOT NULL,
@@ -276,6 +672,21 @@ CREATE TABLE IF NOT EXISTS orders (
     CONSTRAINT fk_orders_collection
         FOREIGN KEY (collection_id) REFERENCES collections(id)
 ) ENGINE=InnoDB;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'orders'
+          AND COLUMN_NAME = 'sub_branch_id'
+          AND IS_NULLABLE = 'NO'
+    ),
+    'ALTER TABLE orders MODIFY sub_branch_id INT UNSIGNED NULL',
+    'SELECT 1'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 SET @stmt = (SELECT IF(
     EXISTS(
@@ -509,12 +920,222 @@ CREATE TABLE IF NOT EXISTS shopping_orders (
         FOREIGN KEY (sub_branch_id) REFERENCES branches(id)
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS staff_members (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(160) NOT NULL,
+    phone VARCHAR(40) NULL,
+    position VARCHAR(120) NULL,
+    branch_id INT UNSIGNED NULL,
+    base_salary DECIMAL(12,2) NOT NULL DEFAULT 0,
+    status ENUM('active','inactive') NOT NULL DEFAULT 'active',
+    hired_at DATE NULL,
+    note TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_user_id INT UNSIGNED NULL,
+    updated_at DATETIME NULL DEFAULT NULL,
+    updated_by_user_id INT UNSIGNED NULL,
+    deleted_at DATETIME NULL,
+    KEY idx_staff_branch (branch_id),
+    CONSTRAINT fk_staff_branch
+        FOREIGN KEY (branch_id) REFERENCES branches(id)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS staff_expenses (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    staff_id INT UNSIGNED NOT NULL,
+    branch_id INT UNSIGNED NOT NULL,
+    type ENUM('salary_adjustment','advance','bonus') NOT NULL,
+    amount DECIMAL(12,2) NOT NULL,
+    salary_before DECIMAL(12,2) NULL,
+    salary_after DECIMAL(12,2) NULL,
+    expense_date DATE NULL,
+    note TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_user_id INT UNSIGNED NULL,
+    deleted_at DATETIME NULL,
+    KEY idx_staff_expenses_staff (staff_id),
+    KEY idx_staff_expenses_branch (branch_id),
+    KEY idx_staff_expenses_type (type),
+    CONSTRAINT fk_staff_expenses_staff
+        FOREIGN KEY (staff_id) REFERENCES staff_members(id),
+    CONSTRAINT fk_staff_expenses_branch
+        FOREIGN KEY (branch_id) REFERENCES branches(id)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS general_expenses (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    branch_id INT UNSIGNED NULL,
+    shipment_id INT UNSIGNED NULL,
+    title VARCHAR(160) NOT NULL,
+    amount DECIMAL(12,2) NOT NULL,
+    expense_date DATE NULL,
+    note TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_user_id INT UNSIGNED NULL,
+    updated_at DATETIME NULL DEFAULT NULL,
+    updated_by_user_id INT UNSIGNED NULL,
+    deleted_at DATETIME NULL,
+    KEY idx_general_expenses_branch (branch_id),
+    KEY idx_general_expenses_shipment (shipment_id),
+    KEY idx_general_expenses_date (expense_date),
+    CONSTRAINT fk_general_expenses_branch
+        FOREIGN KEY (branch_id) REFERENCES branches(id),
+    CONSTRAINT fk_general_expenses_shipment
+        FOREIGN KEY (shipment_id) REFERENCES shipments(id)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS branch_transfers (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    from_branch_id INT UNSIGNED NOT NULL,
+    to_branch_id INT UNSIGNED NOT NULL,
+    amount DECIMAL(12,2) NOT NULL,
+    transfer_date DATE NULL,
+    note TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_user_id INT UNSIGNED NULL,
+    deleted_at DATETIME NULL,
+    KEY idx_branch_transfers_from (from_branch_id),
+    KEY idx_branch_transfers_to (to_branch_id),
+    KEY idx_branch_transfers_date (transfer_date),
+    CONSTRAINT fk_branch_transfers_from
+        FOREIGN KEY (from_branch_id) REFERENCES branches(id),
+    CONSTRAINT fk_branch_transfers_to
+        FOREIGN KEY (to_branch_id) REFERENCES branches(id)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS branch_balance_entries (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    branch_id INT UNSIGNED NOT NULL,
+    entry_type ENUM('order_received','order_reversal','transfer_out','transfer_in','adjustment') NOT NULL,
+    amount DECIMAL(12,2) NOT NULL,
+    reference_type VARCHAR(40) NULL,
+    reference_id INT UNSIGNED NULL,
+    note TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_user_id INT UNSIGNED NULL,
+    KEY idx_branch_balance_branch (branch_id),
+    KEY idx_branch_balance_type (entry_type),
+    KEY idx_branch_balance_ref (reference_type, reference_id),
+    CONSTRAINT fk_branch_balance_branch
+        FOREIGN KEY (branch_id) REFERENCES branches(id)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS customer_balance_entries (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    customer_id INT UNSIGNED NOT NULL,
+    branch_id INT UNSIGNED NULL,
+    entry_type ENUM(
+        'order_charge',
+        'order_reversal',
+        'payment',
+        'deposit',
+        'refund',
+        'adjustment',
+        'admin_settlement'
+    ) NOT NULL,
+    amount DECIMAL(12,2) NOT NULL,
+    reference_type VARCHAR(40) NULL,
+    reference_id INT UNSIGNED NULL,
+    note TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_user_id INT UNSIGNED NULL,
+    KEY idx_customer_balance_customer (customer_id),
+    KEY idx_customer_balance_branch (branch_id),
+    KEY idx_customer_balance_type (entry_type),
+    KEY idx_customer_balance_ref (reference_type, reference_id),
+    CONSTRAINT fk_customer_balance_customer
+        FOREIGN KEY (customer_id) REFERENCES customers(id),
+    CONSTRAINT fk_customer_balance_branch
+        FOREIGN KEY (branch_id) REFERENCES branches(id)
+) ENGINE=InnoDB;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'general_expenses'
+          AND COLUMN_NAME = 'branch_id'
+          AND IS_NULLABLE = 'NO'
+    ),
+    'ALTER TABLE general_expenses MODIFY branch_id INT UNSIGNED NULL',
+    'SELECT 1'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'general_expenses'
+          AND COLUMN_NAME = 'shipment_id'
+    ),
+    'SELECT 1',
+    'ALTER TABLE general_expenses ADD COLUMN shipment_id INT UNSIGNED NULL'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'general_expenses'
+          AND INDEX_NAME = 'idx_general_expenses_shipment'
+    ),
+    'SELECT 1',
+    'ALTER TABLE general_expenses ADD KEY idx_general_expenses_shipment (shipment_id)'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'general_expenses'
+          AND CONSTRAINT_NAME = 'fk_general_expenses_shipment'
+    ),
+    'SELECT 1',
+    'ALTER TABLE general_expenses ADD CONSTRAINT fk_general_expenses_shipment '
+        'FOREIGN KEY (shipment_id) REFERENCES shipments(id)'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+UPDATE customers c
+JOIN (
+    SELECT o.customer_id, s.origin_country_id
+    FROM orders o
+    JOIN shipments s ON s.id = o.shipment_id
+    JOIN (
+        SELECT customer_id, MAX(id) AS last_order_id
+        FROM orders
+        WHERE deleted_at IS NULL
+        GROUP BY customer_id
+    ) lo ON lo.customer_id = o.customer_id AND lo.last_order_id = o.id
+) recent ON recent.customer_id = c.id
+SET c.profile_country_id = recent.origin_country_id
+WHERE c.profile_country_id IS NULL;
+
+UPDATE customers c
+JOIN branches b ON b.id = c.sub_branch_id
+SET c.profile_country_id = b.country_id
+WHERE c.profile_country_id IS NULL;
+
 INSERT IGNORE INTO roles (name) VALUES
     ('Admin'),
     ('Owner'),
     ('Main Branch'),
     ('Sub Branch'),
     ('Warehouse');
+
+INSERT IGNORE INTO company_settings (id, name, address, phone, logo_url)
+VALUES (1, 'United Group', 'Beirut, Tayyouneh', '71277723', 'assets/img/ug-logo.jpg');
 
 INSERT IGNORE INTO countries (name, iso2, iso3, phone_code) VALUES
     ('Lebanon', 'LB', 'LBN', '961'),

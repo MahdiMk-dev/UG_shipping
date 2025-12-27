@@ -28,6 +28,18 @@ $offset = max(0, $offset ?? 0);
 $where = ['i.deleted_at IS NULL'];
 $params = [];
 
+if ($user) {
+    $role = $user['role'] ?? '';
+    if ($role === 'Sub Branch') {
+        $branchId = api_int($user['branch_id'] ?? null);
+        if (!$branchId) {
+            api_error('Branch scope required', 403);
+        }
+    } elseif (in_array($role, ['Warehouse', 'Staff'], true)) {
+        api_error('Forbidden', 403);
+    }
+}
+
 if ($status) {
     $allowed = ['open', 'partially_paid', 'paid', 'void'];
     if (!in_array($status, $allowed, true)) {
@@ -38,8 +50,21 @@ if ($status) {
 }
 
 if ($customer) {
-    $where[] = 'i.customer_id = ?';
-    $params[] = $customer['customer_id'];
+    $accountId = $customer['account_id'] ?? null;
+    if (!$accountId) {
+        api_error('Customer session is invalid', 401);
+    }
+    $profileStmt = db()->prepare(
+        'SELECT id FROM customers WHERE account_id = ? AND deleted_at IS NULL AND is_system = 0'
+    );
+    $profileStmt->execute([$accountId]);
+    $profileIds = array_map(static fn($row) => (int) $row['id'], $profileStmt->fetchAll());
+    if (!$profileIds) {
+        api_error('No profiles found for this account', 404);
+    }
+    $placeholders = implode(',', array_fill(0, count($profileIds), '?'));
+    $where[] = 'i.customer_id IN (' . $placeholders . ')';
+    $params = array_merge($params, $profileIds);
 } elseif ($customerId) {
     $where[] = 'i.customer_id = ?';
     $params[] = $customerId;

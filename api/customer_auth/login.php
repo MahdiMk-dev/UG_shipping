@@ -16,10 +16,9 @@ if (!$username || !$password) {
 
 $db = db();
 $stmt = $db->prepare(
-    'SELECT ca.id, ca.customer_id, ca.username, ca.password_hash, c.name, c.code, c.sub_branch_id '
-    . 'FROM customer_auth ca '
-    . 'JOIN customers c ON c.id = ca.customer_id '
-    . 'WHERE ca.username = ? AND ca.deleted_at IS NULL AND c.deleted_at IS NULL AND c.is_system = 0 '
+    'SELECT ca.id, ca.username, ca.password_hash, ca.phone, ca.sub_branch_id '
+    . 'FROM customer_accounts ca '
+    . 'WHERE ca.username = ? AND ca.deleted_at IS NULL '
     . 'LIMIT 1'
 );
 $stmt->execute([$username]);
@@ -29,15 +28,21 @@ if (!$row || !password_verify($password, $row['password_hash'])) {
     api_error('Invalid credentials', 401);
 }
 
-$update = $db->prepare('UPDATE customer_auth SET last_login_at = NOW() WHERE id = ?');
+$profilesStmt = $db->prepare(
+    'SELECT id FROM customers WHERE account_id = ? AND deleted_at IS NULL AND is_system = 0 LIMIT 1'
+);
+$profilesStmt->execute([(int) $row['id']]);
+if (!$profilesStmt->fetch()) {
+    api_error('No active profiles found for this account', 403);
+}
+
+$update = $db->prepare('UPDATE customer_accounts SET last_login_at = NOW() WHERE id = ?');
 $update->execute([$row['id']]);
 
 customer_auth_login([
-    'id' => (int) $row['id'],
-    'customer_id' => (int) $row['customer_id'],
+    'account_id' => (int) $row['id'],
     'username' => $row['username'],
-    'name' => $row['name'],
-    'code' => $row['code'],
+    'phone' => $row['phone'],
     'sub_branch_id' => $row['sub_branch_id'] ? (int) $row['sub_branch_id'] : null,
 ]);
 

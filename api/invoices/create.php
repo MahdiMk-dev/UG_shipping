@@ -6,7 +6,7 @@ require_once __DIR__ . '/../../app/permissions.php';
 require_once __DIR__ . '/../../app/audit.php';
 
 api_require_method('POST');
-$user = require_role(['Admin', 'Owner', 'Main Branch']);
+$user = require_role(['Admin', 'Owner', 'Main Branch', 'Sub Branch']);
 $input = api_read_input();
 
 $customerId = api_int($input['customer_id'] ?? null);
@@ -15,6 +15,20 @@ $orderIds = $input['order_ids'] ?? null;
 $invoiceNo = api_string($input['invoice_no'] ?? null);
 $note = api_string($input['note'] ?? null);
 $issuedAt = api_string($input['issued_at'] ?? null);
+
+$role = $user['role'] ?? '';
+if ($role === 'Sub Branch') {
+    $userBranchId = api_int($user['branch_id'] ?? null);
+    if (!$userBranchId) {
+        api_error('Branch scope required', 403);
+    }
+    if ($branchId && $branchId !== $userBranchId) {
+        api_error('Invoice branch must match your branch', 403);
+    }
+    if (!$branchId) {
+        $branchId = $userBranchId;
+    }
+}
 
 if (!$customerId || !$branchId || !is_array($orderIds) || empty($orderIds)) {
     api_error('customer_id, branch_id, and order_ids are required', 422);
@@ -27,7 +41,9 @@ if (empty($orderIds)) {
 
 $db = db();
 
-$customerStmt = $db->prepare('SELECT id, is_system FROM customers WHERE id = ? AND deleted_at IS NULL');
+$customerStmt = $db->prepare(
+    'SELECT id, is_system, sub_branch_id FROM customers WHERE id = ? AND deleted_at IS NULL'
+);
 $customerStmt->execute([$customerId]);
 $customer = $customerStmt->fetch();
 if (!$customer) {
@@ -35,6 +51,9 @@ if (!$customer) {
 }
 if ((int) $customer['is_system'] === 1) {
     api_error('Invoices are not allowed for system customers', 422);
+}
+if ($role === 'Sub Branch' && (int) ($customer['sub_branch_id'] ?? 0) !== (int) $branchId) {
+    api_error('Customer does not belong to this branch', 403);
 }
 
 $branchStmt = $db->prepare('SELECT id FROM branches WHERE id = ? AND deleted_at IS NULL');
@@ -45,9 +64,9 @@ if (!$branchStmt->fetch()) {
 
 $placeholders = implode(',', array_fill(0, count($orderIds), '?'));
 $orderSql =
-    'SELECT o.id, o.customer_id, o.shipment_id, o.tracking_number, o.delivery_type, o.unit_type, '
-    . 'o.qty, o.weight_type, o.actual_weight, o.w, o.d, o.h, o.rate, o.base_price, '
-    . 'o.adjustments_total, o.total_price, s.shipment_number '
+    'SELECT o.id, o.customer_id, o.shipment_id, o.sub_branch_id, o.fulfillment_status, o.tracking_number, '
+    . 'o.delivery_type, o.unit_type, o.qty, o.weight_type, o.actual_weight, o.w, o.d, o.h, o.rate, '
+    . 'o.base_price, o.adjustments_total, o.total_price, s.shipment_number '
     . 'FROM orders o '
     . 'LEFT JOIN shipments s ON s.id = o.shipment_id '
     . "WHERE o.id IN ($placeholders) AND o.deleted_at IS NULL";
@@ -64,6 +83,25 @@ foreach ($orders as $order) {
     if ((int) $order['customer_id'] !== $customerId) {
         api_error('All orders must belong to the same customer', 422);
     }
+    if (($order['fulfillment_status'] ?? '') !== 'received_subbranch') {
+        api_error('Orders must be received at sub branch before invoicing', 422);
+    }
+}
+
+$orderBranchId = null;
+foreach ($orders as $order) {
+    $currentBranchId = (int) ($order['sub_branch_id'] ?? 0);
+    if (!$currentBranchId) {
+        api_error('Order must belong to a sub branch', 422);
+    }
+    if ($orderBranchId === null) {
+        $orderBranchId = $currentBranchId;
+    } elseif ($orderBranchId !== $currentBranchId) {
+        api_error('All orders must belong to the same sub branch', 422);
+    }
+}
+if ($orderBranchId !== null && $branchId !== $orderBranchId) {
+    api_error('Invoice branch must match the orders sub branch', 422);
 }
 
 $invoiceCheckSql =
@@ -195,9 +233,6 @@ try {
             $order['total_price'],
         ]);
     }
-
-    $db->prepare('UPDATE customers SET balance = balance - ? WHERE id = ?')
-        ->execute([$total, $customerId]);
 
     $invRowStmt = $db->prepare('SELECT * FROM invoices WHERE id = ?');
     $invRowStmt->execute([$invoiceId]);

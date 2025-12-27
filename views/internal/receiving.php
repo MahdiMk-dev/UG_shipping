@@ -5,14 +5,14 @@ require_once __DIR__ . '/_layout.php';
 
 $user = internal_require_user();
 $canManage = in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch'], true);
-internal_page_start($user, 'receiving', 'Receiving', 'Scan and confirm deliveries at sub-branches.');
+internal_page_start($user, 'receiving', 'Receiving', 'Scan and confirm deliveries at the main or sub branch.');
 ?>
 <div data-receiving-page>
     <section class="panel">
         <div class="panel-header">
             <div>
-                <h3>Pending receipts</h3>
-                <p>Shipments with orders waiting for sub-branch confirmation.</p>
+                <h3>Receiving queue</h3>
+                <p>Shipments with orders waiting to be received.</p>
             </div>
             <div class="panel-actions">
                 <button class="button ghost small" type="button" data-receiving-refresh>Refresh</button>
@@ -40,7 +40,7 @@ internal_page_start($user, 'receiving', 'Receiving', 'Scan and confirm deliverie
                         <th>Shipment</th>
                         <th>Origin</th>
                         <th>Status</th>
-                        <th>Pending</th>
+                        <th>Awaiting</th>
                         <th>Action</th>
                     </tr>
                 </thead>

@@ -49,13 +49,7 @@ $canEdit = in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch', 'Ware
                 <span>Assigned sub branch</span>
                 <input type="text" data-sub-branch-display readonly>
             </label>
-            <label>
-                <span>Delivery type</span>
-                <select name="delivery_type" required>
-                    <option value="pickup">For pickup</option>
-                    <option value="delivery">For delivery</option>
-                </select>
-            </label>
+            <input type="hidden" name="delivery_type" value="pickup">
             <label>
                 <span>Unit</span>
                 <input type="text" data-unit-display readonly>
@@ -86,7 +80,7 @@ $canEdit = in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch', 'Ware
             </label>
             <label>
                 <span>Rate</span>
-                <input type="number" step="0.01" name="rate" required>
+                <input type="number" step="0.01" name="rate">
             </label>
             <label class="full">
                 <span>Notes</span>

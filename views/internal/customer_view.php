@@ -4,6 +4,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/_layout.php';
 
 $user = internal_require_user();
+$role = $user['role'] ?? '';
+$canCreatePayment = in_array($role, ['Admin', 'Owner', 'Main Branch', 'Sub Branch'], true);
 internal_page_start($user, 'customers', 'Customer Details', 'Profile, balance, and activity.');
 ?>
 <?php
@@ -16,9 +18,11 @@ $customerId = $_GET['id'] ?? null;
             <div class="detail-list">
                 <div><span>Name</span><strong data-detail="name">--</strong></div>
                 <div><span>Code</span><strong data-detail="code">--</strong></div>
+                <div><span>Profile country</span><strong data-detail="profile_country_name">--</strong></div>
                 <div><span>Phone</span><strong data-detail="phone">--</strong></div>
                 <div><span>Address</span><strong data-detail="address">--</strong></div>
                 <div><span>Portal username</span><strong data-detail="portal_username">--</strong></div>
+                <div><span>Portal phone</span><strong data-detail="portal_phone">--</strong></div>
                 <div><span>Branch</span><strong data-detail="sub_branch_name">--</strong></div>
             </div>
         </article>
@@ -29,6 +33,33 @@ $customerId = $_GET['id'] ?? null;
                 <div><span>System</span><strong data-detail="is_system">--</strong></div>
             </div>
         </article>
+    </section>
+
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <h3>Profiles</h3>
+                <p>All profiles linked to this portal account.</p>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Code</th>
+                        <th>Country</th>
+                        <th>Branch</th>
+                        <th>Balance</th>
+                        <th>Portal</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody data-customer-profiles>
+                    <tr><td colspan="7" class="muted">Loading profiles...</td></tr>
+                </tbody>
+            </table>
+        </div>
     </section>
 
     <section class="panel">
@@ -64,10 +95,74 @@ $customerId = $_GET['id'] ?? null;
     <section class="panel">
         <div class="panel-header">
             <div>
-                <h3>Transactions</h3>
-                <p>Payments and allocations recorded for this customer.</p>
+                <h3>Un-invoiced orders</h3>
+                <p>Orders received at the sub branch that are ready to invoice.</p>
             </div>
         </div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Tracking</th>
+                        <th>Shipment</th>
+                        <th>Status</th>
+                        <th>Total</th>
+                        <th>Created</th>
+                    </tr>
+                </thead>
+                <tbody data-customer-uninvoiced>
+                    <tr><td colspan="5" class="muted">Loading orders...</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="table-pagination" data-customer-uninvoiced-pagination>
+            <button class="button ghost small" type="button" data-customer-uninvoiced-prev>Previous</button>
+            <span class="page-label" data-customer-uninvoiced-page>Page 1</span>
+            <button class="button ghost small" type="button" data-customer-uninvoiced-next>Next</button>
+        </div>
+    </section>
+
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <h3>Transactions</h3>
+                <p>Balance activity from orders, payments, and adjustments.</p>
+            </div>
+        </div>
+        <?php if ($canCreatePayment): ?>
+            <form class="grid-form" data-customer-payment-form>
+                <label>
+                    <span>Amount</span>
+                    <input type="number" step="0.01" name="amount" data-customer-payment-amount required>
+                </label>
+                <label>
+                    <span>Payment method</span>
+                    <select name="payment_method_id" data-customer-payment-method required>
+                        <option value="">Select method</option>
+                    </select>
+                </label>
+                <label>
+                    <span>Payment date</span>
+                    <input type="date" name="payment_date" data-customer-payment-date>
+                </label>
+                <label>
+                    <span>Invoice (optional)</span>
+                    <select name="invoice_id" data-customer-payment-invoice>
+                        <option value="">No invoice</option>
+                    </select>
+                </label>
+                <label>
+                    <span>Whish phone</span>
+                    <input type="text" name="whish_phone" data-customer-payment-whish placeholder="Optional">
+                </label>
+                <label>
+                    <span>Note</span>
+                    <input type="text" name="note" data-customer-payment-note placeholder="Optional note">
+                </label>
+                <button class="button primary small" type="submit">Record payment</button>
+            </form>
+            <div class="notice-stack" data-customer-payment-status></div>
+        <?php endif; ?>
         <div class="table-wrap">
             <table>
                 <thead>
@@ -76,10 +171,12 @@ $customerId = $_GET['id'] ?? null;
                         <th>Amount</th>
                         <th>Method</th>
                         <th>Date</th>
+                        <th>Reference</th>
+                        <th>Receipt</th>
                     </tr>
                 </thead>
                 <tbody data-customer-transactions>
-                    <tr><td colspan="4" class="muted">Loading transactions...</td></tr>
+                    <tr><td colspan="6" class="muted">Loading transactions...</td></tr>
                 </tbody>
             </table>
         </div>

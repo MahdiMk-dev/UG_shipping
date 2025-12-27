@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../app/api.php';
 require_once __DIR__ . '/../../app/permissions.php';
 require_once __DIR__ . '/../../app/services/finance_service.php';
+require_once __DIR__ . '/../../app/services/balance_service.php';
 require_once __DIR__ . '/../../app/audit.php';
 
 api_require_method('POST');
@@ -19,7 +20,9 @@ $db = db();
 $db->beginTransaction();
 
 try {
-    $txStmt = $db->prepare('SELECT id, customer_id, amount FROM transactions WHERE id = ? AND deleted_at IS NULL');
+    $txStmt = $db->prepare(
+        'SELECT id, customer_id, branch_id, amount, type FROM transactions WHERE id = ? AND deleted_at IS NULL'
+    );
     $txStmt->execute([$transactionId]);
     $transaction = $txStmt->fetch();
 
@@ -66,8 +69,23 @@ try {
         'UPDATE transactions SET deleted_at = NOW(), updated_at = NOW(), updated_by_user_id = ? WHERE id = ?'
     )->execute([$user['id'] ?? null, $transactionId]);
 
-    $db->prepare('UPDATE customers SET balance = balance - ? WHERE id = ?')
-        ->execute([(float) $transaction['amount'], (int) $transaction['customer_id']]);
+    $normalizedAmount = abs((float) ($transaction['amount'] ?? 0));
+    $balanceDelta = $normalizedAmount;
+    if (in_array($transaction['type'] ?? '', ['refund', 'adjustment'], true)) {
+        $balanceDelta = -$normalizedAmount;
+    }
+    adjust_customer_balance($db, (int) $transaction['customer_id'], -$balanceDelta);
+    record_customer_balance(
+        $db,
+        (int) $transaction['customer_id'],
+        (int) ($transaction['branch_id'] ?? 0),
+        -$balanceDelta,
+        (string) ($transaction['type'] ?? 'payment'),
+        'transaction',
+        $transactionId,
+        $user['id'] ?? null,
+        'Transaction voided'
+    );
 
     $afterStmt = $db->prepare('SELECT * FROM transactions WHERE id = ?');
     $afterStmt->execute([$transactionId]);

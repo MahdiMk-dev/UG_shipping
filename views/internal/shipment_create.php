@@ -39,12 +39,25 @@ $canEdit = in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch', 'Ware
                 </select>
             </label>
             <label>
+                <span>Shipper profile</span>
+                <select name="shipper_profile_id" data-partner-select data-partner-type="shipper">
+                    <option value="">Select shipper (optional)</option>
+                </select>
+            </label>
+            <label>
+                <span>Consignee profile</span>
+                <select name="consignee_profile_id" data-partner-select data-partner-type="consignee">
+                    <option value="">Select consignee (optional)</option>
+                </select>
+            </label>
+            <label>
                 <span>Status</span>
                 <select name="status">
                     <option value="active">Active</option>
                     <option value="departed">Departed</option>
                     <option value="airport">Airport</option>
                     <option value="arrived">Arrived</option>
+                    <option value="partially_distributed">Partially distributed</option>
                     <option value="distributed">Distributed</option>
                 </select>
             </label>

@@ -14,7 +14,7 @@ function customer_auth_user(): ?array
 {
     customer_auth_start_session();
 
-    return $_SESSION['customer'] ?? null;
+    return $_SESSION['customer_account'] ?? null;
 }
 
 function customer_auth_require_user(): array
@@ -33,11 +33,11 @@ function customer_auth_require_user(): array
 function customer_auth_login(array $customer): void
 {
     customer_auth_start_session();
-    $_SESSION['customer'] = $customer;
+    $_SESSION['customer_account'] = $customer;
 }
 
 function customer_auth_logout(): void
 {
     customer_auth_start_session();
-    unset($_SESSION['customer']);
+    unset($_SESSION['customer_account']);
 }

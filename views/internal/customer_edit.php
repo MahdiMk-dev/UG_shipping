@@ -35,6 +35,12 @@ $customerId = $_GET['id'] ?? null;
                 <input type="text" name="address">
             </label>
             <label>
+                <span>Profile country</span>
+                <select name="profile_country_id" data-country-select required>
+                    <option value="">Select country</option>
+                </select>
+            </label>
+            <label>
                 <span>Portal username</span>
                 <input type="text" name="portal_username" required>
             </label>

@@ -157,8 +157,8 @@ if ($download) {
     $pdf->Cell(0, 5, pdf_text('Total orders: ' . $orderCount), 0, 1, 'L');
     $pdf->Ln(4);
 
-    $headers = ['Tracking', 'Customer', 'Delivery', 'Qty', 'Unit', 'Weight', 'Rate', 'Total'];
-    $widths = [28, 45, 18, 14, 12, 36, 16, 19];
+    $headers = ['Tracking', 'Customer', 'Delivery', 'Unit', 'Weight Type', 'Dimensions / Weight'];
+    $widths = [30, 50, 20, 14, 22, 52];
 
     $pdf->SetFont('Helvetica', 'B', 9);
     $pdf->SetFillColor(232, 241, 205);
@@ -179,11 +179,9 @@ if ($download) {
                 pdf_truncate($order['tracking_number'] ?? '-', 18),
                 pdf_truncate($order['customer_name'] ?? '-', 24),
                 $order['delivery_type'] ?? '-',
-                (string) ($order['qty'] ?? '-'),
                 $order['unit_type'] ?? '-',
+                $order['weight_type'] ?? '-',
                 pdf_truncate((string) $dims, 18),
-                (string) ($order['rate'] ?? '-'),
-                (string) ($order['total_price'] ?? '-'),
             ];
             foreach ($cells as $index => $cell) {
                 $pdf->Cell($widths[$index], 6, pdf_text($cell), 1);
@@ -263,17 +261,14 @@ $companyLogo = $company['logo_public'] ?? (PUBLIC_URL . '/assets/img/ug-logo.svg
                 <th>Tracking</th>
                 <th>Customer</th>
                 <th>Delivery</th>
-                <th>Chargeable Qty</th>
                 <th>Unit</th>
                 <th>Weight Type</th>
                 <th>Dimensions / Weight</th>
-                <th>Rate</th>
-                <th>Total</th>
             </tr>
         </thead>
         <tbody>
             <?php if (empty($orders)): ?>
-                <tr><td colspan="9">No orders in this collection.</td></tr>
+                <tr><td colspan="6">No orders in this collection.</td></tr>
             <?php else: ?>
                 <?php foreach ($orders as $order): ?>
                     <?php
@@ -285,12 +280,9 @@ $companyLogo = $company['logo_public'] ?? (PUBLIC_URL . '/assets/img/ug-logo.svg
                         <td><?= $safe($order['tracking_number']) ?></td>
                         <td><?= $safe($order['customer_name'] ?? '-') ?></td>
                         <td><?= $safe($order['delivery_type']) ?></td>
-                        <td><?= $safe($order['qty']) ?></td>
                         <td><?= $safe($order['unit_type']) ?></td>
                         <td><?= $safe($order['weight_type']) ?></td>
                         <td><?= $dims ?></td>
-                        <td><?= $safe($order['rate']) ?></td>
-                        <td><?= $safe($order['total_price']) ?></td>
                     </tr>
                 <?php endforeach; ?>
             <?php endif; ?>

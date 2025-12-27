@@ -5,6 +5,21 @@ require_once __DIR__ . '/_layout.php';
 
 $user = internal_require_user();
 internal_page_start($user, 'roles', 'Roles', 'Clear access tiers for each operational team.');
+if (!in_array($user['role'] ?? '', ['Owner'], true)) {
+    http_response_code(403);
+    ?>
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <h3>Access denied</h3>
+                <p>Only Owner role can view roles.</p>
+            </div>
+        </div>
+    </section>
+    <?php
+    internal_page_end();
+    exit;
+}
 ?>
 <section class="panel-grid">
     <article class="panel">

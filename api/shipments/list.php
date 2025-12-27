@@ -14,6 +14,7 @@ $status = api_string($filters['status'] ?? null);
 $shippingType = api_string($filters['shipping_type'] ?? null);
 $originCountryId = api_int($filters['origin_country_id'] ?? null);
 $originCountry = api_string($filters['origin_country'] ?? null);
+$partnerId = api_int($filters['partner_id'] ?? null);
 $search = api_string($filters['q'] ?? null);
 $limit = api_int($filters['limit'] ?? 50, 50);
 $offset = api_int($filters['offset'] ?? 0, 0);
@@ -47,7 +48,7 @@ if ($role === 'Warehouse') {
 }
 
 if ($status) {
-    $allowed = ['active', 'departed', 'airport', 'arrived', 'distributed'];
+    $allowed = ['active', 'departed', 'airport', 'arrived', 'partially_distributed', 'distributed'];
     if (!in_array($status, $allowed, true)) {
         api_error('Invalid status filter', 422);
     }
@@ -78,6 +79,12 @@ if ($originCountryId) {
 if ($search) {
     $where[] = 's.shipment_number LIKE ?';
     $params[] = '%' . $search . '%';
+}
+
+if ($partnerId) {
+    $where[] = '(s.shipper_profile_id = ? OR s.consignee_profile_id = ?)';
+    $params[] = $partnerId;
+    $params[] = $partnerId;
 }
 
 $sql = 'SELECT s.id, s.shipment_number, s.status, s.shipping_type, s.origin_country_id, c.name AS origin_country, '

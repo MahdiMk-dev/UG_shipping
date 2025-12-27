@@ -5,7 +5,7 @@ require_once __DIR__ . '/../../app/api.php';
 require_once __DIR__ . '/../../app/permissions.php';
 
 api_require_method('PATCH');
-$user = require_role(['Admin', 'Owner']);
+$user = require_role(['Owner']);
 $input = api_read_input();
 
 $roleId = api_int($input['role_id'] ?? ($input['id'] ?? null));

@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../app/api.php';
 require_once __DIR__ . '/../../app/permissions.php';
 require_once __DIR__ . '/../../app/services/shipment_service.php';
+require_once __DIR__ . '/../../app/services/balance_service.php';
 require_once __DIR__ . '/../../app/audit.php';
 
 api_require_method('POST');
@@ -20,8 +21,15 @@ $weightType = api_string($input['weight_type'] ?? null);
 $rate = api_float($input['rate'] ?? null);
 $note = api_string($input['note'] ?? null);
 
-if (!$shipmentId || !$customerId || !$trackingNumber || !$deliveryType || !$unitType || !$weightType) {
-    api_error('shipment_id, customer_id, tracking_number, delivery_type, unit_type, weight_type are required', 422);
+$role = $user['role'] ?? '';
+$isWarehouse = $role === 'Warehouse';
+
+if (!$deliveryType) {
+    $deliveryType = 'pickup';
+}
+
+if (!$shipmentId || !$customerId || !$trackingNumber || !$unitType || !$weightType) {
+    api_error('shipment_id, customer_id, tracking_number, unit_type, weight_type are required', 422);
 }
 
 $allowedDelivery = ['pickup', 'delivery'];
@@ -38,7 +46,14 @@ if (!in_array($weightType, $allowedWeight, true)) {
     api_error('Invalid weight_type', 422);
 }
 if ($rate === null) {
-    api_error('rate is required', 422);
+    if ($isWarehouse) {
+        $rate = 0.0;
+    } else {
+        api_error('rate is required', 422);
+    }
+}
+if ($isWarehouse) {
+    $rate = 0.0;
 }
 
 $db = db();
@@ -49,8 +64,7 @@ $shipment = $shipmentStmt->fetch();
 if (!$shipment) {
     api_error('Shipment not found', 404);
 }
-$role = $user['role'] ?? '';
-if ($role === 'Warehouse') {
+if ($isWarehouse) {
     $warehouseCountryId = get_branch_country_id($user);
     if (!$warehouseCountryId) {
         api_error('Warehouse country scope required', 403);
@@ -63,17 +77,21 @@ if ($role === 'Warehouse' && ($shipment['status'] ?? '') !== 'active') {
     api_error('Shipment must be active to create orders', 403);
 }
 
-$customerStmt = $db->prepare('SELECT id, sub_branch_id FROM customers WHERE id = ? AND deleted_at IS NULL');
+$customerStmt = $db->prepare('SELECT id, sub_branch_id, profile_country_id FROM customers WHERE id = ? AND deleted_at IS NULL');
 $customerStmt->execute([$customerId]);
 $customer = $customerStmt->fetch();
 if (!$customer) {
     api_error('Customer not found', 404);
 }
 
-$subBranchId = $customer['sub_branch_id'] ?? null;
-if (!$subBranchId) {
-    api_error('Customer has no sub branch assigned', 422);
+if (empty($customer['profile_country_id'])) {
+    api_error('Customer profile has no country assigned', 422);
 }
+if ((int) $customer['profile_country_id'] !== (int) ($shipment['origin_country_id'] ?? 0)) {
+    api_error('Customer profile country must match the shipment origin', 422);
+}
+
+$subBranchId = $customer['sub_branch_id'] ?? null;
 
 if ($collectionId) {
     $collectionStmt = $db->prepare('SELECT id FROM collections WHERE id = ? AND shipment_id = ?');
@@ -207,6 +225,24 @@ try {
     audit_log($user, 'orders.create', 'order', $orderId, null, $after, [
         'adjustments' => $normalizedAdjustments,
     ]);
+    adjust_customer_balance($db, (int) $customerId, -$totalPrice);
+    record_customer_balance(
+        $db,
+        (int) $customerId,
+        $subBranchId ? (int) $subBranchId : null,
+        -$totalPrice,
+        'order_charge',
+        'order',
+        $orderId,
+        $user['id'] ?? null,
+        'Order created'
+    );
+    if (($shipment['status'] ?? '') === 'distributed') {
+        $db->prepare(
+            'UPDATE shipments SET status = ?, updated_at = NOW(), updated_by_user_id = ? '
+            . 'WHERE id = ? AND deleted_at IS NULL'
+        )->execute(['partially_distributed', $user['id'] ?? null, $shipmentId]);
+    }
     update_shipment_totals($shipmentId);
     $db->commit();
 } catch (PDOException $e) {

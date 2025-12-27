@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../app/api.php';
 require_once __DIR__ . '/../../app/permissions.php';
 require_once __DIR__ . '/../../app/services/shipment_service.php';
+require_once __DIR__ . '/../../app/services/balance_service.php';
 require_once __DIR__ . '/../../app/audit.php';
 
 api_require_method('PATCH');
@@ -23,6 +24,7 @@ if (!$before) {
     api_error('Shipment not found', 404);
 }
 $role = $user['role'] ?? '';
+$warehouseCountryId = null;
 if ($role === 'Warehouse') {
     $warehouseCountryId = get_branch_country_id($user);
     if (!$warehouseCountryId) {
@@ -63,12 +65,11 @@ if ($newArrivalDate !== null) {
     }
 }
 
-$allowedStatus = ['active', 'departed', 'airport', 'arrived', 'distributed'];
+$allowedStatus = ['active', 'departed', 'airport', 'arrived', 'partially_distributed', 'distributed'];
 $allowedTypes = ['air', 'sea', 'land'];
 
 $fields = [];
 $params = [];
-$statusChangedToArrived = false;
 $statusChangedToInShipment = false;
 
 if (array_key_exists('shipment_number', $input)) {
@@ -103,12 +104,11 @@ if (array_key_exists('status', $input)) {
     if (!$status || !in_array($status, $allowedStatus, true)) {
         api_error('Invalid status', 422);
     }
-    if (($before['status'] ?? '') === 'distributed' && $status !== 'distributed') {
+    if (($before['status'] ?? '') === 'distributed' && !in_array($status, ['distributed', 'partially_distributed'], true)) {
         api_error('Cannot update status after shipment is distributed', 422);
     }
     $fields[] = 'status = ?';
     $params[] = $status;
-    $statusChangedToArrived = $status === 'arrived' && ($before['status'] ?? '') !== 'arrived';
     $statusChangedToInShipment = in_array($status, ['active', 'airport'], true)
         && ($before['status'] ?? '') !== $status;
 }
@@ -120,6 +120,47 @@ if (array_key_exists('shipping_type', $input)) {
     }
     $fields[] = 'shipping_type = ?';
     $params[] = $shippingType;
+}
+
+$partnerStmt = $db->prepare(
+    'SELECT id, type, country_id FROM partner_profiles WHERE id = ? AND deleted_at IS NULL'
+);
+if (array_key_exists('shipper_profile_id', $input)) {
+    $shipperProfileId = api_int($input['shipper_profile_id'] ?? null);
+    if ($shipperProfileId) {
+        $partnerStmt->execute([$shipperProfileId]);
+        $shipperProfile = $partnerStmt->fetch();
+        if (!$shipperProfile) {
+            api_error('Shipper profile not found', 404);
+        }
+        if (($shipperProfile['type'] ?? '') !== 'shipper') {
+            api_error('Selected shipper profile is invalid', 422);
+        }
+        if ($warehouseCountryId && (int) ($shipperProfile['country_id'] ?? 0) !== (int) $warehouseCountryId) {
+            api_error('Shipper profile must match warehouse country', 403);
+        }
+    }
+    $fields[] = 'shipper_profile_id = ?';
+    $params[] = $shipperProfileId;
+}
+
+if (array_key_exists('consignee_profile_id', $input)) {
+    $consigneeProfileId = api_int($input['consignee_profile_id'] ?? null);
+    if ($consigneeProfileId) {
+        $partnerStmt->execute([$consigneeProfileId]);
+        $consigneeProfile = $partnerStmt->fetch();
+        if (!$consigneeProfile) {
+            api_error('Consignee profile not found', 404);
+        }
+        if (($consigneeProfile['type'] ?? '') !== 'consignee') {
+            api_error('Selected consignee profile is invalid', 422);
+        }
+        if ($warehouseCountryId && (int) ($consigneeProfile['country_id'] ?? 0) !== (int) $warehouseCountryId) {
+            api_error('Consignee profile must match warehouse country', 403);
+        }
+    }
+    $fields[] = 'consignee_profile_id = ?';
+    $params[] = $consigneeProfileId;
 }
 
 $optionalText = [
@@ -197,7 +238,14 @@ try {
 
     if ($syncOrderRates) {
         $ordersStmt = $db->prepare(
-            'SELECT id, qty FROM orders WHERE shipment_id = ? AND deleted_at IS NULL AND rate = ?'
+            'SELECT o.id, o.qty, o.total_price, o.customer_id, o.sub_branch_id, o.fulfillment_status '
+            . 'FROM orders o '
+            . 'WHERE o.shipment_id = ? AND o.deleted_at IS NULL AND o.rate = ? '
+            . 'AND NOT EXISTS ('
+            . 'SELECT 1 FROM invoice_items ii '
+            . 'JOIN invoices i ON i.id = ii.invoice_id '
+            . 'WHERE ii.order_id = o.id AND i.deleted_at IS NULL AND i.status <> \'void\''
+            . ')'
         );
         $ordersStmt->execute([$shipmentId, $formattedOldRate]);
         $orders = $ordersStmt->fetchAll() ?: [];
@@ -253,18 +301,72 @@ try {
                     $user['id'] ?? null,
                     $order['id'],
                 ]);
+
+                $previousTotal = (float) ($order['total_price'] ?? 0);
+                $customerId = (int) ($order['customer_id'] ?? 0);
+                adjust_customer_balance($db, $customerId, $previousTotal - $totalPrice);
+                if (abs($totalPrice - $previousTotal) > 0.0001) {
+                    $orderBranchId = (int) ($order['sub_branch_id'] ?? 0);
+                    record_customer_balance(
+                        $db,
+                        $customerId,
+                        $orderBranchId ?: null,
+                        $previousTotal,
+                        'order_reversal',
+                        'order',
+                        (int) $order['id'],
+                        $user['id'] ?? null,
+                        'Shipment rate updated'
+                    );
+                    record_customer_balance(
+                        $db,
+                        $customerId,
+                        $orderBranchId ?: null,
+                        -$totalPrice,
+                        'order_charge',
+                        'order',
+                        (int) $order['id'],
+                        $user['id'] ?? null,
+                        'Shipment rate updated'
+                    );
+                }
+
+                if (($order['fulfillment_status'] ?? '') === 'received_subbranch' && abs($totalPrice - $previousTotal) > 0.0001) {
+                    record_branch_balance(
+                        $db,
+                        (int) ($order['sub_branch_id'] ?? 0),
+                        $totalPrice - $previousTotal,
+                        'adjustment',
+                        'order',
+                        (int) $order['id'],
+                        $user['id'] ?? null,
+                        'Shipment rate updated'
+                    );
+                }
             }
         }
     }
 
-    if ($statusChangedToArrived) {
-        $ordersStmt = $db->prepare(
-            'UPDATE orders SET fulfillment_status = ?, updated_at = NOW(), updated_by_user_id = ? '
-            . 'WHERE shipment_id = ? AND deleted_at IS NULL AND fulfillment_status = ?'
-        );
-        $ordersStmt->execute(['main_branch', $user['id'] ?? null, $shipmentId, 'in_shipment']);
-    }
     if ($statusChangedToInShipment) {
+        $receivedStmt = $db->prepare(
+            'SELECT id, sub_branch_id, total_price FROM orders '
+            . 'WHERE shipment_id = ? AND deleted_at IS NULL AND fulfillment_status = \'received_subbranch\''
+        );
+        $receivedStmt->execute([$shipmentId]);
+        $receivedOrders = $receivedStmt->fetchAll() ?: [];
+        foreach ($receivedOrders as $order) {
+            record_branch_balance(
+                $db,
+                (int) ($order['sub_branch_id'] ?? 0),
+                -(float) ($order['total_price'] ?? 0),
+                'order_reversal',
+                'order',
+                (int) $order['id'],
+                $user['id'] ?? null,
+                'Shipment status reset'
+            );
+        }
+
         $ordersStmt = $db->prepare(
             'UPDATE orders SET fulfillment_status = ?, updated_at = NOW(), updated_by_user_id = ? '
             . 'WHERE shipment_id = ? AND deleted_at IS NULL '

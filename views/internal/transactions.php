@@ -4,70 +4,60 @@ declare(strict_types=1);
 require_once __DIR__ . '/_layout.php';
 
 $user = internal_require_user();
-internal_page_start($user, 'transactions', 'Transactions', 'Record payments and allocate them to invoices.');
+internal_page_start($user, 'transactions', 'Transactions', 'Review customer payments by date.');
 ?>
-<section class="panel">
-    <div class="panel-header">
-        <div>
-            <h3>New payment</h3>
-            <p>Capture customer deposits or payments.</p>
+<div data-transactions-page>
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <h3>Transaction filters</h3>
+                <p>Select a date range to load payments.</p>
+            </div>
         </div>
-    </div>
-    <form class="grid-form">
-        <label>
-            <span>Customer ID</span>
-            <input type="text" placeholder="Customer ID">
-        </label>
-        <label>
-            <span>Branch ID</span>
-            <input type="text" placeholder="Branch ID">
-        </label>
-        <label>
-            <span>Payment method</span>
-            <select>
-                <option>Cash</option>
-                <option>Credit</option>
-                <option>Whish</option>
-            </select>
-        </label>
-        <label>
-            <span>Amount</span>
-            <input type="number" step="0.01" placeholder="0.00">
-        </label>
-        <label>
-            <span>Payment date</span>
-            <input type="date">
-        </label>
-        <label>
-            <span>Note</span>
-            <input type="text" placeholder="Optional note">
-        </label>
-        <button class="button primary" type="button">Save payment</button>
-    </form>
-</section>
+        <form class="filter-bar" data-transactions-filter>
+            <label class="inline-field">
+                <span>From</span>
+                <input type="date" name="date_from" data-transactions-from required>
+            </label>
+            <label class="inline-field">
+                <span>To</span>
+                <input type="date" name="date_to" data-transactions-to required>
+            </label>
+            <button class="button primary" type="submit">Search</button>
+            <button class="button ghost" type="button" data-transactions-refresh>Refresh</button>
+        </form>
+    </section>
 
-<section class="panel">
-    <div class="panel-header">
-        <div>
-            <h3>Allocate to invoices</h3>
-            <p>Assign partial payments to open invoices.</p>
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <h3>Transactions</h3>
+                <p>Payments recorded within the selected dates.</p>
+            </div>
         </div>
-    </div>
-    <form class="grid-form">
-        <label>
-            <span>Transaction ID</span>
-            <input type="text" placeholder="Transaction ID">
-        </label>
-        <label>
-            <span>Invoice ID</span>
-            <input type="text" placeholder="Invoice ID">
-        </label>
-        <label>
-            <span>Amount</span>
-            <input type="number" step="0.01" placeholder="0.00">
-        </label>
-        <button class="button ghost" type="button">Add allocation</button>
-    </form>
-</section>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Customer</th>
+                        <th>Branch</th>
+                        <th>Type</th>
+                        <th>Method</th>
+                        <th>Amount</th>
+                        <th>Date</th>
+                        <th>Note</th>
+                        <th>Receipt</th>
+                    </tr>
+                </thead>
+                <tbody data-transactions-table>
+                    <tr><td colspan="9" class="muted">Select a date range to load transactions.</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="notice-stack" data-transactions-status></div>
+    </section>
+</div>
 <?php
 internal_page_end();
+?>

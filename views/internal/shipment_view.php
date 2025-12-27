@@ -66,6 +66,13 @@ if ($shipmentId) {
                     <div><span>Notes</span><strong data-detail="note">--</strong></div>
                 </div>
             </article>
+            <article class="detail-card">
+                <h3>Partners</h3>
+                <div class="detail-list">
+                    <div><span>Shipper</span><strong data-detail="shipper_profile_name">--</strong></div>
+                    <div><span>Consignee</span><strong data-detail="consignee_profile_name">--</strong></div>
+                </div>
+            </article>
         </div>
     </section>
     <?php if ($canEdit): ?>
@@ -102,12 +109,25 @@ if ($shipmentId) {
                         </select>
                     </label>
                     <label>
+                        <span>Shipper profile</span>
+                        <select name="shipper_profile_id" data-partner-select data-partner-type="shipper">
+                            <option value="">Select shipper (optional)</option>
+                        </select>
+                    </label>
+                    <label>
+                        <span>Consignee profile</span>
+                        <select name="consignee_profile_id" data-partner-select data-partner-type="consignee">
+                            <option value="">Select consignee (optional)</option>
+                        </select>
+                    </label>
+                    <label>
                         <span>Status</span>
                         <select name="status">
                             <option value="active">Active</option>
                             <option value="departed">Departed</option>
                             <option value="airport">Airport</option>
                             <option value="arrived">Arrived</option>
+                            <option value="partially_distributed">Partially distributed</option>
                             <option value="distributed">Distributed</option>
                         </select>
                     </label>
@@ -233,6 +253,75 @@ if ($shipmentId) {
         </div>
         <div class="notice-stack" data-shipment-media-status></div>
     </section>
+
+    <?php if (in_array($user['role'] ?? '', ['Admin', 'Owner'], true)): ?>
+        <section class="panel" data-shipment-expenses>
+            <div class="panel-header">
+                <div>
+                    <h3>Shipment expenses</h3>
+                    <p>Admin-only expenses linked to this shipment.</p>
+                </div>
+                <button class="button ghost small" type="button" data-shipment-expenses-add>Add expense</button>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Title</th>
+                            <th>Amount</th>
+                            <th>Note</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody data-shipment-expenses-table>
+                        <tr><td colspan="5" class="muted">Loading expenses...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="table-pagination" data-shipment-expenses-pagination>
+                <button class="button ghost small" type="button" data-shipment-expenses-prev>Previous</button>
+                <span class="page-label" data-shipment-expenses-page>Page 1</span>
+                <button class="button ghost small" type="button" data-shipment-expenses-next>Next</button>
+            </div>
+            <div class="notice-stack" data-shipment-expenses-status></div>
+        </section>
+        <div class="drawer" data-shipment-expenses-drawer>
+            <div class="drawer-scrim" data-shipment-expenses-close></div>
+            <div class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="shipment-expense-title">
+                <div class="drawer-header">
+                    <div>
+                        <h3 id="shipment-expense-title" data-shipment-expenses-title>Add expense</h3>
+                        <p>Track costs tied to this shipment.</p>
+                    </div>
+                    <button class="icon-button" type="button" data-shipment-expenses-close aria-label="Close expense panel">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12"></path><path d="M18 6l-12 12"></path></svg>
+                    </button>
+                </div>
+                <form class="grid-form" data-shipment-expenses-form>
+                    <input type="hidden" name="expense_id" data-shipment-expense-id>
+                    <label>
+                        <span>Title</span>
+                        <input type="text" name="title" required>
+                    </label>
+                    <label>
+                        <span>Amount</span>
+                        <input type="number" step="0.01" name="amount" placeholder="0.00" required>
+                    </label>
+                    <label>
+                        <span>Expense date</span>
+                        <input type="date" name="expense_date">
+                    </label>
+                    <label class="full">
+                        <span>Note</span>
+                        <input type="text" name="note" placeholder="Optional note">
+                    </label>
+                    <button class="button primary small" type="submit" data-shipment-expenses-submit-label>Add expense</button>
+                </form>
+                <div class="notice-stack" data-shipment-expenses-form-status></div>
+            </div>
+        </div>
+    <?php endif; ?>
 
     <section class="panel">
         <div class="panel-header">

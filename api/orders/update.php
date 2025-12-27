@@ -4,6 +4,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../app/api.php';
 require_once __DIR__ . '/../../app/permissions.php';
 require_once __DIR__ . '/../../app/services/shipment_service.php';
+require_once __DIR__ . '/../../app/services/balance_service.php';
+require_once __DIR__ . '/../../app/services/invoice_service.php';
 require_once __DIR__ . '/../../app/audit.php';
 
 api_require_method('PATCH');
@@ -22,6 +24,28 @@ $order = $stmt->fetch();
 
 if (!$order) {
     api_error('Order not found', 404);
+}
+
+$orderInvoiced = order_has_active_invoice($db, $orderId);
+$blockedKeys = [
+    'shipment_id',
+    'customer_id',
+    'collection_id',
+    'tracking_number',
+    'delivery_type',
+    'unit_type',
+    'weight_type',
+    'actual_weight',
+    'w',
+    'd',
+    'h',
+    'rate',
+    'adjustments',
+];
+foreach ($blockedKeys as $blockedKey) {
+    if ($orderInvoiced && array_key_exists($blockedKey, $input)) {
+        api_error('Order is already invoiced. Price changes are locked.', 409);
+    }
 }
 $shipmentStatusStmt = $db->prepare('SELECT status, origin_country_id FROM shipments WHERE id = ? AND deleted_at IS NULL');
 $shipmentStatusStmt->execute([$order['shipment_id']]);
@@ -45,6 +69,10 @@ if ($role === 'Warehouse' && ($shipment['status'] ?? '') !== 'active') {
 }
 
 $previousShipmentId = (int) $order['shipment_id'];
+$previousCustomerId = (int) $order['customer_id'];
+$previousBranchId = (int) $order['sub_branch_id'];
+$previousTotal = (float) $order['total_price'];
+$previousStatus = (string) $order['fulfillment_status'];
 $fields = [];
 $params = [];
 
@@ -135,32 +163,47 @@ foreach ($mapFields as $inputKey => $column) {
     $newValues[$column] = $value;
 }
 
-if ($role === 'Warehouse' && (int) $newValues['shipment_id'] !== (int) $order['shipment_id']) {
+$shipmentIdUpdated = array_key_exists('shipment_id', $input);
+$targetShipment = $shipment;
+if ($shipmentIdUpdated && (int) $newValues['shipment_id'] !== (int) $order['shipment_id']) {
     $targetStmt = $db->prepare('SELECT status, origin_country_id FROM shipments WHERE id = ? AND deleted_at IS NULL');
     $targetStmt->execute([(int) $newValues['shipment_id']]);
     $targetShipment = $targetStmt->fetch();
     if (!$targetShipment) {
         api_error('Shipment not found', 404);
     }
-    if ((int) ($targetShipment['origin_country_id'] ?? 0) !== (int) $warehouseCountryId) {
-        api_error('Forbidden', 403);
-    }
-    if (($targetShipment['status'] ?? '') !== 'active') {
-        api_error('Shipment must be active to edit orders', 403);
+    if ($role === 'Warehouse') {
+        if ((int) ($targetShipment['origin_country_id'] ?? 0) !== (int) $warehouseCountryId) {
+            api_error('Forbidden', 403);
+        }
+        if (($targetShipment['status'] ?? '') !== 'active') {
+            api_error('Shipment must be active to edit orders', 403);
+        }
     }
 }
 
 $customerIdUpdated = array_key_exists('customer_id', $input);
-if ($customerIdUpdated) {
-    $customerStmt = $db->prepare('SELECT id, sub_branch_id FROM customers WHERE id = ? AND deleted_at IS NULL');
-    $customerStmt->execute([$newValues['customer_id']]);
+if ($customerIdUpdated || $shipmentIdUpdated) {
+    $effectiveCustomerId = $customerIdUpdated ? $newValues['customer_id'] : $order['customer_id'];
+    $customerStmt = $db->prepare(
+        'SELECT id, sub_branch_id, profile_country_id FROM customers WHERE id = ? AND deleted_at IS NULL'
+    );
+    $customerStmt->execute([$effectiveCustomerId]);
     $customer = $customerStmt->fetch();
     if (!$customer || empty($customer['sub_branch_id'])) {
         api_error('Customer has no sub branch assigned', 422);
     }
-    $fields[] = 'sub_branch_id = ?';
-    $params[] = $customer['sub_branch_id'];
-    $newValues['sub_branch_id'] = $customer['sub_branch_id'];
+    if (empty($customer['profile_country_id'])) {
+        api_error('Customer profile has no country assigned', 422);
+    }
+    if ((int) $customer['profile_country_id'] !== (int) ($targetShipment['origin_country_id'] ?? 0)) {
+        api_error('Customer profile country must match the shipment origin', 422);
+    }
+    if ($customerIdUpdated) {
+        $fields[] = 'sub_branch_id = ?';
+        $params[] = $customer['sub_branch_id'];
+        $newValues['sub_branch_id'] = $customer['sub_branch_id'];
+    }
 }
 
 $adjustmentsInputProvided = array_key_exists('adjustments', $input);
@@ -311,10 +354,131 @@ try {
         'adjustments' => $computedAdjustments,
     ]);
 
+    $newCustomerId = (int) $newValues['customer_id'];
+    $newBranchId = (int) $newValues['sub_branch_id'];
+    $newStatus = (string) $newValues['fulfillment_status'];
+
+    if ($newCustomerId === $previousCustomerId) {
+        if (abs($previousTotal - $totalPrice) > 0.0001) {
+            adjust_customer_balance($db, $newCustomerId, $previousTotal - $totalPrice);
+            record_customer_balance(
+                $db,
+                $newCustomerId,
+                $newBranchId ?: null,
+                $previousTotal,
+                'order_reversal',
+                'order',
+                $orderId,
+                $user['id'] ?? null,
+                'Order updated'
+            );
+            record_customer_balance(
+                $db,
+                $newCustomerId,
+                $newBranchId ?: null,
+                -$totalPrice,
+                'order_charge',
+                'order',
+                $orderId,
+                $user['id'] ?? null,
+                'Order updated'
+            );
+        }
+    } else {
+        adjust_customer_balance($db, $previousCustomerId, $previousTotal);
+        adjust_customer_balance($db, $newCustomerId, -$totalPrice);
+        record_customer_balance(
+            $db,
+            $previousCustomerId,
+            $previousBranchId ?: null,
+            $previousTotal,
+            'order_reversal',
+            'order',
+            $orderId,
+            $user['id'] ?? null,
+            'Order reassigned'
+        );
+        record_customer_balance(
+            $db,
+            $newCustomerId,
+            $newBranchId ?: null,
+            -$totalPrice,
+            'order_charge',
+            'order',
+            $orderId,
+            $user['id'] ?? null,
+            'Order reassigned'
+        );
+    }
+
+    if ($previousStatus !== 'received_subbranch' && $newStatus === 'received_subbranch') {
+        record_branch_balance(
+            $db,
+            $newBranchId,
+            $totalPrice,
+            'order_received',
+            'order',
+            $orderId,
+            $user['id'] ?? null,
+            'Order received'
+        );
+    } elseif ($previousStatus === 'received_subbranch' && $newStatus !== 'received_subbranch') {
+        record_branch_balance(
+            $db,
+            $previousBranchId,
+            -$previousTotal,
+            'order_reversal',
+            'order',
+            $orderId,
+            $user['id'] ?? null,
+            'Order status reversed'
+        );
+    } elseif ($previousStatus === 'received_subbranch' && $newStatus === 'received_subbranch') {
+        if ($previousBranchId !== $newBranchId) {
+            record_branch_balance(
+                $db,
+                $previousBranchId,
+                -$previousTotal,
+                'order_reversal',
+                'order',
+                $orderId,
+                $user['id'] ?? null,
+                'Order moved to another branch'
+            );
+            record_branch_balance(
+                $db,
+                $newBranchId,
+                $totalPrice,
+                'order_received',
+                'order',
+                $orderId,
+                $user['id'] ?? null,
+                'Order moved from another branch'
+            );
+        } elseif (abs($totalPrice - $previousTotal) > 0.0001) {
+            record_branch_balance(
+                $db,
+                $newBranchId,
+                $totalPrice - $previousTotal,
+                'adjustment',
+                'order',
+                $orderId,
+                $user['id'] ?? null,
+                'Order total updated'
+            );
+        }
+    }
+
     $newShipmentId = (int) $newValues['shipment_id'];
     update_shipment_totals($newShipmentId);
     if ($previousShipmentId !== $newShipmentId) {
         update_shipment_totals($previousShipmentId);
+        if (($targetShipment['status'] ?? '') === 'distributed') {
+            $db->prepare(
+                'UPDATE shipments SET status = ?, updated_at = NOW(), updated_by_user_id = ? '
+                . 'WHERE id = ? AND deleted_at IS NULL'
+            )->execute(['partially_distributed', $user['id'] ?? null, $newShipmentId]);
+        }
     }
     $db->commit();
 } catch (PDOException $e) {

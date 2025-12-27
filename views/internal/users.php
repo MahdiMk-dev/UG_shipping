@@ -6,6 +6,21 @@ require_once __DIR__ . '/_layout.php';
 $user = internal_require_user();
 internal_page_start($user, 'users', 'Users', 'Control internal access and branch assignments.');
 $canEdit = in_array($user['role'] ?? '', ['Admin', 'Owner'], true);
+if (!$canEdit) {
+    http_response_code(403);
+    ?>
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <h3>Access denied</h3>
+                <p>Only Admin and Owner roles can view users.</p>
+            </div>
+        </div>
+    </section>
+    <?php
+    internal_page_end();
+    exit;
+}
 ?>
 <div data-users-page data-can-edit="<?= $canEdit ? '1' : '0' ?>">
     <section class="panel">

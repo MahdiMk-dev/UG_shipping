@@ -23,9 +23,19 @@ if (!$user && !$customer) {
 
 $db = db();
 $showMeta = false;
+$branchScopeId = null;
 if ($user) {
     $role = $user['role'] ?? '';
+    if (in_array($role, ['Warehouse', 'Staff'], true)) {
+        api_error('Forbidden', 403);
+    }
     $showMeta = in_array($role, ['Admin', 'Owner', 'Main Branch'], true);
+    if ($role === 'Sub Branch') {
+        $branchScopeId = (int) ($user['branch_id'] ?? 0);
+        if ($branchScopeId <= 0) {
+            api_error('Branch scope required', 403);
+        }
+    }
 }
 
 if ($invoiceId) {
@@ -63,8 +73,22 @@ if (!$invoice) {
     api_error('Invoice not found', 404);
 }
 
-if ($customer && (int) $invoice['customer_id'] !== (int) $customer['customer_id']) {
+if ($branchScopeId && (int) ($invoice['branch_id'] ?? 0) !== $branchScopeId) {
     api_error('Forbidden', 403);
+}
+
+if ($customer) {
+    $accountId = $customer['account_id'] ?? null;
+    if (!$accountId) {
+        api_error('Customer session is invalid', 401);
+    }
+    $check = $db->prepare(
+        'SELECT id FROM customers WHERE id = ? AND account_id = ? AND deleted_at IS NULL AND is_system = 0'
+    );
+    $check->execute([(int) $invoice['customer_id'], (int) $accountId]);
+    if (!$check->fetch()) {
+        api_error('Forbidden', 403);
+    }
 }
 
 $itemStmt = $db->prepare(

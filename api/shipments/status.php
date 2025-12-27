@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../app/api.php';
 require_once __DIR__ . '/../../app/permissions.php';
+require_once __DIR__ . '/../../app/services/balance_service.php';
 require_once __DIR__ . '/../../app/audit.php';
 
 api_require_method('POST');
@@ -16,7 +17,7 @@ if (!$shipmentId || !$status) {
     api_error('shipment_id and status are required', 422);
 }
 
-$allowedStatus = ['active', 'departed', 'airport', 'arrived', 'distributed'];
+$allowedStatus = ['active', 'departed', 'airport', 'arrived', 'partially_distributed', 'distributed'];
 if (!in_array($status, $allowedStatus, true)) {
     api_error('Invalid status', 422);
 }
@@ -28,7 +29,7 @@ $before = $beforeStmt->fetch();
 if (!$before) {
     api_error('Shipment not found', 404);
 }
-if (($before['status'] ?? '') === 'distributed' && $status !== 'distributed') {
+if (($before['status'] ?? '') === 'distributed' && !in_array($status, ['distributed', 'partially_distributed'], true)) {
     api_error('Cannot update status after shipment is distributed', 422);
 }
 
@@ -40,14 +41,26 @@ try {
     );
     $stmt->execute([$status, $user['id'] ?? null, $shipmentId]);
 
-    if ($status === 'arrived' && ($before['status'] ?? '') !== 'arrived') {
-        $ordersStmt = $db->prepare(
-            'UPDATE orders SET fulfillment_status = ?, updated_at = NOW(), updated_by_user_id = ? '
-            . 'WHERE shipment_id = ? AND deleted_at IS NULL AND fulfillment_status = ?'
-        );
-        $ordersStmt->execute(['main_branch', $user['id'] ?? null, $shipmentId, 'in_shipment']);
-    }
     if (in_array($status, ['active', 'airport'], true) && ($before['status'] ?? '') !== $status) {
+        $receivedStmt = $db->prepare(
+            'SELECT id, sub_branch_id, total_price FROM orders '
+            . 'WHERE shipment_id = ? AND deleted_at IS NULL AND fulfillment_status = \'received_subbranch\''
+        );
+        $receivedStmt->execute([$shipmentId]);
+        $receivedOrders = $receivedStmt->fetchAll() ?: [];
+        foreach ($receivedOrders as $order) {
+            record_branch_balance(
+                $db,
+                (int) ($order['sub_branch_id'] ?? 0),
+                -(float) ($order['total_price'] ?? 0),
+                'order_reversal',
+                'order',
+                (int) $order['id'],
+                $user['id'] ?? null,
+                'Shipment status reset'
+            );
+        }
+
         $ordersStmt = $db->prepare(
             'UPDATE orders SET fulfillment_status = ?, updated_at = NOW(), updated_by_user_id = ? '
             . 'WHERE shipment_id = ? AND deleted_at IS NULL '

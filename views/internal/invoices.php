@@ -4,39 +4,163 @@ declare(strict_types=1);
 require_once __DIR__ . '/_layout.php';
 
 $user = internal_require_user();
+$role = $user['role'] ?? '';
+$canView = in_array($role, ['Admin', 'Owner', 'Main Branch', 'Sub Branch'], true);
+$canEdit = in_array($role, ['Admin', 'Owner', 'Main Branch', 'Sub Branch'], true);
+
 internal_page_start($user, 'invoices', 'Invoices', 'Issue and track customer invoices.');
-?>
-<section class="panel">
-    <div class="panel-header">
-        <div>
-            <h3>Create invoice</h3>
-            <p>Bundle orders and issue a printable statement.</p>
+if (!$canView) {
+    http_response_code(403);
+    ?>
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <h3>Access denied</h3>
+                <p>Invoices are available to Admin, Owner, Main Branch, and Sub Branch roles.</p>
+            </div>
         </div>
-        <button class="button ghost small" type="button">New invoice</button>
-    </div>
-    <div class="table-wrap">
-        <table>
-            <thead>
-                <tr>
-                    <th>Invoice</th>
-                    <th>Customer</th>
-                    <th>Status</th>
-                    <th>Total</th>
-                    <th>Due</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td colspan="5" class="muted">Wire this table to `api/invoices/view.php`.</td>
-                </tr>
-            </tbody>
-        </table>
-    </div>
-    <div class="table-pagination">
-        <button class="button ghost small" type="button" disabled>Previous</button>
-        <span class="page-label">Page 1</span>
-        <button class="button ghost small" type="button" disabled>Next</button>
-    </div>
-</section>
+    </section>
+    <?php
+    internal_page_end();
+    exit;
+}
+?>
+<div data-invoices-page data-can-edit="<?= $canEdit ? '1' : '0' ?>">
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <h3>Invoice filters</h3>
+                <p>Search by invoice number, status, or customer.</p>
+            </div>
+        </div>
+        <form class="filter-bar" data-invoices-filter>
+            <input type="text" name="q" placeholder="Invoice number">
+            <input type="text" data-invoices-customer-input list="invoice-customer-options"
+                   placeholder="Customer name or code">
+            <input type="hidden" name="customer_id" data-invoices-customer-id>
+            <select name="status">
+                <option value="">All statuses</option>
+                <option value="open">Open</option>
+                <option value="partially_paid">Partially paid</option>
+                <option value="paid">Paid</option>
+                <option value="void">Void</option>
+            </select>
+            <select name="branch_id" data-branch-filter>
+                <option value="">All branches</option>
+            </select>
+            <button class="button primary" type="submit">Search</button>
+            <button class="button ghost" type="button" data-invoices-refresh>Refresh</button>
+        </form>
+        <datalist id="invoice-customer-options"></datalist>
+    </section>
+
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <h3>Invoices</h3>
+                <p>Invoice history and outstanding balances.</p>
+            </div>
+            <?php if ($canEdit): ?>
+                <button class="button ghost small" type="button" data-invoices-add>New invoice</button>
+            <?php endif; ?>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Invoice</th>
+                        <th>Customer</th>
+                        <th>Branch</th>
+                        <th>Status</th>
+                        <th>Total</th>
+                        <th>Paid</th>
+                        <th>Due</th>
+                        <th>Issued</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody data-invoices-table>
+                    <tr>
+                        <td colspan="9" class="muted">Loading invoices...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="table-pagination" data-invoices-pagination>
+            <button class="button ghost small" type="button" data-invoices-prev>Previous</button>
+            <span class="page-label" data-invoices-page>Page 1</span>
+            <button class="button ghost small" type="button" data-invoices-next>Next</button>
+        </div>
+        <div class="notice-stack" data-invoices-status></div>
+    </section>
+
+    <?php if ($canEdit): ?>
+        <div class="drawer" data-invoices-drawer>
+            <div class="drawer-scrim" data-invoices-drawer-close></div>
+            <div class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="invoice-form-title">
+                <div class="drawer-header">
+                    <div>
+                        <h3 id="invoice-form-title">Create invoice</h3>
+                        <p>Select un-invoiced orders and issue a statement.</p>
+                    </div>
+                    <button class="icon-button" type="button" data-invoices-drawer-close aria-label="Close invoice panel">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12"></path><path d="M18 6l-12 12"></path></svg>
+                    </button>
+                </div>
+                <form class="grid-form" data-invoices-form>
+                    <input type="hidden" name="customer_id" data-invoice-customer-id>
+                    <input type="hidden" name="branch_id" data-invoice-branch-id>
+                    <label>
+                        <span>Customer</span>
+                        <input type="text" data-invoice-customer-input list="invoice-create-customer-options"
+                               placeholder="Search by name or code" required>
+                    </label>
+                    <label>
+                        <span>Branch</span>
+                        <input type="text" data-invoice-branch-label placeholder="Auto from orders" readonly>
+                    </label>
+                    <label>
+                        <span>Invoice number (optional)</span>
+                        <input type="text" name="invoice_no" placeholder="Auto-generated if empty">
+                    </label>
+                    <label>
+                        <span>Issued at</span>
+                        <input type="datetime-local" name="issued_at">
+                    </label>
+                    <label class="full">
+                        <span>Note</span>
+                        <input type="text" name="note" placeholder="Optional note">
+                    </label>
+                    <div class="full">
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th><input type="checkbox" data-invoice-orders-all></th>
+                                        <th>Tracking</th>
+                                        <th>Shipment</th>
+                                        <th>Total</th>
+                                        <th>Received</th>
+                                        <th>Branch</th>
+                                    </tr>
+                                </thead>
+                                <tbody data-invoice-orders-table>
+                                    <tr>
+                                        <td colspan="6" class="muted">Select a customer to load orders.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="muted" data-invoice-orders-total>Selected total: 0.00</div>
+                    </div>
+                    <button class="button primary small" type="submit">Create invoice</button>
+                </form>
+                <datalist id="invoice-create-customer-options"></datalist>
+                <div class="notice-stack" data-invoice-form-status></div>
+            </div>
+        </div>
+    <?php endif; ?>
+</div>
 <?php
 internal_page_end();
+?>

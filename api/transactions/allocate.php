@@ -7,7 +7,7 @@ require_once __DIR__ . '/../../app/services/finance_service.php';
 require_once __DIR__ . '/../../app/audit.php';
 
 api_require_method('POST');
-$user = require_role(['Admin', 'Owner', 'Main Branch']);
+$user = require_role(['Admin', 'Owner', 'Main Branch', 'Sub Branch']);
 $input = api_read_input();
 
 $transactionId = api_int($input['transaction_id'] ?? null);
@@ -18,15 +18,28 @@ if (!$transactionId || !is_array($allocations)) {
 }
 
 $db = db();
+$role = $user['role'] ?? '';
+$userBranchId = null;
+if ($role === 'Sub Branch') {
+    $userBranchId = api_int($user['branch_id'] ?? null);
+    if (!$userBranchId) {
+        api_error('Branch scope required', 403);
+    }
+}
 $db->beginTransaction();
 
 try {
-    $txStmt = $db->prepare('SELECT id, customer_id, amount FROM transactions WHERE id = ? AND deleted_at IS NULL');
+    $txStmt = $db->prepare(
+        'SELECT id, customer_id, branch_id, amount FROM transactions WHERE id = ? AND deleted_at IS NULL'
+    );
     $txStmt->execute([$transactionId]);
     $transaction = $txStmt->fetch();
 
     if (!$transaction) {
         api_error('Transaction not found', 404);
+    }
+    if ($userBranchId && (int) $transaction['branch_id'] !== (int) $userBranchId) {
+        api_error('Forbidden', 403);
     }
 
     $transactionAmount = (float) $transaction['amount'];
@@ -57,7 +70,7 @@ try {
     }
 
     $invoiceStmt = $db->prepare(
-        'SELECT id, customer_id, total, paid_total, due_total, status '
+        'SELECT id, customer_id, branch_id, total, paid_total, due_total, status '
         . 'FROM invoices WHERE id = ? AND deleted_at IS NULL'
     );
     $allocStmt = $db->prepare(
@@ -80,6 +93,9 @@ try {
         }
         if ((int) $invoice['customer_id'] !== (int) $transaction['customer_id']) {
             api_error('Invoice customer does not match transaction customer', 422, ['invoice_id' => $invoiceId]);
+        }
+        if ($userBranchId && (int) $invoice['branch_id'] !== (int) $userBranchId) {
+            api_error('Invoice does not belong to this branch', 403, ['invoice_id' => $invoiceId]);
         }
         if ((float) $invoice['due_total'] + 0.0001 < $amount) {
             api_error('Allocation exceeds invoice due_total', 422, ['invoice_id' => $invoiceId]);

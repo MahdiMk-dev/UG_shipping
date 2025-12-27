@@ -18,9 +18,12 @@ if (!$shipmentId && !$shipmentNumber) {
 $db = db();
 if ($shipmentId) {
     $stmt = $db->prepare(
-        'SELECT s.*, c.name AS origin_country, cu.name AS created_by_name, uu.name AS updated_by_name '
+        'SELECT s.*, c.name AS origin_country, sp.name AS shipper_profile_name, '
+        . 'cp.name AS consignee_profile_name, cu.name AS created_by_name, uu.name AS updated_by_name '
         . 'FROM shipments s '
         . 'LEFT JOIN countries c ON c.id = s.origin_country_id '
+        . 'LEFT JOIN partner_profiles sp ON sp.id = s.shipper_profile_id '
+        . 'LEFT JOIN partner_profiles cp ON cp.id = s.consignee_profile_id '
         . 'LEFT JOIN users cu ON cu.id = s.created_by_user_id '
         . 'LEFT JOIN users uu ON uu.id = s.updated_by_user_id '
         . 'WHERE s.id = ? AND s.deleted_at IS NULL'
@@ -28,9 +31,12 @@ if ($shipmentId) {
     $stmt->execute([$shipmentId]);
 } else {
     $stmt = $db->prepare(
-        'SELECT s.*, c.name AS origin_country, cu.name AS created_by_name, uu.name AS updated_by_name '
+        'SELECT s.*, c.name AS origin_country, sp.name AS shipper_profile_name, '
+        . 'cp.name AS consignee_profile_name, cu.name AS created_by_name, uu.name AS updated_by_name '
         . 'FROM shipments s '
         . 'LEFT JOIN countries c ON c.id = s.origin_country_id '
+        . 'LEFT JOIN partner_profiles sp ON sp.id = s.shipper_profile_id '
+        . 'LEFT JOIN partner_profiles cp ON cp.id = s.consignee_profile_id '
         . 'LEFT JOIN users cu ON cu.id = s.created_by_user_id '
         . 'LEFT JOIN users uu ON uu.id = s.updated_by_user_id '
         . 'WHERE s.shipment_number = ? AND s.deleted_at IS NULL'

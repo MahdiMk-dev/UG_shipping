@@ -11,13 +11,16 @@ internal_page_start($user, 'customers', 'Customers', 'Manage customer profiles a
         <div class="panel-header">
             <div>
                 <h3>Customer directory</h3>
-                <p>Search by code, name, or branch.</p>
+                <p>Search by code, name, branch, or profile country.</p>
             </div>
         </div>
         <form class="filter-bar" data-customers-filter>
             <input type="text" name="q" placeholder="Customer name or code">
             <select name="sub_branch_id" data-branch-filter>
                 <option value="">All branches</option>
+            </select>
+            <select name="profile_country_id" data-country-filter>
+                <option value="">All profile countries</option>
             </select>
             <button class="button primary" type="submit">Search</button>
             <button class="button ghost" type="button" data-customers-refresh>Refresh</button>
@@ -38,14 +41,16 @@ internal_page_start($user, 'customers', 'Customers', 'Manage customer profiles a
                     <tr>
                         <th>Name</th>
                         <th>Code</th>
+                        <th>Country</th>
                         <th>Branch</th>
                         <th>Balance</th>
+                        <th>Portal</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody data-customers-table>
                     <tr>
-                        <td colspan="5" class="muted">Loading customers...</td>
+                        <td colspan="7" class="muted">Loading customers...</td>
                     </tr>
                 </tbody>
             </table>

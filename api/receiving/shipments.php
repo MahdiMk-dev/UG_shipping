@@ -17,14 +17,22 @@ $offset = api_int($filters['offset'] ?? 0, 0);
 $limit = max(1, min(200, $limit ?? 20));
 $offset = max(0, $offset ?? 0);
 
+$role = $user['role'] ?? '';
+$isMainBranch = $role === 'Main Branch';
+$pendingStatus = $isMainBranch ? 'in_shipment' : 'pending_receipt';
+
 $where = [
     'o.deleted_at IS NULL',
     's.deleted_at IS NULL',
     'o.fulfillment_status = ?',
 ];
-$params = ['pending_receipt'];
+$params = [$pendingStatus];
+if ($isMainBranch) {
+    $where[] = 's.status IN (?, ?)';
+    $params[] = 'arrived';
+    $params[] = 'partially_distributed';
+}
 
-$role = $user['role'] ?? '';
 $readOnly = is_read_only_role($user) && $role !== 'Warehouse';
 if ($readOnly) {
     $branchId = $user['branch_id'] ?? null;

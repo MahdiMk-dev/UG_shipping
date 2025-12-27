@@ -13,7 +13,9 @@ if (!$customerId) {
     api_error('customer_id is required', 422);
 }
 
-$stmt = db()->prepare('SELECT id, is_system, sub_branch_id FROM customers WHERE id = ? AND deleted_at IS NULL');
+$stmt = db()->prepare(
+    'SELECT id, is_system, sub_branch_id, profile_country_id FROM customers WHERE id = ? AND deleted_at IS NULL'
+);
 $stmt->execute([$customerId]);
 $customer = $stmt->fetch();
 
@@ -27,9 +29,16 @@ if ((int) $customer['is_system'] === 1) {
 $role = $user['role'] ?? '';
 $fullAccess = in_array($role, ['Admin', 'Owner', 'Main Branch'], true);
 if (!$fullAccess) {
-    $branchId = $user['branch_id'] ?? null;
-    if (!$branchId || (int) $customer['sub_branch_id'] !== (int) $branchId) {
-        api_error('Forbidden', 403);
+    if ($role === 'Warehouse') {
+        $warehouseCountryId = get_branch_country_id($user);
+        if (!$warehouseCountryId || (int) $customer['profile_country_id'] !== (int) $warehouseCountryId) {
+            api_error('Forbidden', 403);
+        }
+    } else {
+        $branchId = $user['branch_id'] ?? null;
+        if (!$branchId || (int) $customer['sub_branch_id'] !== (int) $branchId) {
+            api_error('Forbidden', 403);
+        }
     }
 }
 

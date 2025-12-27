@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../app/auth.php';
 require_once __DIR__ . '/../../app/permissions.php';
+require_once __DIR__ . '/../../app/company.php';
 
 function internal_require_user(): array
 {
@@ -30,14 +31,37 @@ function internal_page_start(array $user, string $active, string $title, string 
         'receiving' => ['label' => 'Receiving', 'href' => BASE_URL . '/views/internal/receiving'],
         'invoices' => ['label' => 'Invoices', 'href' => BASE_URL . '/views/internal/invoices'],
         'transactions' => ['label' => 'Transactions', 'href' => BASE_URL . '/views/internal/transactions'],
+        'expenses' => ['label' => 'Expenses', 'href' => BASE_URL . '/views/internal/expenses'],
+        'reports' => ['label' => 'Reports', 'href' => BASE_URL . '/views/internal/reports'],
         'attachments' => ['label' => 'Attachments', 'href' => BASE_URL . '/views/internal/attachments'],
+        'staff' => ['label' => 'Staff', 'href' => BASE_URL . '/views/internal/staff'],
         'customers' => ['label' => 'Customers', 'href' => BASE_URL . '/views/internal/customers'],
+        'partners' => ['label' => 'Partners', 'href' => BASE_URL . '/views/internal/partners'],
+        'company' => ['label' => 'Company', 'href' => BASE_URL . '/views/internal/company'],
         'branches' => ['label' => 'Branches', 'href' => BASE_URL . '/views/internal/branches'],
         'users' => ['label' => 'Users', 'href' => BASE_URL . '/views/internal/users'],
         'roles' => ['label' => 'Roles', 'href' => BASE_URL . '/views/internal/roles'],
     ];
-    if (in_array($user['role'] ?? '', ['Staff', 'Sub Branch', 'Warehouse'], true)) {
-        unset($navItems['branches'], $navItems['users'], $navItems['roles']);
+    if (($user['role'] ?? '') !== 'Owner') {
+        unset($navItems['roles']);
+    }
+    if (!in_array($user['role'] ?? '', ['Admin', 'Owner'], true)) {
+        unset($navItems['expenses']);
+    }
+    if (!in_array($user['role'] ?? '', ['Admin', 'Owner', 'Sub Branch'], true)) {
+        unset($navItems['reports']);
+    }
+    if (!in_array($user['role'] ?? '', ['Admin', 'Owner'], true)) {
+        unset($navItems['company']);
+    }
+    if (!in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch', 'Warehouse'], true)) {
+        unset($navItems['partners']);
+    }
+    if (in_array($user['role'] ?? '', ['Staff', 'Sub Branch', 'Warehouse', 'Main Branch'], true)) {
+        unset($navItems['branches'], $navItems['users']);
+    }
+    if (in_array($user['role'] ?? '', ['Staff', 'Warehouse', 'Main Branch'], true)) {
+        unset($navItems['staff']);
     }
     if (($user['role'] ?? '') === 'Warehouse') {
         unset($navItems['invoices'], $navItems['transactions'], $navItems['attachments'], $navItems['receiving']);
@@ -74,13 +98,38 @@ function internal_page_start(array $user, string $active, string $title, string 
             . '<path d="M7 7l-3 3"></path><path d="M7 17l-3-3"></path>'
             . '<path d="M17 7l3-3"></path><path d="M17 17l3 3"></path>'
             . '</svg>',
+        'expenses' => '<svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">'
+            . '<path d="M6 3h12v4H6z"></path>'
+            . '<path d="M4 7h16v12H4z"></path>'
+            . '<path d="M8 13h8"></path>'
+            . '</svg>',
+        'reports' => '<svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">'
+            . '<path d="M4 20h16"></path>'
+            . '<path d="M7 16V8"></path><path d="M12 16V5"></path><path d="M17 16v-6"></path>'
+            . '</svg>',
         'attachments' => '<svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">'
             . '<path d="M7 12l6-6a3 3 0 014 4l-7 7a4 4 0 11-6-6l7-7"></path>'
+            . '</svg>',
+        'staff' => '<svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">'
+            . '<circle cx="9" cy="7" r="3"></circle>'
+            . '<path d="M2 20a7 7 0 0114 0"></path>'
+            . '<path d="M16 7h6"></path><path d="M19 4v6"></path>'
             . '</svg>',
         'customers' => '<svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">'
             . '<circle cx="9" cy="8" r="3"></circle>'
             . '<path d="M3 20a6 6 0 0112 0"></path>'
             . '<path d="M17 11h4"></path><path d="M19 9v4"></path>'
+            . '</svg>',
+        'partners' => '<svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">'
+            . '<circle cx="7" cy="8" r="3"></circle>'
+            . '<circle cx="17" cy="8" r="3"></circle>'
+            . '<path d="M2 20a5 5 0 0110 0"></path>'
+            . '<path d="M12 20a5 5 0 0110 0"></path>'
+            . '</svg>',
+        'company' => '<svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">'
+            . '<path d="M4 20h16"></path>'
+            . '<path d="M6 20V7l6-3 6 3v13"></path>'
+            . '<path d="M9 11h2"></path><path d="M13 11h2"></path><path d="M9 15h2"></path><path d="M13 15h2"></path>'
             . '</svg>',
         'branches' => '<svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">'
             . '<path d="M4 20h16"></path>'
@@ -121,11 +170,15 @@ function internal_page_start(array $user, string $active, string $title, string 
     echo "<div class=\"app-shell internal-shell\" data-user-role=\"{$roleName}\" data-branch-id=\"{$branchId}\" "
         . "data-branch-country-id=\"{$branchCountry}\">\n";
     echo "    <aside class=\"sidebar\" data-sidebar>\n";
+    $company = company_settings();
+    $logoUrl = !empty($company['logo_url']) ? $company['logo_url'] : (PUBLIC_URL . '/assets/img/ug-logo.jpg');
+    $logoEsc = htmlspecialchars($logoUrl, ENT_QUOTES, 'UTF-8');
+    $alt = htmlspecialchars($company['name'] ?? 'United Group', ENT_QUOTES, 'UTF-8');
     echo "        <div class=\"sidebar-header\">\n";
     echo "            <div class=\"sidebar-brand\">\n";
-    echo "                <img class=\"nav-logo\" src=\"" . PUBLIC_URL . "/assets/img/ug-logo.jpg\" "
+    echo "                <img class=\"nav-logo\" src=\"{$logoEsc}\" "
         . "onerror=\"this.onerror=null;this.src='" . PUBLIC_URL . "/assets/img/ug-logo.svg';\" "
-        . "alt=\"United Group\">\n";
+        . "alt=\"{$alt}\">\n";
     echo "                <span>UG Shipping</span>\n";
     echo "            </div>\n";
     echo "            <button class=\"icon-button sidebar-toggle\" type=\"button\" data-sidebar-toggle aria-label=\"Close navigation\">\n";

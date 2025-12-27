@@ -25,11 +25,17 @@ internal_page_start($user, 'customers', 'Create Customer', 'Add a new customer w
             </label>
             <label>
                 <span>Phone</span>
-                <input type="text" name="phone" minlength="8">
+                <input type="text" name="phone" minlength="8" required>
             </label>
             <label>
                 <span>Address</span>
                 <input type="text" name="address">
+            </label>
+            <label>
+                <span>Profile country</span>
+                <select name="profile_country_id" data-country-select required>
+                    <option value="">Select country</option>
+                </select>
             </label>
             <label>
                 <span>Portal username</span>
@@ -37,9 +43,9 @@ internal_page_start($user, 'customers', 'Create Customer', 'Add a new customer w
             </label>
             <label>
                 <span>Portal password</span>
-                <input type="password" name="portal_password" autocomplete="new-password" required>
+                <input type="password" name="portal_password" autocomplete="new-password" placeholder="Leave blank for existing account">
             </label>
-            <p class="muted full">Portal username defaults to the customer code and must be unique.</p>
+            <p class="muted full">Portal username links profiles. Leave password blank to reuse existing login.</p>
             <label data-branch-field>
                 <span>Sub branch</span>
                 <select name="sub_branch_id" data-branch-select>

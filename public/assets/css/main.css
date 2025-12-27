@@ -801,6 +801,40 @@ th {
     font-weight: 500;
 }
 
+.company-logo {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.company-logo-preview {
+    width: 120px;
+    height: 120px;
+    border-radius: 16px;
+    border: 1px solid var(--line);
+    background: #fff;
+    display: grid;
+    place-items: center;
+}
+
+.company-logo-preview img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+
+.company-logo-actions {
+    display: grid;
+    gap: 8px;
+}
+
+.company-logo-buttons {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
 .inline-field {
     display: grid;
     gap: 6px;

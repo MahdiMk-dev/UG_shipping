@@ -13,6 +13,9 @@ $customer = customer_auth_user();
 if (!$user && !$customer) {
     api_error('Unauthorized', 401);
 }
+if ($customer && empty($customer['account_id'])) {
+    api_error('Customer session is invalid', 401);
+}
 
 $attachmentId = api_int($_GET['id'] ?? ($_GET['attachment_id'] ?? null));
 if (!$attachmentId) {
@@ -40,24 +43,36 @@ if ($customer) {
     }
 
     if ($entityType === 'order') {
-        $check = $db->prepare('SELECT id FROM orders WHERE id = ? AND customer_id = ? AND deleted_at IS NULL');
-        $check->execute([$entityId, $customer['customer_id']]);
+        $check = $db->prepare(
+            'SELECT o.id FROM orders o '
+            . 'JOIN customers c ON c.id = o.customer_id '
+            . 'WHERE o.id = ? AND c.account_id = ? AND o.deleted_at IS NULL AND c.deleted_at IS NULL'
+        );
+        $check->execute([$entityId, $customer['account_id']]);
         if (!$check->fetch()) {
             api_error('Forbidden', 403);
         }
     }
 
     if ($entityType === 'invoice') {
-        $check = $db->prepare('SELECT id FROM invoices WHERE id = ? AND customer_id = ? AND deleted_at IS NULL');
-        $check->execute([$entityId, $customer['customer_id']]);
+        $check = $db->prepare(
+            'SELECT i.id FROM invoices i '
+            . 'JOIN customers c ON c.id = i.customer_id '
+            . 'WHERE i.id = ? AND c.account_id = ? AND i.deleted_at IS NULL AND c.deleted_at IS NULL'
+        );
+        $check->execute([$entityId, $customer['account_id']]);
         if (!$check->fetch()) {
             api_error('Forbidden', 403);
         }
     }
 
     if ($entityType === 'shopping_order') {
-        $check = $db->prepare('SELECT id FROM shopping_orders WHERE id = ? AND customer_id = ? AND deleted_at IS NULL');
-        $check->execute([$entityId, $customer['customer_id']]);
+        $check = $db->prepare(
+            'SELECT s.id FROM shopping_orders s '
+            . 'JOIN customers c ON c.id = s.customer_id '
+            . 'WHERE s.id = ? AND c.account_id = ? AND s.deleted_at IS NULL AND c.deleted_at IS NULL'
+        );
+        $check->execute([$entityId, $customer['account_id']]);
         if (!$check->fetch()) {
             api_error('Forbidden', 403);
         }
