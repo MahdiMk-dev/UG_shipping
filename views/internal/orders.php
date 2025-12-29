@@ -4,19 +4,21 @@ declare(strict_types=1);
 require_once __DIR__ . '/_layout.php';
 
 $user = internal_require_user();
-internal_page_start($user, 'orders', 'Orders', 'Manage parcel-level pricing and fulfillment.');
-$canEdit = in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch'], true);
+internal_page_start($user, 'orders', 'Orders', 'Review shipments with grouped orders.');
+$role = $user['role'] ?? '';
+$canEdit = in_array($role, ['Admin', 'Owner', 'Main Branch'], true);
+$showIncome = $role !== 'Warehouse';
 ?>
-<div data-orders-page-root>
+<div data-orders-page-root data-show-income="<?= $showIncome ? '1' : '0' ?>">
     <section class="panel">
         <div class="panel-header">
             <div>
                 <h3>Search orders</h3>
-                <p>Search by customer name, code, shipment number, or tracking number.</p>
+                <p>Filter shipments by tracking, customer, or shipment number.</p>
             </div>
         </div>
         <form class="filter-bar" data-orders-filter>
-            <input type="text" name="q" placeholder="Customer, code, shipment, or tracking">
+            <input type="text" name="q" placeholder="Shipment, tracking, or customer">
             <button class="button primary" type="submit">Search</button>
             <button class="button ghost" type="button" data-orders-refresh>Refresh</button>
         </form>
@@ -25,8 +27,8 @@ $canEdit = in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch'], true
     <section class="panel">
         <div class="panel-header">
             <div>
-                <h3>Orders in shipment</h3>
-                <p>Orders still moving with the shipment.</p>
+                <h3>Orders by shipment</h3>
+                <p>Grouped totals for each shipment.</p>
             </div>
             <?php if ($canEdit): ?>
                 <a class="button ghost small" href="<?= BASE_URL ?>/views/internal/shipments">Create from shipment</a>
@@ -36,144 +38,31 @@ $canEdit = in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch'], true
             <table>
                 <thead>
                     <tr>
-                        <th>Tracking</th>
-                        <th>Customer</th>
                         <th>Shipment</th>
-                        <th>Sub branch</th>
-                        <th>Qty</th>
-                        <th>Total</th>
-                        <th>Fulfillment</th>
-                        <th class="meta-col">Created</th>
-                        <th class="meta-col">Updated</th>
+                        <th>Origin</th>
+                        <th>Status</th>
+                        <th>Orders</th>
+                        <?php if ($showIncome): ?>
+                            <th>Total</th>
+                        <?php endif; ?>
                         <th>View</th>
                     </tr>
                 </thead>
-                <tbody data-orders-table="in_shipment">
+                <tbody data-orders-shipments-table>
                     <tr>
-                        <td colspan="10" class="muted">Loading orders...</td>
+                        <td colspan="<?= $showIncome ? 6 : 5 ?>" class="muted">Loading shipments...</td>
                     </tr>
                 </tbody>
             </table>
         </div>
-        <div class="table-pagination">
-            <button class="button ghost small" type="button" data-orders-prev="in_shipment">Previous</button>
-            <span class="page-label" data-orders-page="in_shipment">Page 1</span>
-            <button class="button ghost small" type="button" data-orders-next="in_shipment">Next</button>
+        <div class="table-pagination" data-orders-pagination>
+            <button class="button ghost small" type="button" data-orders-prev>Previous</button>
+            <span class="page-label" data-orders-page>Page 1</span>
+            <button class="button ghost small" type="button" data-orders-next>Next</button>
         </div>
+        <div class="notice-stack" data-orders-status></div>
     </section>
-
-    <section class="panel">
-        <div class="panel-header">
-            <div>
-                <h3>Orders at main branch</h3>
-                <p>Orders now ready at the main branch.</p>
-            </div>
-        </div>
-        <div class="table-wrap">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Tracking</th>
-                        <th>Customer</th>
-                        <th>Shipment</th>
-                        <th>Sub branch</th>
-                        <th>Qty</th>
-                        <th>Total</th>
-                        <th>Fulfillment</th>
-                        <th class="meta-col">Created</th>
-                        <th class="meta-col">Updated</th>
-                        <th>View</th>
-                    </tr>
-                </thead>
-                <tbody data-orders-table="main_branch">
-                    <tr>
-                        <td colspan="10" class="muted">Loading orders...</td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-        <div class="table-pagination">
-            <button class="button ghost small" type="button" data-orders-prev="main_branch">Previous</button>
-            <span class="page-label" data-orders-page="main_branch">Page 1</span>
-            <button class="button ghost small" type="button" data-orders-next="main_branch">Next</button>
-        </div>
-    </section>
-
-    <section class="panel">
-        <div class="panel-header">
-            <div>
-                <h3>Orders pending receive</h3>
-                <p>Orders distributed to sub-branches but not received yet.</p>
-            </div>
-        </div>
-        <div class="table-wrap">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Tracking</th>
-                        <th>Customer</th>
-                        <th>Shipment</th>
-                        <th>Sub branch</th>
-                        <th>Qty</th>
-                        <th>Total</th>
-                        <th>Fulfillment</th>
-                        <th class="meta-col">Created</th>
-                        <th class="meta-col">Updated</th>
-                        <th>View</th>
-                    </tr>
-                </thead>
-                <tbody data-orders-table="pending_receipt">
-                    <tr>
-                        <td colspan="10" class="muted">Loading orders...</td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-        <div class="table-pagination">
-            <button class="button ghost small" type="button" data-orders-prev="pending_receipt">Previous</button>
-            <span class="page-label" data-orders-page="pending_receipt">Page 1</span>
-            <button class="button ghost small" type="button" data-orders-next="pending_receipt">Next</button>
-        </div>
-    </section>
-
-    <section class="panel">
-        <div class="panel-header">
-            <div>
-                <h3>Orders received</h3>
-                <p>Orders confirmed by sub-branches.</p>
-            </div>
-        </div>
-        <div class="table-wrap">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Tracking</th>
-                        <th>Customer</th>
-                        <th>Shipment</th>
-                        <th>Sub branch</th>
-                        <th>Qty</th>
-                        <th>Total</th>
-                        <th>Fulfillment</th>
-                        <th class="meta-col">Created</th>
-                        <th class="meta-col">Updated</th>
-                        <th>View</th>
-                    </tr>
-                </thead>
-                <tbody data-orders-table="received_subbranch">
-                    <tr>
-                        <td colspan="10" class="muted">Loading orders...</td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-        <div class="table-pagination">
-            <button class="button ghost small" type="button" data-orders-prev="received_subbranch">Previous</button>
-            <span class="page-label" data-orders-page="received_subbranch">Page 1</span>
-            <button class="button ghost small" type="button" data-orders-next="received_subbranch">Next</button>
-        </div>
-    </section>
-
-    <div class="notice-stack" data-orders-status></div>
 </div>
 <?php
 internal_page_end();
+?>

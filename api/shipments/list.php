@@ -116,5 +116,11 @@ if (!$showMeta) {
     }
     unset($row);
 }
+if ($role === 'Warehouse') {
+    foreach ($rows as &$row) {
+        unset($row['default_rate'], $row['default_rate_unit']);
+    }
+    unset($row);
+}
 
 api_json(['ok' => true, 'data' => $rows]);

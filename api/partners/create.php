@@ -13,7 +13,6 @@ $type = api_string($input['type'] ?? null);
 $name = api_string($input['name'] ?? null);
 $phone = api_string($input['phone'] ?? null);
 $address = api_string($input['address'] ?? null);
-$countryId = api_int($input['country_id'] ?? null);
 
 if (!$type || !in_array($type, ['shipper', 'consignee'], true)) {
     api_error('type must be shipper or consignee', 422);
@@ -21,29 +20,19 @@ if (!$type || !in_array($type, ['shipper', 'consignee'], true)) {
 if (!$name) {
     api_error('name is required', 422);
 }
-if (!$countryId) {
-    api_error('country_id is required', 422);
-}
-
-$countryStmt = db()->prepare('SELECT id FROM countries WHERE id = ?');
-$countryStmt->execute([$countryId]);
-if (!$countryStmt->fetch()) {
-    api_error('Country not found', 404);
-}
 
 $db = db();
 $db->beginTransaction();
 try {
     $stmt = $db->prepare(
-        'INSERT INTO partner_profiles (type, name, phone, address, country_id, created_by_user_id) '
-        . 'VALUES (?, ?, ?, ?, ?, ?)'
+        'INSERT INTO partner_profiles (type, name, phone, address, created_by_user_id) '
+        . 'VALUES (?, ?, ?, ?, ?)'
     );
     $stmt->execute([
         $type,
         $name,
         $phone,
         $address,
-        $countryId,
         $user['id'] ?? null,
     ]);
     $partnerId = (int) $db->lastInsertId();

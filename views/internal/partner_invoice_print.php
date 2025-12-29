@@ -36,6 +36,12 @@ if (!$invoice) {
     exit;
 }
 
+$itemsStmt = db()->prepare(
+    'SELECT description, amount FROM partner_invoice_items WHERE invoice_id = ? ORDER BY id ASC'
+);
+$itemsStmt->execute([$invoiceId]);
+$items = $itemsStmt->fetchAll();
+
 $company = company_settings();
 
 $escape = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
@@ -65,7 +71,11 @@ $partnerType = $invoice['partner_type'] === 'consignee' ? 'Consignee' : 'Shipper
         .block h3 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; }
         .block p { margin: 4px 0; font-size: 14px; }
         .line-items { margin-top: 24px; border-top: 2px solid #222; padding-top: 16px; }
-        .totals { margin-left: auto; max-width: 280px; }
+        .line-items table { width: 100%; border-collapse: collapse; }
+        .line-items th, .line-items td { padding: 8px 6px; font-size: 14px; border-bottom: 1px solid #e1e1e1; }
+        .line-items th { text-align: left; text-transform: uppercase; font-size: 12px; letter-spacing: 0.5px; }
+        .line-items td.amount { text-align: right; }
+        .totals { margin-left: auto; max-width: 280px; margin-top: 16px; }
         .totals table { width: 100%; border-collapse: collapse; }
         .totals td { padding: 6px 0; font-size: 14px; }
         .totals tr:last-child td { font-weight: bold; border-top: 1px solid #999; }
@@ -124,6 +134,28 @@ $partnerType = $invoice['partner_type'] === 'consignee' ? 'Consignee' : 'Shipper
     </section>
 
     <div class="line-items">
+        <table>
+            <thead>
+                <tr>
+                    <th>Description</th>
+                    <th class="amount">Amount</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php if (!empty($items)): ?>
+                    <?php foreach ($items as $item): ?>
+                        <tr>
+                            <td><?= $escape($item['description']) ?></td>
+                            <td class="amount"><?= number_format((float) $item['amount'], 2) ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                <?php else: ?>
+                    <tr>
+                        <td colspan="2">No line items recorded.</td>
+                    </tr>
+                <?php endif; ?>
+            </tbody>
+        </table>
         <div class="totals">
             <table>
                 <tr>

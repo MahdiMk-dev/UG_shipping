@@ -15,6 +15,7 @@ $shippingType = api_string($input['shipping_type'] ?? null);
 $status = api_string($input['status'] ?? 'active') ?? 'active';
 $shipperProfileId = api_int($input['shipper_profile_id'] ?? null);
 $consigneeProfileId = api_int($input['consignee_profile_id'] ?? null);
+$typeOfGoods = api_string($input['type_of_goods'] ?? null);
 
 $db = db();
 $warehouseCountryId = null;
@@ -34,6 +35,14 @@ if (($user['role'] ?? '') === 'Warehouse') {
 if (!$shipmentNumber || !$originCountryId || !$shippingType) {
     api_error('shipment_number, origin_country_id, and shipping_type are required', 422);
 }
+if (!$typeOfGoods) {
+    api_error('type_of_goods is required', 422);
+}
+$goodsStmt = $db->prepare('SELECT id FROM goods_types WHERE name = ? AND deleted_at IS NULL');
+$goodsStmt->execute([$typeOfGoods]);
+if (!$goodsStmt->fetch()) {
+    api_error('type_of_goods must match a configured goods type', 422);
+}
 
 $allowedStatus = ['active', 'departed', 'airport', 'arrived', 'partially_distributed', 'distributed'];
 if (!in_array($status, $allowedStatus, true)) {
@@ -46,7 +55,7 @@ if (!in_array($shippingType, $allowedTypes, true)) {
 }
 
 $partnerStmt = $db->prepare(
-    'SELECT id, type, country_id FROM partner_profiles WHERE id = ? AND deleted_at IS NULL'
+    'SELECT id, type FROM partner_profiles WHERE id = ? AND deleted_at IS NULL'
 );
 if ($shipperProfileId) {
     $partnerStmt->execute([$shipperProfileId]);
@@ -56,9 +65,6 @@ if ($shipperProfileId) {
     }
     if (($shipperProfile['type'] ?? '') !== 'shipper') {
         api_error('Selected shipper profile is invalid', 422);
-    }
-    if ($warehouseCountryId && (int) ($shipperProfile['country_id'] ?? 0) !== (int) $warehouseCountryId) {
-        api_error('Shipper profile must match warehouse country', 403);
     }
 }
 if ($consigneeProfileId) {
@@ -70,9 +76,6 @@ if ($consigneeProfileId) {
     if (($consigneeProfile['type'] ?? '') !== 'consignee') {
         api_error('Selected consignee profile is invalid', 422);
     }
-    if ($warehouseCountryId && (int) ($consigneeProfile['country_id'] ?? 0) !== (int) $warehouseCountryId) {
-        api_error('Consignee profile must match warehouse country', 403);
-    }
 }
 
 $optionalFields = [
@@ -80,7 +83,6 @@ $optionalFields = [
     'consignee',
     'shipment_date',
     'way_of_shipment',
-    'type_of_goods',
     'vessel_or_flight_name',
     'departure_date',
     'arrival_date',
@@ -91,6 +93,7 @@ $values = [];
 foreach ($optionalFields as $field) {
     $values[$field] = api_string($input[$field] ?? null);
 }
+$values['type_of_goods'] = $typeOfGoods;
 
 $departureDate = $values['departure_date'] ?? null;
 $arrivalDate = $values['arrival_date'] ?? null;
@@ -129,6 +132,11 @@ foreach ($numericFields as $field) {
 $defaultRateUnit = api_string($input['default_rate_unit'] ?? null);
 if ($defaultRateUnit !== null && !in_array($defaultRateUnit, ['kg', 'cbm'], true)) {
     api_error('Invalid default_rate_unit', 422);
+}
+if (($user['role'] ?? '') === 'Warehouse') {
+    $values['default_rate'] = null;
+    $values['cost_per_unit'] = null;
+    $defaultRateUnit = null;
 }
 
 $stmt = $db->prepare(

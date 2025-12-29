@@ -38,7 +38,6 @@ if (!in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch', 'Warehouse'
                 <div class="detail-list">
                     <div><span>Name</span><strong data-partner-detail="name">--</strong></div>
                     <div><span>Type</span><strong data-partner-detail="type">--</strong></div>
-                    <div><span>Country</span><strong data-partner-detail="country_name">--</strong></div>
                     <div><span>Phone</span><strong data-partner-detail="phone">--</strong></div>
                     <div><span>Address</span><strong data-partner-detail="address">--</strong></div>
                     <div><span>Balance</span><strong data-partner-detail="balance">--</strong></div>
@@ -78,7 +77,7 @@ if (!in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch', 'Warehouse'
             <div class="panel-header">
                 <div>
                     <h3>Create invoice</h3>
-                    <p>Record charges for the partner.</p>
+                    <p>Record charges for the partner. Invoice numbers are generated automatically.</p>
                 </div>
             </div>
             <form class="grid-form" data-partner-invoice-form>
@@ -92,13 +91,32 @@ if (!in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch', 'Warehouse'
                         <option value="">No shipment</option>
                     </select>
                 </label>
-                <label>
-                    <span>Invoice #</span>
-                    <input type="text" name="invoice_no" placeholder="Auto-generate if blank">
-                </label>
+                <div class="table-wrap full">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Description</th>
+                                <th>Amount</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody data-partner-invoice-items>
+                            <tr data-line-item>
+                                <td><input type="text" name="item_description" placeholder="Description" required></td>
+                                <td><input type="number" step="0.01" name="item_amount" placeholder="0.00" required></td>
+                                <td>
+                                    <button class="button ghost small" type="button" data-line-remove>Remove</button>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="full">
+                    <button class="button ghost small" type="button" data-partner-add-invoice-line>Add line</button>
+                </div>
                 <label>
                     <span>Total</span>
-                    <input type="number" step="0.01" name="total" placeholder="0.00" required>
+                    <input type="text" data-partner-invoice-total readonly>
                 </label>
                 <label>
                     <span>Issued at</span>
@@ -131,7 +149,7 @@ if (!in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch', 'Warehouse'
                         <th>Total</th>
                         <th>Due</th>
                         <th>Issued</th>
-                        <th>Print</th>
+                        <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody data-partner-invoices>
@@ -150,21 +168,23 @@ if (!in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch', 'Warehouse'
         <section class="panel">
             <div class="panel-header">
                 <div>
-                    <h3>Record receipt</h3>
-                    <p>Log payments received from the partner.</p>
+                    <h3>Record transaction</h3>
+                    <p>Log receipts, refunds, or adjustments for this partner.</p>
                 </div>
             </div>
             <form class="grid-form" data-partner-transaction-form>
                 <label>
-                    <span>Invoice</span>
-                    <select name="invoice_id" data-partner-invoice-select>
-                        <option value="">Apply to balance only</option>
+                    <span>Type</span>
+                    <select name="type">
+                        <option value="receipt">Receipt</option>
+                        <option value="refund">Refund</option>
+                        <option value="adjustment">Adjustment</option>
                     </select>
                 </label>
                 <label>
-                    <span>Branch</span>
-                    <select name="branch_id" data-branch-select required>
-                        <option value="">Select branch</option>
+                    <span>Invoice</span>
+                    <select name="invoice_id" data-partner-invoice-select>
+                        <option value="">Apply to balance only</option>
                     </select>
                 </label>
                 <label>
@@ -173,9 +193,32 @@ if (!in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch', 'Warehouse'
                         <option value="">Select method</option>
                     </select>
                 </label>
+                <div class="table-wrap full">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Description</th>
+                                <th>Amount</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody data-partner-transaction-items>
+                            <tr data-line-item>
+                                <td><input type="text" name="item_description" placeholder="Description" required></td>
+                                <td><input type="number" step="0.01" name="item_amount" placeholder="0.00" required></td>
+                                <td>
+                                    <button class="button ghost small" type="button" data-line-remove>Remove</button>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="full">
+                    <button class="button ghost small" type="button" data-partner-add-transaction-line>Add line</button>
+                </div>
                 <label>
-                    <span>Amount</span>
-                    <input type="number" step="0.01" name="amount" placeholder="0.00" required>
+                    <span>Total</span>
+                    <input type="text" data-partner-transaction-total readonly>
                 </label>
                 <label>
                     <span>Payment date</span>
@@ -185,19 +228,19 @@ if (!in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch', 'Warehouse'
                     <span>Note</span>
                     <input type="text" name="note" placeholder="Optional note">
                 </label>
-                <button class="button primary small" type="submit">Add receipt</button>
+                <button class="button primary small" type="submit">Add transaction</button>
             </form>
             <div class="notice-stack" data-partner-transaction-status></div>
         </section>
     <?php endif; ?>
 
-    <section class="panel">
-        <div class="panel-header">
-            <div>
-                <h3>Transactions</h3>
-                <p>Receipts and adjustments for this partner.</p>
+        <section class="panel">
+            <div class="panel-header">
+                <div>
+                    <h3>Transactions</h3>
+                    <p>Receipts, refunds, and adjustments for this partner.</p>
+                </div>
             </div>
-        </div>
         <div class="table-wrap">
             <table>
                 <thead>

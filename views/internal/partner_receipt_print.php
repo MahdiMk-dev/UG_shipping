@@ -20,11 +20,10 @@ if ($receiptId <= 0) {
 
 $stmt = db()->prepare(
     'SELECT t.id, t.type, t.amount, t.payment_date, t.note, t.created_at, '
-    . 'b.name AS branch_name, pm.name AS payment_method, i.invoice_no, '
+    . 'pm.name AS payment_method, i.invoice_no, '
     . 'p.name AS partner_name, p.phone AS partner_phone, p.address AS partner_address, p.type AS partner_type '
     . 'FROM partner_transactions t '
     . 'JOIN partner_profiles p ON p.id = t.partner_id '
-    . 'LEFT JOIN branches b ON b.id = t.branch_id '
     . 'LEFT JOIN payment_methods pm ON pm.id = t.payment_method_id '
     . 'LEFT JOIN partner_invoices i ON i.id = t.invoice_id '
     . 'WHERE t.id = ? AND t.deleted_at IS NULL'
@@ -36,6 +35,12 @@ if (!$receipt) {
     echo 'Receipt not found.';
     exit;
 }
+
+$itemsStmt = db()->prepare(
+    'SELECT description, amount FROM partner_transaction_items WHERE transaction_id = ? ORDER BY id ASC'
+);
+$itemsStmt->execute([$receiptId]);
+$items = $itemsStmt->fetchAll();
 
 $company = company_settings();
 
@@ -67,7 +72,12 @@ $title = strtoupper((string) ($receipt['type'] ?? 'receipt'));
         .section .block { flex: 1; border: 1px solid #e1e1e1; padding: 16px; }
         .block h3 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; }
         .block p { margin: 4px 0; font-size: 14px; }
-        .amount { margin-top: 24px; border-top: 2px solid #222; padding-top: 16px; text-align: right; font-size: 20px; }
+        .line-items { margin-top: 24px; border-top: 2px solid #222; padding-top: 16px; }
+        .line-items table { width: 100%; border-collapse: collapse; }
+        .line-items th, .line-items td { padding: 8px 6px; font-size: 14px; border-bottom: 1px solid #e1e1e1; }
+        .line-items th { text-align: left; text-transform: uppercase; font-size: 12px; letter-spacing: 0.5px; }
+        .line-items td.amount { text-align: right; }
+        .total { margin-top: 12px; text-align: right; font-size: 18px; }
         .notes { margin-top: 20px; border-top: 1px dashed #999; padding-top: 12px; font-size: 13px; }
         .actions { margin-top: 24px; text-align: right; }
         .actions button { padding: 8px 14px; border: 1px solid #222; background: #222; color: #fff; cursor: pointer; }
@@ -113,13 +123,36 @@ $title = strtoupper((string) ($receipt['type'] ?? 'receipt'));
         <div class="block">
             <h3>Payment Details</h3>
             <p>Method: <?= $escape($receipt['payment_method'] ?? '-') ?></p>
-            <p>Branch: <?= $escape($receipt['branch_name'] ?? '-') ?></p>
             <?php if (!empty($receipt['invoice_no'])): ?><p>Invoice: <?= $escape($receipt['invoice_no']) ?></p><?php endif; ?>
         </div>
     </section>
 
-    <div class="amount">
-        Amount: <?= number_format((float) $receipt['amount'], 2) ?>
+    <div class="line-items">
+        <table>
+            <thead>
+                <tr>
+                    <th>Description</th>
+                    <th class="amount">Amount</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php if (!empty($items)): ?>
+                    <?php foreach ($items as $item): ?>
+                        <tr>
+                            <td><?= $escape($item['description']) ?></td>
+                            <td class="amount"><?= number_format((float) $item['amount'], 2) ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                <?php else: ?>
+                    <tr>
+                        <td colspan="2">No line items recorded.</td>
+                    </tr>
+                <?php endif; ?>
+            </tbody>
+        </table>
+        <div class="total">
+            Total: <?= number_format((float) $receipt['amount'], 2) ?>
+        </div>
     </div>
 
     <?php if (!empty($receipt['note'])): ?>

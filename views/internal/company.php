@@ -70,6 +70,35 @@ if (!in_array($user['role'] ?? '', ['Admin', 'Owner'], true)) {
     </form>
     <div class="notice-stack" data-company-status></div>
 </section>
+<section class="panel" data-goods-types-panel>
+    <div class="panel-header">
+        <div>
+            <h3>Goods types</h3>
+            <p>Manage the goods list used in shipment creation.</p>
+        </div>
+    </div>
+    <form class="grid-form" data-goods-types-form>
+        <label>
+            <span>Type name</span>
+            <input type="text" name="name" data-goods-types-input required>
+        </label>
+        <button class="button primary small" type="submit">Add type</button>
+    </form>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Type</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody data-goods-types-table>
+                <tr><td colspan="2" class="muted">Loading goods types...</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="notice-stack" data-goods-types-status></div>
+</section>
 <?php
 internal_page_end();
 ?>

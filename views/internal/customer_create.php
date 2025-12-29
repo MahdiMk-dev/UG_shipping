@@ -5,6 +5,21 @@ require_once __DIR__ . '/_layout.php';
 
 $user = internal_require_user();
 internal_page_start($user, 'customers', 'Create Customer', 'Add a new customer with a unique code.');
+if (($user['role'] ?? '') === 'Warehouse') {
+    http_response_code(403);
+    ?>
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <h3>Access denied</h3>
+                <p>Warehouse users cannot create customer profiles.</p>
+            </div>
+        </div>
+    </section>
+    <?php
+    internal_page_end();
+    exit;
+}
 ?>
 <div data-customer-create>
     <section class="panel">

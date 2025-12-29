@@ -195,6 +195,36 @@ $portalInvoices = [];
                 </div>
             </section>
 
+            <section class="panel">
+                <div class="panel-header">
+                    <div>
+                        <h3>Recent transactions</h3>
+                        <p>Payments, refunds, and adjustments for your profiles.</p>
+                    </div>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Profile</th>
+                                <th>Type</th>
+                                <th>Method</th>
+                                <th>Amount</th>
+                                <th>Date</th>
+                            </tr>
+                        </thead>
+                        <tbody data-portal-transactions>
+                            <tr><td colspan="5" class="muted">No transactions found.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="table-pagination" data-portal-transactions-pagination>
+                    <button class="button ghost small" type="button" data-portal-transactions-prev>Previous</button>
+                    <span class="page-label" data-portal-transactions-page>Page 1</span>
+                    <button class="button ghost small" type="button" data-portal-transactions-next>Next</button>
+                </div>
+            </section>
+
             <div class="notice-stack" data-portal-status></div>
         </div>
     </main>

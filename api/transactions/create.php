@@ -62,6 +62,13 @@ if ($role === 'Sub Branch' && (int) ($customer['sub_branch_id'] ?? 0) !== (int) 
 }
 
 $db = db();
+$branchTypeStmt = $db->prepare('SELECT type FROM branches WHERE id = ? AND deleted_at IS NULL');
+$branchTypeStmt->execute([$branchId]);
+$branchType = $branchTypeStmt->fetchColumn();
+if (!$branchType) {
+    api_error('Branch not found', 404);
+}
+
 $db->beginTransaction();
 
 try {
@@ -83,9 +90,9 @@ try {
     ]);
 
     $normalizedAmount = abs((float) $amount);
-    $balanceDelta = $normalizedAmount;
+    $balanceDelta = -$normalizedAmount;
     if (in_array($type, ['refund', 'adjustment'], true)) {
-        $balanceDelta = -$normalizedAmount;
+        $balanceDelta = $normalizedAmount;
     }
     adjust_customer_balance($db, $customerId, $balanceDelta);
 
@@ -101,10 +108,26 @@ try {
         $user['id'] ?? null,
         $note
     );
+
+    if (in_array($role, ['Admin', 'Owner', 'Main Branch'], true)
+        && $branchType === 'sub'
+        && in_array($type, ['payment', 'deposit', 'admin_settlement'], true)
+    ) {
+        record_branch_balance(
+            $db,
+            $branchId,
+            -$normalizedAmount,
+            'customer_payment',
+            'transaction',
+            $transactionId,
+            $user['id'] ?? null,
+            'Customer payment'
+        );
+    }
     $rowStmt = $db->prepare('SELECT * FROM transactions WHERE id = ?');
     $rowStmt->execute([$transactionId]);
     $after = $rowStmt->fetch();
-    audit_log($user, 'transactions.create', 'transaction', $transactionId, null, $after);
+        audit_log($user, 'transactions.create', 'transaction', $transactionId, null, $after === false ? null : $after);
     $db->commit();
 } catch (PDOException $e) {
     $db->rollBack();

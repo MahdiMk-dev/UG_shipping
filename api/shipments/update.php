@@ -37,6 +37,14 @@ if ($role === 'Warehouse') {
 if ($role === 'Warehouse' && ($before['status'] ?? '') !== 'active') {
     api_error('Shipment must be active to edit', 403);
 }
+if ($role === 'Warehouse') {
+    $blockedFields = ['default_rate', 'default_rate_unit', 'cost_per_unit'];
+    foreach ($blockedFields as $blockedField) {
+        if (array_key_exists($blockedField, $input)) {
+            api_error('Rate fields are restricted for warehouse users', 403);
+        }
+    }
+}
 
 $newDepartureDate = array_key_exists('departure_date', $input)
     ? api_string($input['departure_date'] ?? null)
@@ -123,7 +131,7 @@ if (array_key_exists('shipping_type', $input)) {
 }
 
 $partnerStmt = $db->prepare(
-    'SELECT id, type, country_id FROM partner_profiles WHERE id = ? AND deleted_at IS NULL'
+    'SELECT id, type FROM partner_profiles WHERE id = ? AND deleted_at IS NULL'
 );
 if (array_key_exists('shipper_profile_id', $input)) {
     $shipperProfileId = api_int($input['shipper_profile_id'] ?? null);
@@ -135,9 +143,6 @@ if (array_key_exists('shipper_profile_id', $input)) {
         }
         if (($shipperProfile['type'] ?? '') !== 'shipper') {
             api_error('Selected shipper profile is invalid', 422);
-        }
-        if ($warehouseCountryId && (int) ($shipperProfile['country_id'] ?? 0) !== (int) $warehouseCountryId) {
-            api_error('Shipper profile must match warehouse country', 403);
         }
     }
     $fields[] = 'shipper_profile_id = ?';
@@ -155,9 +160,6 @@ if (array_key_exists('consignee_profile_id', $input)) {
         if (($consigneeProfile['type'] ?? '') !== 'consignee') {
             api_error('Selected consignee profile is invalid', 422);
         }
-        if ($warehouseCountryId && (int) ($consigneeProfile['country_id'] ?? 0) !== (int) $warehouseCountryId) {
-            api_error('Consignee profile must match warehouse country', 403);
-        }
     }
     $fields[] = 'consignee_profile_id = ?';
     $params[] = $consigneeProfileId;
@@ -168,7 +170,6 @@ $optionalText = [
     'consignee',
     'shipment_date',
     'way_of_shipment',
-    'type_of_goods',
     'vessel_or_flight_name',
     'departure_date',
     'arrival_date',
@@ -180,6 +181,22 @@ foreach ($optionalText as $field) {
         $fields[] = $field . ' = ?';
         $params[] = api_string($input[$field] ?? null);
     }
+}
+
+if (array_key_exists('type_of_goods', $input)) {
+    $typeOfGoods = api_string($input['type_of_goods'] ?? null);
+    if (!$typeOfGoods) {
+        api_error('type_of_goods cannot be empty', 422);
+    }
+    if ($typeOfGoods !== ($before['type_of_goods'] ?? '')) {
+        $goodsStmt = $db->prepare('SELECT id FROM goods_types WHERE name = ? AND deleted_at IS NULL');
+        $goodsStmt->execute([$typeOfGoods]);
+        if (!$goodsStmt->fetch()) {
+            api_error('type_of_goods must match a configured goods type', 422);
+        }
+    }
+    $fields[] = 'type_of_goods = ?';
+    $params[] = $typeOfGoods;
 }
 
 $optionalNumbers = [
@@ -303,15 +320,16 @@ try {
                 ]);
 
                 $previousTotal = (float) ($order['total_price'] ?? 0);
-                $customerId = (int) ($order['customer_id'] ?? 0);
-                adjust_customer_balance($db, $customerId, $previousTotal - $totalPrice);
-                if (abs($totalPrice - $previousTotal) > 0.0001) {
+                if (($order['fulfillment_status'] ?? '') === 'received_subbranch' && abs($totalPrice - $previousTotal) > 0.0001) {
+                    $customerId = (int) ($order['customer_id'] ?? 0);
                     $orderBranchId = (int) ($order['sub_branch_id'] ?? 0);
+                    $delta = $totalPrice - $previousTotal;
+                    adjust_customer_balance($db, $customerId, $delta);
                     record_customer_balance(
                         $db,
                         $customerId,
                         $orderBranchId ?: null,
-                        $previousTotal,
+                        -$previousTotal,
                         'order_reversal',
                         'order',
                         (int) $order['id'],
@@ -322,20 +340,17 @@ try {
                         $db,
                         $customerId,
                         $orderBranchId ?: null,
-                        -$totalPrice,
+                        $totalPrice,
                         'order_charge',
                         'order',
                         (int) $order['id'],
                         $user['id'] ?? null,
                         'Shipment rate updated'
                     );
-                }
-
-                if (($order['fulfillment_status'] ?? '') === 'received_subbranch' && abs($totalPrice - $previousTotal) > 0.0001) {
                     record_branch_balance(
                         $db,
-                        (int) ($order['sub_branch_id'] ?? 0),
-                        $totalPrice - $previousTotal,
+                        $orderBranchId,
+                        $delta,
                         'adjustment',
                         'order',
                         (int) $order['id'],
@@ -349,16 +364,30 @@ try {
 
     if ($statusChangedToInShipment) {
         $receivedStmt = $db->prepare(
-            'SELECT id, sub_branch_id, total_price FROM orders '
+            'SELECT id, customer_id, sub_branch_id, total_price FROM orders '
             . 'WHERE shipment_id = ? AND deleted_at IS NULL AND fulfillment_status = \'received_subbranch\''
         );
         $receivedStmt->execute([$shipmentId]);
         $receivedOrders = $receivedStmt->fetchAll() ?: [];
         foreach ($receivedOrders as $order) {
+            $totalPrice = (float) ($order['total_price'] ?? 0);
+            $customerId = (int) ($order['customer_id'] ?? 0);
+            adjust_customer_balance($db, $customerId, -$totalPrice);
+            record_customer_balance(
+                $db,
+                $customerId,
+                !empty($order['sub_branch_id']) ? (int) $order['sub_branch_id'] : null,
+                -$totalPrice,
+                'order_reversal',
+                'order',
+                (int) $order['id'],
+                $user['id'] ?? null,
+                'Shipment status reset'
+            );
             record_branch_balance(
                 $db,
                 (int) ($order['sub_branch_id'] ?? 0),
-                -(float) ($order['total_price'] ?? 0),
+                -$totalPrice,
                 'order_reversal',
                 'order',
                 (int) $order['id'],

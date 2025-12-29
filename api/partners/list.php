@@ -10,7 +10,6 @@ $filters = $_GET ?? [];
 
 $search = api_string($filters['q'] ?? null);
 $type = api_string($filters['type'] ?? null);
-$countryId = api_int($filters['country_id'] ?? null);
 $limit = api_int($filters['limit'] ?? 50, 50);
 $offset = api_int($filters['offset'] ?? 0, 0);
 
@@ -37,23 +36,9 @@ if ($search) {
     $params[] = $like;
 }
 
-$role = $user['role'] ?? '';
-if ($role === 'Warehouse') {
-    $warehouseCountryId = get_branch_country_id($user);
-    if (!$warehouseCountryId) {
-        api_error('Warehouse country scope required', 403);
-    }
-    $where[] = 'p.country_id = ?';
-    $params[] = $warehouseCountryId;
-} elseif ($countryId) {
-    $where[] = 'p.country_id = ?';
-    $params[] = $countryId;
-}
-
-$sql = 'SELECT p.id, p.type, p.name, p.phone, p.address, p.country_id, c.name AS country_name, '
+$sql = 'SELECT p.id, p.type, p.name, p.phone, p.address, '
     . 'p.balance, p.created_at, p.updated_at '
     . 'FROM partner_profiles p '
-    . 'LEFT JOIN countries c ON c.id = p.country_id '
     . 'WHERE ' . implode(' AND ', $where) . ' '
     . 'ORDER BY p.id DESC LIMIT ? OFFSET ?';
 

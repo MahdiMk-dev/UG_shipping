@@ -53,7 +53,7 @@ if (!$canEdit) {
             <div class="panel-header">
                 <div>
                     <h3>Adjust salary</h3>
-                    <p>Update the base salary and log the adjustment as an expense.</p>
+                    <p>Update the base salary. Adjustments are tracked but not counted as expenses.</p>
                 </div>
             </div>
             <form class="grid-form" data-staff-salary-form>
@@ -72,6 +72,35 @@ if (!$canEdit) {
                 <button class="button primary" type="submit">Save adjustment</button>
             </form>
             <div class="notice-stack" data-staff-salary-status></div>
+        </section>
+
+        <section class="panel">
+            <div class="panel-header">
+                <div>
+                    <h3>Pay salary</h3>
+                    <p>Record a salary payment for a specific month.</p>
+                </div>
+            </div>
+            <form class="grid-form" data-staff-pay-form>
+                <label>
+                    <span>Salary month</span>
+                    <input type="month" name="salary_month" required>
+                </label>
+                <label>
+                    <span>Amount</span>
+                    <input type="number" step="0.01" name="amount" required>
+                </label>
+                <label>
+                    <span>Payment date</span>
+                    <input type="date" name="payment_date">
+                </label>
+                <label class="full">
+                    <span>Note</span>
+                    <input type="text" name="note" placeholder="Optional note">
+                </label>
+                <button class="button primary" type="submit">Record salary payment</button>
+            </form>
+            <div class="notice-stack" data-staff-pay-status></div>
         </section>
 
         <section class="panel">
@@ -129,7 +158,7 @@ if (!$canEdit) {
         <div class="panel-header">
             <div>
                 <h3>Expense history</h3>
-                <p>All salary adjustments, advances, and bonuses.</p>
+                <p>Salary payments, advances, bonuses, and adjustments.</p>
             </div>
         </div>
         <div class="table-wrap">
@@ -140,12 +169,13 @@ if (!$canEdit) {
                         <th>Amount</th>
                         <th>Salary before</th>
                         <th>Salary after</th>
+                        <th>Salary month</th>
                         <th>Date</th>
                         <th>Note</th>
                     </tr>
                 </thead>
                 <tbody data-staff-expenses>
-                    <tr><td colspan="6" class="muted">Loading expenses...</td></tr>
+                    <tr><td colspan="7" class="muted">Loading expenses...</td></tr>
                 </tbody>
             </table>
         </div>

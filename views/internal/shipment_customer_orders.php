@@ -8,14 +8,18 @@ internal_page_start($user, 'shipments', 'Customer Orders', 'All orders for this 
 
 $shipmentId = $_GET['shipment_id'] ?? '';
 $customerId = $_GET['customer_id'] ?? '';
-$canEdit = in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch', 'Warehouse'], true);
+$role = $user['role'] ?? '';
+$canEdit = in_array($role, ['Admin', 'Owner', 'Main Branch', 'Warehouse'], true);
+$isWarehouse = $role === 'Warehouse';
+$showIncome = !$isWarehouse;
 $backUrl = $shipmentId
     ? BASE_URL . '/views/internal/shipment_view?id=' . urlencode((string) $shipmentId)
     : BASE_URL . '/views/internal/shipments';
 ?>
 <div data-shipment-customer-orders data-shipment-id="<?= htmlspecialchars((string) $shipmentId, ENT_QUOTES) ?>"
      data-customer-id="<?= htmlspecialchars((string) $customerId, ENT_QUOTES) ?>"
-     data-can-edit="<?= $canEdit ? '1' : '0' ?>">
+     data-can-edit="<?= $canEdit ? '1' : '0' ?>"
+     data-show-income="<?= $showIncome ? '1' : '0' ?>">
     <div class="app-toolbar">
         <a class="button ghost" href="<?= htmlspecialchars($backUrl, ENT_QUOTES) ?>">Back to shipment</a>
         <span class="toolbar-title">Customer orders</span>
@@ -35,7 +39,9 @@ $backUrl = $shipmentId
                 <div><span>Customer</span><strong data-detail="customer_name">--</strong></div>
                 <div><span>Orders</span><strong data-detail="order_count">--</strong></div>
                 <div><span>Total Qty</span><strong data-detail="total_qty">--</strong></div>
-                <div><span>Total</span><strong data-detail="total_price">--</strong></div>
+                <?php if ($showIncome): ?>
+                    <div><span>Total</span><strong data-detail="total_price">--</strong></div>
+                <?php endif; ?>
             </div>
         </article>
     </section>
@@ -54,7 +60,9 @@ $backUrl = $shipmentId
                         <th>Tracking</th>
                         <th>Delivery</th>
                         <th>Qty</th>
-                        <th>Total</th>
+                        <?php if ($showIncome): ?>
+                            <th>Total</th>
+                        <?php endif; ?>
                         <th>Fulfillment</th>
                         <?php if ($canEdit): ?>
                             <th>Action</th>
@@ -62,7 +70,7 @@ $backUrl = $shipmentId
                     </tr>
                 </thead>
                 <tbody data-customer-orders-table>
-                    <tr><td colspan="<?= $canEdit ? 6 : 5 ?>" class="muted">Loading orders...</td></tr>
+                    <tr><td colspan="<?= ($showIncome ? 5 : 4) + ($canEdit ? 1 : 0) ?>" class="muted">Loading orders...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -111,20 +119,22 @@ $backUrl = $shipmentId
                         <span>Height (H)</span>
                         <input type="number" step="0.01" name="h">
                     </label>
-                    <label>
-                        <span>Rate</span>
-                        <input type="number" step="0.01" name="rate" required>
-                    </label>
-                    <div class="adjustments-block full">
-                        <div class="panel-header">
-                            <div>
-                                <h3>Adjustments</h3>
-                                <p>Additional costs or discounts for this order.</p>
+                    <?php if ($showIncome): ?>
+                        <label>
+                            <span>Rate</span>
+                            <input type="number" step="0.01" name="rate" required>
+                        </label>
+                        <div class="adjustments-block full">
+                            <div class="panel-header">
+                                <div>
+                                    <h3>Adjustments</h3>
+                                    <p>Additional costs or discounts for this order.</p>
+                                </div>
+                                <button class="button ghost small" type="button" data-adjustment-add>Add line</button>
                             </div>
-                            <button class="button ghost small" type="button" data-adjustment-add>Add line</button>
+                            <div class="adjustments-list" data-adjustments-list></div>
                         </div>
-                        <div class="adjustments-list" data-adjustments-list></div>
-                    </div>
+                    <?php endif; ?>
                     <button class="button primary small" type="submit">Save changes</button>
                 </form>
                 <div class="notice-stack" data-order-edit-status></div>

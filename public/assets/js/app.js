@@ -36,6 +36,7 @@
             initShipmentCreate();
             initShipmentView();
             initShipmentCustomerOrders();
+            initShipmentOrdersPage();
             initOrdersPage();
             initOrderCreate();
             initCustomersPage();
@@ -75,6 +76,7 @@
         initShipmentCreate();
         initShipmentView();
         initShipmentCustomerOrders();
+        initShipmentOrdersPage();
         initOrdersPage();
         initOrderCreate();
         initCustomersPage();
@@ -300,6 +302,7 @@ function initPortalDashboard() {
     const profilesTable = shell.querySelector('[data-portal-profiles]');
     const ordersTable = shell.querySelector('[data-portal-orders]');
     const invoicesTable = shell.querySelector('[data-portal-invoices]');
+    const transactionsTable = shell.querySelector('[data-portal-transactions]');
     const greetingEl = shell.querySelector('[data-portal-greeting]');
     const userName = shell.querySelector('[data-portal-user-name]');
     const userCode = shell.querySelector('[data-portal-user-code]');
@@ -309,11 +312,16 @@ function initPortalDashboard() {
     const invoicesPrev = shell.querySelector('[data-portal-invoices-prev]');
     const invoicesNext = shell.querySelector('[data-portal-invoices-next]');
     const invoicesPageLabel = shell.querySelector('[data-portal-invoices-page]');
+    const transactionsPrev = shell.querySelector('[data-portal-transactions-prev]');
+    const transactionsNext = shell.querySelector('[data-portal-transactions-next]');
+    const transactionsPageLabel = shell.querySelector('[data-portal-transactions-page]');
     const pageSize = 5;
     let ordersPage = 0;
     let invoicesPage = 0;
+    let transactionsPage = 0;
     let ordersData = [];
     let invoicesData = [];
+    let transactionsData = [];
 
     const showNotice = (message, type = 'error') => {
         if (!statusStack) {
@@ -412,6 +420,44 @@ function initPortalDashboard() {
         updatePager(invoicesPrev, invoicesNext, invoicesPageLabel, invoicesPage, rows);
     };
 
+    const renderTransactions = (rows) => {
+        if (!transactionsTable) {
+            return;
+        }
+        if (!rows || rows.length === 0) {
+            transactionsTable.innerHTML = '<tr><td colspan="5" class="muted">No transactions found.</td></tr>';
+            updatePager(transactionsPrev, transactionsNext, transactionsPageLabel, transactionsPage, rows || []);
+            return;
+        }
+        const typeLabelMap = {
+            payment: 'Payment',
+            deposit: 'Deposit',
+            refund: 'Refund',
+            adjustment: 'Adjustment',
+            admin_settlement: 'Admin settlement',
+        };
+        const pageRows = paginateRows(rows, transactionsPage);
+        transactionsTable.innerHTML = pageRows
+            .map((tx) => {
+                const profileLabel = tx.customer_name
+                    ? tx.customer_code
+                        ? `${tx.customer_name} (${tx.customer_code})`
+                        : tx.customer_name
+                    : '-';
+                const typeLabel = typeLabelMap[tx.type] || tx.type || '-';
+                const dateLabel = tx.payment_date || tx.created_at || '-';
+                return `<tr>
+                    <td>${escapeHtml(profileLabel)}</td>
+                    <td>${escapeHtml(typeLabel)}</td>
+                    <td>${escapeHtml(tx.payment_method || '-')}</td>
+                    <td>${tx.amount || '0.00'}</td>
+                    <td>${escapeHtml(dateLabel)}</td>
+                </tr>`;
+            })
+            .join('');
+        updatePager(transactionsPrev, transactionsNext, transactionsPageLabel, transactionsPage, rows);
+    };
+
     const renderProfiles = (rows) => {
         if (!profilesTable) {
             return;
@@ -475,10 +521,13 @@ function initPortalDashboard() {
             renderProfiles(profiles);
             ordersData = data.orders || [];
             invoicesData = data.invoices || [];
+            transactionsData = data.transactions || [];
             ordersPage = 0;
             invoicesPage = 0;
+            transactionsPage = 0;
             renderOrders(ordersData);
             renderInvoices(invoicesData);
+            renderTransactions(transactionsData);
         } catch (error) {
             showNotice(`Portal load failed: ${error.message}`, 'error');
             if (ordersTable) {
@@ -486,6 +535,9 @@ function initPortalDashboard() {
             }
             if (invoicesTable) {
                 invoicesTable.innerHTML = '<tr><td colspan="6" class="muted">Unable to load invoices.</td></tr>';
+            }
+            if (transactionsTable) {
+                transactionsTable.innerHTML = '<tr><td colspan="5" class="muted">Unable to load transactions.</td></tr>';
             }
             if (profilesTable) {
                 profilesTable.innerHTML = '<tr><td colspan="5" class="muted">Unable to load profiles.</td></tr>';
@@ -532,6 +584,24 @@ function initPortalDashboard() {
             }
             invoicesPage += 1;
             renderInvoices(invoicesData);
+        });
+    }
+    if (transactionsPrev) {
+        transactionsPrev.addEventListener('click', () => {
+            if (transactionsPage === 0) {
+                return;
+            }
+            transactionsPage -= 1;
+            renderTransactions(transactionsData);
+        });
+    }
+    if (transactionsNext) {
+        transactionsNext.addEventListener('click', () => {
+            if (transactionsData.length <= (transactionsPage + 1) * pageSize) {
+                return;
+            }
+            transactionsPage += 1;
+            renderTransactions(transactionsData);
         });
     }
 
@@ -734,6 +804,7 @@ function initShipmentView() {
         return;
     }
 
+    const collapsiblePanels = page.querySelectorAll('[data-collapsible-panel]');
     const statusStack = page.querySelector('[data-shipment-status]');
     const editForm = page.querySelector('[data-shipment-edit-form]');
     const editStatus = page.querySelector('[data-shipment-edit-status]');
@@ -748,6 +819,7 @@ function initShipmentView() {
     const addOrderLink = page.querySelector('[data-add-order-link]');
     const originSelects = page.querySelectorAll('[data-origin-select]');
     const partnerSelects = page.querySelectorAll('[data-partner-select]');
+    const goodsSelects = page.querySelectorAll('[data-goods-select]');
     const details = page.querySelectorAll('[data-detail]');
     const collectionsTable = page.querySelector('[data-collections-table]');
     const ordersTable = page.querySelector('[data-orders-table]');
@@ -792,6 +864,7 @@ function initShipmentView() {
     const canEditRole = ['Admin', 'Owner', 'Main Branch', 'Warehouse'].includes(role || '');
     const canDistributeRole = ['Admin', 'Owner', 'Main Branch'].includes(role || '');
     let canEdit = canEditRole;
+    const canSeeIncome = page.getAttribute('data-show-income') !== '0';
     const pageSize = 5;
     let collectionsPage = 0;
     let ordersPage = 0;
@@ -806,6 +879,7 @@ function initShipmentView() {
     let shipmentExpensesData = [];
     const shipmentExpenseMap = new Map();
     let warehouseLockNotified = false;
+    let pendingGoodsValue = '';
     const escapeHtml = (value) =>
         String(value)
             .replace(/&/g, '&amp;')
@@ -814,9 +888,60 @@ function initShipmentView() {
             .replace(/\"/g, '&quot;')
             .replace(/'/g, '&#39;');
     const formatAmount = (value) => {
-        const num = Number(value ?? 0);
-        return Number.isFinite(num) ? num.toFixed(2) : '0.00';
+	const num = Number(value ?? 0);
+	return Number.isFinite(num) ? num.toFixed(2) : '0.00';
+};
+
+    const initCollapsiblePanels = () => {
+        if (!collapsiblePanels.length) {
+            return;
+        }
+        collapsiblePanels.forEach((panel, index) => {
+            const toggle = panel.querySelector('[data-panel-toggle]');
+            const body = panel.querySelector('.panel-body');
+            if (!toggle || !body) {
+                return;
+            }
+            const bodyId = body.id || `panel-body-${index}`;
+            body.id = bodyId;
+            toggle.setAttribute('aria-controls', bodyId);
+
+            const setCollapsed = (collapsed) => {
+                panel.setAttribute('data-collapsed', collapsed ? '1' : '0');
+                toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+            };
+
+            if (!panel.hasAttribute('data-collapsed')) {
+                setCollapsed(false);
+            } else {
+                setCollapsed(panel.getAttribute('data-collapsed') === '1');
+            }
+
+            toggle.addEventListener('click', () => {
+                const isCollapsed = panel.getAttribute('data-collapsed') === '1';
+                setCollapsed(!isCollapsed);
+            });
+        });
     };
+
+    // --- FIX: Move showPaymentNotice here so it's always defined before use ---
+
+// --- GLOBAL: showPaymentNotice for all modules/pages ---
+function showPaymentNotice(message, type = 'error') {
+    // Try to find a payment status stack in the DOM
+    var paymentStatus = document.querySelector('[data-customer-payment-status], [data-invoice-form-status], [data-payment-status]');
+    var statusStack = document.querySelector('[data-customer-view-status], [data-invoices-status], [data-status-stack]');
+    if (!paymentStatus && !statusStack) return;
+    var notice = document.createElement('div');
+    notice.className = 'notice ' + type;
+    notice.textContent = message;
+    if (paymentStatus) {
+        paymentStatus.appendChild(notice);
+    } else if (statusStack) {
+        statusStack.appendChild(notice);
+    }
+    setTimeout(function() { notice.remove(); }, 6000);
+}
 
     const openEditDrawer = () => {
         if (!editDrawer) {
@@ -1089,8 +1214,9 @@ function initShipmentView() {
         if (!ordersTable) {
             return;
         }
+        const columnCount = canSeeIncome ? 5 : 4;
         if (!ordersData.length) {
-            ordersTable.innerHTML = '<tr><td colspan="5" class="muted">No orders found.</td></tr>';
+            ordersTable.innerHTML = `<tr><td colspan="${columnCount}" class="muted">No orders found.</td></tr>`;
             updatePager(ordersPrev, ordersNext, ordersPageLabel, ordersPage, ordersData);
             return;
         }
@@ -1106,11 +1232,12 @@ function initShipmentView() {
                               row.customer_id
                           )}`
                         : '#';
+                const totalCell = canSeeIncome ? `<td>${row.total_price || '0.00'}</td>` : '';
                 return `<tr>
                     <td>${row.customer_name || '-'}</td>
                     <td>${row.order_count || 0}</td>
                     <td>${qtyLabel}</td>
-                    <td>${row.total_price || '0.00'}</td>
+                    ${totalCell}
                     <td><a class="text-link" href="${link}">View orders</a></td>
                 </tr>`;
             })
@@ -1269,6 +1396,45 @@ function initShipmentView() {
         applyPartnerSelection();
     };
 
+    const applyGoodsSelection = () => {
+        if (!goodsSelects.length) {
+            return;
+        }
+        goodsSelects.forEach((select) => {
+            const pendingValue = pendingGoodsValue || '';
+            if (pendingValue && !Array.from(select.options).some((option) => option.value === pendingValue)) {
+                const option = document.createElement('option');
+                option.value = pendingValue;
+                option.textContent = pendingValue;
+                option.setAttribute('data-dynamic', 'true');
+                select.appendChild(option);
+            }
+            select.value = pendingValue;
+        });
+    };
+
+    const loadGoodsTypes = async () => {
+        if (!goodsSelects.length) {
+            return;
+        }
+        try {
+            const data = await fetchJson(`${window.APP_BASE}/api/goods_types/list.php?limit=300`);
+            goodsSelects.forEach((select) => {
+                select.querySelectorAll('option[data-dynamic]').forEach((option) => option.remove());
+                (data.data || []).forEach((goodsType) => {
+                    const option = document.createElement('option');
+                    option.value = goodsType.name;
+                    option.textContent = goodsType.name;
+                    option.setAttribute('data-dynamic', 'true');
+                    select.appendChild(option);
+                });
+            });
+            applyGoodsSelection();
+        } catch (error) {
+            showEditNotice(`Goods types load failed: ${error.message}`, 'error');
+        }
+    };
+
     const populateEditForm = (shipment) => {
         if (!editForm || !shipment) {
             return;
@@ -1277,12 +1443,28 @@ function initShipmentView() {
             editShipmentIdField.value = shipment.id || '';
         }
         editForm.querySelector('[name="shipment_number"]').value = shipment.shipment_number || '';
-        editForm.querySelector('[name="shipping_type"]').value = shipment.shipping_type || '';
+        const shippingTypeValue = shipment.shipping_type || '';
+        const shippingTypeInputs = editForm.querySelectorAll('[name="shipping_type"]');
+        if (shippingTypeInputs.length) {
+            shippingTypeInputs.forEach((input) => {
+                input.checked = input.value === shippingTypeValue;
+            });
+        } else {
+            const shippingTypeField = editForm.querySelector('[name="shipping_type"]');
+            if (shippingTypeField) {
+                shippingTypeField.value = shippingTypeValue;
+            }
+        }
         editForm.querySelector('[name="status"]').value = shipment.status || 'active';
         editForm.querySelector('[name="departure_date"]').value = shipment.departure_date || '';
         editForm.querySelector('[name="arrival_date"]').value = shipment.arrival_date || '';
         editForm.querySelector('[name="default_rate"]').value = shipment.default_rate ?? '';
-        editForm.querySelector('[name="default_rate_unit"]').value = shipment.default_rate_unit || '';
+        pendingGoodsValue = shipment.type_of_goods || '';
+        applyGoodsSelection();
+        const rateUnitField = editForm.querySelector('[name="default_rate_unit"]');
+        if (rateUnitField) {
+            rateUnitField.value = shipment.default_rate_unit || '';
+        }
         editForm.querySelector('[name="note"]').value = shipment.note || '';
         pendingOriginId = shipment.origin_country_id || '';
         pendingPartnerIds.shipper = shipment.shipper_profile_id || '';
@@ -1745,7 +1927,9 @@ function initShipmentView() {
         }
     });
 
+    initCollapsiblePanels();
     loadCountries();
+    loadGoodsTypes();
     loadPartners();
     loadShipment();
 }
@@ -1863,21 +2047,46 @@ function initReceivingPage() {
         if (!unmatchedTable) {
             return;
         }
+        const colspan = canManage ? 7 : 6;
         if (!unmatchedData.length) {
-            unmatchedTable.innerHTML = '<tr><td colspan="5" class="muted">No unmatched scans.</td></tr>';
+            unmatchedTable.innerHTML = `<tr><td colspan="${colspan}" class="muted">No unmatched scans.</td></tr>`;
             updatePager(unmatchedPrev, unmatchedNext, unmatchedPageLabel, unmatchedPage, unmatchedData);
             return;
         }
+        const matchLabel = (row) => {
+            if (row.match_type === 'wrong_branch') {
+                const branchLabel = row.expected_branch_name || (row.expected_branch_id ? `Branch #${row.expected_branch_id}` : '');
+                return branchLabel ? `Other branch: ${branchLabel}` : 'Other branch';
+            }
+            if (row.match_type === 'other_shipment') {
+                const shipmentLabel =
+                    row.other_shipment_number || (row.other_shipment_id ? `Shipment #${row.other_shipment_id}` : '');
+                return shipmentLabel ? `Other shipment: ${shipmentLabel}` : 'Other shipment';
+            }
+            if (row.match_type === 'status_mismatch') {
+                return row.order_status ? `Status: ${row.order_status}` : 'Status mismatch';
+            }
+            return 'No match';
+        };
         unmatchedTable.innerHTML = unmatchedData
-            .map(
-                (row) => `<tr>
+            .map((row) => {
+                const shipmentLabel = row.shipment_number || row.shipment_id || '-';
+                const branchLabel = row.branch_name || row.branch_id || '-';
+                const actionCell = canManage
+                    ? `<td>${
+                          row.order_id ? `<button class="button ghost small" type="button" data-return-scan="${row.id}">Return</button>` : '-'
+                      }</td>`
+                    : '';
+                return `<tr>
                     <td>${row.tracking_number || '-'}</td>
-                    <td>${row.shipment_id || '-'}</td>
-                    <td>${row.branch_id || '-'}</td>
+                    <td>${shipmentLabel}</td>
+                    <td>${branchLabel}</td>
+                    <td>${matchLabel(row)}</td>
                     <td>${row.scanned_at || '-'}</td>
                     <td>${row.note || '-'}</td>
-                </tr>`
-            )
+                    ${actionCell}
+                </tr>`;
+            })
             .join('');
         updatePager(unmatchedPrev, unmatchedNext, unmatchedPageLabel, unmatchedPage, unmatchedData);
     };
@@ -2036,7 +2245,8 @@ function initReceivingPage() {
 
     const loadUnmatched = async () => {
         if (unmatchedTable) {
-            unmatchedTable.innerHTML = '<tr><td colspan="5" class="muted">Loading unmatched scans...</td></tr>';
+            const colspan = canManage ? 7 : 6;
+            unmatchedTable.innerHTML = `<tr><td colspan="${colspan}" class="muted">Loading unmatched scans...</td></tr>`;
         }
         const params = new URLSearchParams();
         params.append('limit', String(limit));
@@ -2054,6 +2264,24 @@ function initReceivingPage() {
             unmatchedData = [];
             renderUnmatched();
             showNotice(`Unmatched scans load failed: ${error.message}`, 'error');
+        }
+    };
+
+    const returnToMainBranch = async (scanId) => {
+        if (!scanId) {
+            return;
+        }
+        try {
+            await fetchJson(`${window.APP_BASE}/api/receiving/return.php`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ scan_id: scanId }),
+            });
+            showNotice('Order returned to main branch.', 'success');
+            loadShipments();
+            loadUnmatched();
+        } catch (error) {
+            showNotice(`Return failed: ${error.message}`, 'error');
         }
     };
 
@@ -2075,6 +2303,18 @@ function initReceivingPage() {
         }
     };
 
+    const focusShipmentTracking = (value) => {
+        if (!value) {
+            return;
+        }
+        const input = page.querySelector(
+            `[data-receiving-scan-form][data-shipment-id="${value}"] input[name="tracking_number"]`
+        );
+        if (input && typeof input.focus === 'function') {
+            input.focus();
+        }
+    };
+
     const submitScan = async (payload, statusEl, shipmentId, focusInput) => {
         try {
             const data = await fetchJson(`${window.APP_BASE}/api/receiving/scan.php`, {
@@ -2087,16 +2327,18 @@ function initReceivingPage() {
             } else {
                 showScanNotice(statusEl, 'Scan recorded but no order matched.', 'error');
             }
-            loadShipments();
+            await loadShipments();
             if (shipmentId) {
-                loadShipmentOrders(shipmentId);
+                await loadShipmentOrders(shipmentId);
             }
-            loadUnmatched();
+            await loadUnmatched();
         } catch (error) {
             showScanNotice(statusEl, `Scan failed: ${error.message}`, 'error');
         } finally {
             if (focusInput && typeof focusInput.focus === 'function') {
                 focusInput.focus();
+            } else {
+                focusShipmentTracking(shipmentId);
             }
         }
     }
@@ -2184,6 +2426,24 @@ function initReceivingPage() {
                 }
                 submitScan(payload, statusEl, shipmentIdValue, focusInput);
             }
+        });
+    }
+
+    if (unmatchedTable && canManage) {
+        unmatchedTable.addEventListener('click', (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) {
+                return;
+            }
+            const button = target.closest('[data-return-scan]');
+            if (!button) {
+                return;
+            }
+            const scanId = button.getAttribute('data-return-scan') || '';
+            if (!scanId) {
+                return;
+            }
+            returnToMainBranch(scanId);
         });
     }
 
@@ -2284,6 +2544,7 @@ function initShipmentCustomerOrders() {
     const shipmentId = page.getAttribute('data-shipment-id');
     const customerId = page.getAttribute('data-customer-id');
     const canEditAttr = page.getAttribute('data-can-edit') === '1';
+    const canSeeIncome = page.getAttribute('data-show-income') !== '0';
     const pageSize = 5;
     let ordersPage = 0;
     let ordersData = [];
@@ -2462,7 +2723,8 @@ function initShipmentCustomerOrders() {
             return;
         }
         if (!rows.length) {
-            const colspan = canEdit ? 6 : 5;
+            const baseCols = canSeeIncome ? 5 : 4;
+            const colspan = baseCols + (canEdit ? 1 : 0);
             tableBody.innerHTML = `<tr><td colspan="${colspan}" class="muted">No orders found.</td></tr>`;
             updatePager(rows);
             return;
@@ -2476,11 +2738,12 @@ function initShipmentCustomerOrders() {
                 const actionCell = canEdit
                     ? `<td><button class="button ghost small" type="button" data-order-edit-open data-order-id="${row.id}">Edit</button></td>`
                     : '';
+                const totalCell = canSeeIncome ? `<td>${row.total_price || '0.00'}</td>` : '';
                 return `<tr>
                     <td>${row.tracking_number || '-'}</td>
                     <td>${row.delivery_type || '-'}</td>
                     <td>${qtyLabel}</td>
-                    <td>${row.total_price || '0.00'}</td>
+                    ${totalCell}
                     <td>${row.fulfillment_status || '-'}</td>
                     ${actionCell}
                 </tr>`;
@@ -2534,7 +2797,9 @@ function initShipmentCustomerOrders() {
                 setDetail('customer_name', customerName);
                 setDetail('order_count', rows.length);
                 setDetail('total_qty', `${formatNumber(totalQty, 3)}${unitLabel}`);
-                setDetail('total_price', formatNumber(totalPrice, 2));
+                if (canSeeIncome) {
+                    setDetail('total_price', formatNumber(totalPrice, 2));
+                }
             })
             .catch((error) => {
                 showNotice(`Orders load failed: ${error.message}`, 'error');
@@ -2596,13 +2861,16 @@ function initShipmentCustomerOrders() {
                 return;
             }
             const weightType = editForm.querySelector('[name="weight_type"]')?.value || 'actual';
-            const rateValue = editForm.querySelector('[name="rate"]')?.value || '';
+            const rateInput = editForm.querySelector('[name="rate"]');
+            const rateValue = rateInput?.value || '';
             const payload = {
                 order_id: currentOrder.id,
                 weight_type: weightType,
-                rate: rateValue !== '' ? parseFloat(rateValue) : null,
-                adjustments: [],
             };
+            if (canSeeIncome && rateInput) {
+                payload.rate = rateValue !== '' ? parseFloat(rateValue) : null;
+                payload.adjustments = [];
+            }
             if (weightType === 'actual') {
                 const actualWeightValue = editForm.querySelector('[name="actual_weight"]')?.value || '';
                 payload.actual_weight = actualWeightValue !== '' ? parseFloat(actualWeightValue) : null;
@@ -2615,7 +2883,7 @@ function initShipmentCustomerOrders() {
                 payload.h = hValue !== '' ? parseFloat(hValue) : null;
             }
 
-            if (adjustmentsList) {
+            if (canSeeIncome && adjustmentsList) {
                 const rows = adjustmentsList.querySelectorAll('[data-adjustment-row]');
                 for (const row of rows) {
                     const title = row.querySelector('[name="title"]')?.value?.trim() || '';
@@ -2670,6 +2938,248 @@ function initShipmentCustomerOrders() {
     loadOrders();
 }
 
+function initShipmentOrdersPage() {
+    const page = document.querySelector('[data-shipment-orders-page]');
+    if (!page) {
+        return;
+    }
+
+    const shipmentIdAttr = page.getAttribute('data-shipment-id');
+    const shipmentNumberAttr = page.getAttribute('data-shipment-number');
+    const canSeeIncome = page.getAttribute('data-show-income') !== '0';
+    const tableBody = page.querySelector('[data-shipment-orders-table]');
+    const statusStack = page.querySelector('[data-shipment-orders-status]');
+    const filterForm = page.querySelector('[data-shipment-orders-filter]');
+    const statusFilter = page.querySelector('[data-shipment-orders-status-filter]');
+    const searchInput = page.querySelector('[data-shipment-orders-search]');
+    const clearButton = page.querySelector('[data-shipment-orders-clear]');
+    const prevButton = page.querySelector('[data-shipment-orders-prev]');
+    const nextButton = page.querySelector('[data-shipment-orders-next]');
+    const pageLabel = page.querySelector('[data-shipment-orders-page]');
+    const details = page.querySelectorAll('[data-detail]');
+
+    const detailMap = {};
+    details.forEach((el) => {
+        detailMap[el.getAttribute('data-detail')] = el;
+    });
+
+    const showNotice = (message, type = 'error') => {
+        if (!statusStack) {
+            return;
+        }
+        const notice = document.createElement('div');
+        notice.className = `notice ${type}`;
+        notice.textContent = message;
+        statusStack.appendChild(notice);
+        setTimeout(() => notice.remove(), 6000);
+    };
+
+    const setDetail = (key, value) => {
+        const target = detailMap[key];
+        if (target) {
+            target.textContent = value !== null && value !== undefined && value !== '' ? value : '--';
+        }
+    };
+
+    const formatNumber = (value, digits) => {
+        if (!Number.isFinite(value)) {
+            return '0';
+        }
+        return value.toFixed(digits).replace(/\.?0+$/, '');
+    };
+
+    const formatAmount = (value) => {
+        const num = Number(value ?? 0);
+        return Number.isFinite(num) ? num.toFixed(2) : '0.00';
+    };
+
+    const limit = 20;
+    let offset = 0;
+    let lastCount = 0;
+    let resolvedShipmentId = shipmentIdAttr || '';
+    let activeFilters = {
+        status: '',
+        q: '',
+    };
+
+    const updatePager = () => {
+        if (prevButton) {
+            prevButton.disabled = offset === 0;
+        }
+        if (nextButton) {
+            nextButton.disabled = lastCount < limit;
+        }
+        if (pageLabel) {
+            pageLabel.textContent = `Page ${Math.floor(offset / limit) + 1}`;
+        }
+    };
+
+    const renderOrders = (rows) => {
+        if (!tableBody) {
+            return;
+        }
+        const columnCount = canSeeIncome ? 7 : 6;
+        if (!rows.length) {
+            tableBody.innerHTML = `<tr><td colspan="${columnCount}" class="muted">No orders found.</td></tr>`;
+            updatePager();
+            return;
+        }
+        tableBody.innerHTML = rows
+            .map((row) => {
+                const customerLabel = row.customer_name
+                    ? row.customer_code
+                        ? `${row.customer_name} (${row.customer_code})`
+                        : row.customer_name
+                    : '-';
+                const qtyValue = row.qty !== null && row.qty !== undefined ? row.qty : null;
+                const qtyLabel = qtyValue !== null && qtyValue !== '' ? `${qtyValue} ${row.unit_type || ''}`.trim() : '-';
+                const totalCell = canSeeIncome ? `<td>${formatAmount(row.total_price)}</td>` : '';
+                return `<tr>
+                    <td>${row.tracking_number || '-'}</td>
+                    <td>${customerLabel}</td>
+                    <td>${row.sub_branch_name || '-'}</td>
+                    <td>${qtyLabel}</td>
+                    ${totalCell}
+                    <td>${row.fulfillment_status || '-'}</td>
+                    <td>${row.created_at || '-'}</td>
+                </tr>`;
+            })
+            .join('');
+        updatePager();
+    };
+
+    const loadOrders = async () => {
+        if (!resolvedShipmentId) {
+            return;
+        }
+        if (tableBody) {
+            const columnCount = canSeeIncome ? 7 : 6;
+            tableBody.innerHTML = `<tr><td colspan="${columnCount}" class="muted">Loading orders...</td></tr>`;
+        }
+        const params = new URLSearchParams({
+            shipment_id: String(resolvedShipmentId),
+            limit: String(limit),
+            offset: String(offset),
+        });
+        if (activeFilters.status) {
+            params.append('fulfillment_status', activeFilters.status);
+        }
+        if (activeFilters.q) {
+            params.append('q', activeFilters.q);
+        }
+        try {
+            const data = await fetchJson(`${window.APP_BASE}/api/orders/list.php?${params.toString()}`);
+            const rows = data.data || [];
+            lastCount = rows.length;
+            renderOrders(rows);
+        } catch (error) {
+            lastCount = 0;
+            renderOrders([]);
+            showNotice(`Orders load failed: ${error.message}`, 'error');
+        }
+    };
+
+    const loadShipment = async () => {
+        if (!resolvedShipmentId && !shipmentNumberAttr) {
+            showNotice('Shipment is required.', 'error');
+            return;
+        }
+        try {
+            const query = resolvedShipmentId
+                ? `shipment_id=${encodeURIComponent(resolvedShipmentId)}`
+                : `shipment_number=${encodeURIComponent(shipmentNumberAttr)}`;
+            const data = await fetchJson(`${window.APP_BASE}/api/shipments/view.php?${query}`);
+            const shipment = data.shipment || {};
+            resolvedShipmentId = shipment.id || resolvedShipmentId;
+            setDetail('shipment_number', shipment.shipment_number || '--');
+            setDetail('status', shipment.status || '--');
+            setDetail('origin_country', shipment.origin_country || '--');
+            setDetail('shipping_type', shipment.shipping_type || '--');
+
+            const orders = data.orders || [];
+            let totalQty = 0;
+            let totalPrice = 0;
+            const unitTypes = new Set();
+            orders.forEach((row) => {
+                const qty = parseFloat(row.qty);
+                const price = parseFloat(row.total_price);
+                if (Number.isFinite(qty)) {
+                    totalQty += qty;
+                }
+                if (Number.isFinite(price)) {
+                    totalPrice += price;
+                }
+                if (row.unit_type) {
+                    unitTypes.add(row.unit_type);
+                }
+            });
+
+            const unitLabel = unitTypes.size ? ` (${Array.from(unitTypes).join(', ')})` : '';
+            setDetail('order_count', orders.length);
+            setDetail('total_qty', `${formatNumber(totalQty, 3)}${unitLabel}`);
+            if (canSeeIncome) {
+                setDetail('total_price', formatAmount(totalPrice));
+            }
+        } catch (error) {
+            showNotice(`Shipment load failed: ${error.message}`, 'error');
+        }
+    };
+
+    if (prevButton) {
+        prevButton.addEventListener('click', () => {
+            if (offset === 0) {
+                return;
+            }
+            offset = Math.max(0, offset - limit);
+            loadOrders();
+        });
+    }
+
+    if (nextButton) {
+        nextButton.addEventListener('click', () => {
+            if (lastCount < limit) {
+                return;
+            }
+            offset += limit;
+            loadOrders();
+        });
+    }
+
+    const applyFilters = () => {
+        activeFilters = {
+            status: statusFilter ? statusFilter.value : '',
+            q: searchInput ? searchInput.value.trim() : '',
+        };
+        offset = 0;
+        loadOrders();
+    };
+
+    if (filterForm) {
+        filterForm.addEventListener('submit', (event) => {
+            event.preventDefault();
+            applyFilters();
+        });
+    }
+
+    if (statusFilter) {
+        statusFilter.addEventListener('change', applyFilters);
+    }
+
+    if (clearButton) {
+        clearButton.addEventListener('click', () => {
+            if (statusFilter) {
+                statusFilter.value = '';
+            }
+            if (searchInput) {
+                searchInput.value = '';
+            }
+            applyFilters();
+        });
+    }
+
+    loadShipment().then(loadOrders);
+}
+
 function initShipmentCreate() {
     const page = document.querySelector('[data-shipment-create]');
     if (!page) {
@@ -2680,6 +3190,7 @@ function initShipmentCreate() {
     const statusStack = page.querySelector('[data-shipments-status]');
     const originSelects = page.querySelectorAll('[data-origin-select]');
     const partnerSelects = page.querySelectorAll('[data-partner-select]');
+    const goodsSelects = page.querySelectorAll('[data-goods-select]');
     const { role, branchCountryId } = getUserContext();
 
     const showNotice = (message, type = 'error') => {
@@ -2760,6 +3271,31 @@ function initShipmentCreate() {
         });
     };
 
+    const loadGoodsTypes = async () => {
+        if (!goodsSelects.length) {
+            return;
+        }
+        try {
+            const data = await fetchJson(`${window.APP_BASE}/api/goods_types/list.php?limit=300`);
+            goodsSelects.forEach((select) => {
+                const current = select.value;
+                select.querySelectorAll('option[data-dynamic]').forEach((option) => option.remove());
+                (data.data || []).forEach((goodsType) => {
+                    const option = document.createElement('option');
+                    option.value = goodsType.name;
+                    option.textContent = goodsType.name;
+                    option.setAttribute('data-dynamic', 'true');
+                    select.appendChild(option);
+                });
+                if (current) {
+                    select.value = current;
+                }
+            });
+        } catch (error) {
+            showNotice(`Goods types load failed: ${error.message}`, 'error');
+        }
+    };
+
     const lockWarehouseOrigin = () => {
         if (role !== 'Warehouse' || !branchCountryId) {
             return;
@@ -2838,6 +3374,7 @@ function initShipmentCreate() {
     }
 
     loadCountries();
+    loadGoodsTypes();
     loadPartners();
 }
 
@@ -2870,10 +3407,15 @@ function initPartnerView() {
     const invoiceSelect = page.querySelector('[data-partner-invoice-select]');
     const shipmentSearchInput = page.querySelector('[data-shipment-search]');
     const shipmentSelect = page.querySelector('[data-shipment-select]');
-    const branchSelect = page.querySelector('[data-branch-select]');
     const paymentMethodSelect = page.querySelector('[data-payment-method-select]');
+    const invoiceItemsBody = page.querySelector('[data-partner-invoice-items]');
+    const invoiceAddButton = page.querySelector('[data-partner-add-invoice-line]');
+    const invoiceTotalInput = page.querySelector('[data-partner-invoice-total]');
+    const transactionItemsBody = page.querySelector('[data-partner-transaction-items]');
+    const transactionAddButton = page.querySelector('[data-partner-add-transaction-line]');
+    const transactionTotalInput = page.querySelector('[data-partner-transaction-total]');
+    const transactionTypeSelect = transactionForm?.querySelector('[name="type"]');
     const canEdit = page.getAttribute('data-can-edit') === '1';
-    const { branchId } = getUserContext();
 
     const limit = 5;
     let invoicesPage = 0;
@@ -2912,13 +3454,140 @@ function initPartnerView() {
         return normalized.length === 16 ? `${normalized}:00` : normalized;
     };
 
+    const buildLineRow = () => {
+        const row = document.createElement('tr');
+        row.setAttribute('data-line-item', '');
+        row.innerHTML =
+            '<td><input type="text" name="item_description" placeholder="Description" required></td>' +
+            '<td><input type="number" step="0.01" name="item_amount" placeholder="0.00" required></td>' +
+            '<td><button class="button ghost small" type="button" data-line-remove>Remove</button></td>';
+        return row;
+    };
+
+    const initLineItems = (tbody, totalInput) => {
+        if (!tbody) {
+            return null;
+        }
+
+        const updateTotal = () => {
+            let total = 0;
+            tbody.querySelectorAll('[data-line-item]').forEach((row) => {
+                const amountInput = row.querySelector('[name="item_amount"]');
+                if (!amountInput) {
+                    return;
+                }
+                const value = parseFloat(amountInput.value);
+                if (Number.isFinite(value)) {
+                    total += value;
+                }
+            });
+            if (totalInput) {
+                totalInput.value = total.toFixed(2);
+            }
+        };
+
+        const bindRow = (row) => {
+            const amountInput = row.querySelector('[name="item_amount"]');
+            const descInput = row.querySelector('[name="item_description"]');
+            if (amountInput) {
+                amountInput.addEventListener('input', updateTotal);
+            }
+            if (descInput) {
+                descInput.addEventListener('input', updateTotal);
+            }
+            const removeButton = row.querySelector('[data-line-remove]');
+            if (removeButton) {
+                removeButton.addEventListener('click', () => {
+                    row.remove();
+                    if (!tbody.querySelector('[data-line-item]')) {
+                        const freshRow = buildLineRow();
+                        tbody.appendChild(freshRow);
+                        bindRow(freshRow);
+                    }
+                    updateTotal();
+                });
+            }
+        };
+
+        tbody.querySelectorAll('[data-line-item]').forEach(bindRow);
+        updateTotal();
+
+        const collect = () => {
+            const items = [];
+            tbody.querySelectorAll('[data-line-item]').forEach((row) => {
+                const descInput = row.querySelector('[name="item_description"]');
+                const amountInput = row.querySelector('[name="item_amount"]');
+                const description = descInput ? descInput.value.trim() : '';
+                const amountRaw = amountInput ? amountInput.value.trim() : '';
+                if (!description && !amountRaw) {
+                    return;
+                }
+                const amountValue = parseFloat(amountRaw);
+                items.push({
+                    description,
+                    amount: Number.isFinite(amountValue) ? amountValue : NaN,
+                });
+            });
+            return items;
+        };
+
+        return {
+            addRow: () => {
+                const row = buildLineRow();
+                tbody.appendChild(row);
+                bindRow(row);
+                updateTotal();
+            },
+            collect,
+            updateTotal,
+        };
+    };
+
     const renderPartner = (partner) => {
         details.forEach((el) => {
             const key = el.getAttribute('data-partner-detail');
-            const value = partner[key];
+            let value = partner[key];
+            if (key === 'balance') {
+                value = formatAmount(value);
+            }
+            if (key === 'type') {
+                value =
+                    value === 'shipper' ? 'Shipper' : value === 'consignee' ? 'Consignee' : value;
+            }
             el.textContent = value !== null && value !== undefined && value !== '' ? value : '--';
         });
     };
+
+    const invoiceLineManager = initLineItems(invoiceItemsBody, invoiceTotalInput);
+    const transactionLineManager = initLineItems(transactionItemsBody, transactionTotalInput);
+
+    if (invoiceAddButton && invoiceLineManager) {
+        invoiceAddButton.addEventListener('click', () => {
+            invoiceLineManager.addRow();
+        });
+    }
+
+    if (transactionAddButton && transactionLineManager) {
+        transactionAddButton.addEventListener('click', () => {
+            transactionLineManager.addRow();
+        });
+    }
+
+    const syncInvoiceSelect = () => {
+        if (!invoiceSelect || !transactionTypeSelect) {
+            return;
+        }
+        const isReceipt = transactionTypeSelect.value === 'receipt';
+        invoiceSelect.disabled = !isReceipt;
+        if (!isReceipt) {
+            invoiceSelect.value = '';
+        }
+    };
+
+    if (transactionTypeSelect) {
+        transactionTypeSelect.addEventListener('change', syncInvoiceSelect);
+        syncInvoiceSelect();
+    }
 
     const renderShipments = (rows) => {
         if (!shipmentsTable) {
@@ -2952,18 +3621,52 @@ function initPartnerView() {
             return;
         }
         invoicesTable.innerHTML = rows
-            .map(
-                (row) => `<tr>
+            .map((row) => {
+                const actions = [
+                    `<a class="text-link" href="${window.APP_BASE}/views/internal/partner_invoice_print?id=${row.id}" target="_blank" rel="noreferrer">Print</a>`,
+                ];
+                if (canEdit && Number(row.paid_total ?? 0) === 0 && row.status !== 'void') {
+                    actions.push(
+                        `<button class="text-link" type="button" data-partner-invoice-delete data-invoice-id="${row.id}">Delete</button>`
+                    );
+                }
+                return `<tr>
                     <td>${escapeHtml(row.invoice_no || '-')}</td>
                     <td>${escapeHtml(row.shipment_number || '-')}</td>
                     <td>${escapeHtml(row.status || '-')}</td>
                     <td>${formatAmount(row.total)}</td>
                     <td>${formatAmount(row.due_total)}</td>
                     <td>${escapeHtml(row.issued_at || '-')}</td>
-                    <td><a class="text-link" href="${window.APP_BASE}/views/internal/partner_invoice_print?id=${row.id}" target="_blank" rel="noreferrer">Print</a></td>
-                </tr>`
-            )
+                    <td>${actions.join(' | ')}</td>
+                </tr>`;
+            })
             .join('');
+
+        invoicesTable.querySelectorAll('[data-partner-invoice-delete]').forEach((button) => {
+            button.addEventListener('click', async () => {
+                const id = button.getAttribute('data-invoice-id');
+                if (!id) {
+                    return;
+                }
+                if (!confirm('Delete this invoice?')) {
+                    return;
+                }
+                try {
+                    await fetchJson(`${window.APP_BASE}/api/partner_invoices/delete.php`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ id }),
+                    });
+                    showNotice(invoiceStatus || statusStack, 'Invoice deleted.', 'success');
+                    invoicesPage = 0;
+                    loadPartner();
+                    loadInvoices();
+                    loadInvoiceOptions();
+                } catch (error) {
+                    showNotice(invoiceStatus || statusStack, `Delete failed: ${error.message}`, 'error');
+                }
+            });
+        });
     };
 
     const renderTransactions = (rows) => {
@@ -2975,17 +3678,19 @@ function initPartnerView() {
             return;
         }
         transactionsTable.innerHTML = rows
-            .map(
-                (row) => `<tr>
+            .map((row) => {
+                const typeLabel =
+                    row.type === 'refund' ? 'Refund' : row.type === 'adjustment' ? 'Adjustment' : 'Receipt';
+                return `<tr>
                     <td>${escapeHtml(row.payment_date || row.created_at || '-')}</td>
-                    <td>${escapeHtml(row.type || '-')}</td>
+                    <td>${escapeHtml(typeLabel)}</td>
                     <td>${escapeHtml(row.payment_method_name || '-')}</td>
                     <td>${formatAmount(row.amount)}</td>
                     <td>${escapeHtml(row.invoice_no || '-')}</td>
                     <td>${escapeHtml(row.note || '-')}</td>
                     <td><a class="text-link" href="${window.APP_BASE}/views/internal/partner_receipt_print?id=${row.id}" target="_blank" rel="noreferrer">Print</a></td>
-                </tr>`
-            )
+                </tr>`;
+            })
             .join('');
     };
 
@@ -3104,28 +3809,6 @@ function initPartnerView() {
         }
     };
 
-    const loadBranches = async () => {
-        if (!branchSelect) {
-            return;
-        }
-        try {
-            const data = await fetchJson(`${window.APP_BASE}/api/branches/list.php?limit=200`);
-            branchSelect.querySelectorAll('option[data-dynamic]').forEach((option) => option.remove());
-            (data.data || []).forEach((branch) => {
-                const option = document.createElement('option');
-                option.value = branch.id;
-                option.textContent = branch.name;
-                option.setAttribute('data-dynamic', 'true');
-                branchSelect.appendChild(option);
-            });
-            if (branchId) {
-                branchSelect.value = String(branchId);
-            }
-        } catch (error) {
-            showNotice(statusStack, `Branches load failed: ${error.message}`, 'error');
-        }
-    };
-
     const loadPaymentMethods = async () => {
         if (!paymentMethodSelect) {
             return;
@@ -3148,19 +3831,42 @@ function initPartnerView() {
     if (invoiceForm && canEdit) {
         invoiceForm.addEventListener('submit', async (event) => {
             event.preventDefault();
-            const formData = new FormData(invoiceForm);
-            const payload = Object.fromEntries(formData.entries());
-            if (!payload.total) {
-                showNotice(invoiceStatus, 'Total is required.', 'error');
+            const shipmentValue = invoiceForm.querySelector('[name="shipment_id"]')?.value || '';
+            const issuedValue = invoiceForm.querySelector('[name="issued_at"]')?.value || '';
+            const noteValue = invoiceForm.querySelector('[name="note"]')?.value?.trim() || '';
+            const rawItems = invoiceLineManager ? invoiceLineManager.collect() : [];
+            const items = [];
+            for (const item of rawItems) {
+                const description = item.description ? item.description.trim() : '';
+                const amount = item.amount;
+                if (!description) {
+                    showNotice(invoiceStatus, 'Line item description is required.', 'error');
+                    return;
+                }
+                if (!Number.isFinite(amount) || amount === 0) {
+                    showNotice(invoiceStatus, 'Line item amount is required.', 'error');
+                    return;
+                }
+                items.push({ description, amount });
+            }
+            if (!items.length) {
+                showNotice(invoiceStatus, 'Add at least one line item.', 'error');
                 return;
             }
-            if (!payload.shipment_id) {
-                delete payload.shipment_id;
+
+            const payload = {
+                partner_id: partnerId,
+                items,
+            };
+            if (shipmentValue) {
+                payload.shipment_id = shipmentValue;
             }
-            payload.partner_id = partnerId;
-            payload.issued_at = normalizeDateTime(payload.issued_at);
-            if (!payload.issued_at) {
-                delete payload.issued_at;
+            const normalizedIssued = normalizeDateTime(issuedValue);
+            if (normalizedIssued) {
+                payload.issued_at = normalizedIssued;
+            }
+            if (noteValue) {
+                payload.note = noteValue;
             }
             try {
                 await fetchJson(`${window.APP_BASE}/api/partner_invoices/create.php`, {
@@ -3170,6 +3876,9 @@ function initPartnerView() {
                 });
                 showNotice(invoiceStatus, 'Invoice created.', 'success');
                 invoiceForm.reset();
+                if (invoiceLineManager) {
+                    invoiceLineManager.updateTotal();
+                }
                 invoicesPage = 0;
                 loadPartner();
                 loadInvoices();
@@ -3194,15 +3903,49 @@ function initPartnerView() {
     if (transactionForm && canEdit) {
         transactionForm.addEventListener('submit', async (event) => {
             event.preventDefault();
-            const formData = new FormData(transactionForm);
-            const payload = Object.fromEntries(formData.entries());
-            payload.partner_id = partnerId;
-            if (!payload.invoice_id) {
-                delete payload.invoice_id;
+            const invoiceValue = transactionForm.querySelector('[name="invoice_id"]')?.value || '';
+            const methodValue = transactionForm.querySelector('[name="payment_method_id"]')?.value || '';
+            const typeValue = transactionForm.querySelector('[name="type"]')?.value || 'receipt';
+            const paymentDateValue = transactionForm.querySelector('[name="payment_date"]')?.value || '';
+            const noteValue = transactionForm.querySelector('[name="note"]')?.value?.trim() || '';
+            const rawItems = transactionLineManager ? transactionLineManager.collect() : [];
+            const items = [];
+            for (const item of rawItems) {
+                const description = item.description ? item.description.trim() : '';
+                const amount = item.amount;
+                if (!description) {
+                    showNotice(transactionStatus, 'Line item description is required.', 'error');
+                    return;
+                }
+                if (!Number.isFinite(amount) || amount === 0) {
+                    showNotice(transactionStatus, 'Line item amount is required.', 'error');
+                    return;
+                }
+                items.push({ description, amount });
             }
-            if (!payload.branch_id || !payload.payment_method_id || !payload.amount) {
-                showNotice(transactionStatus, 'Branch, method, and amount are required.', 'error');
+            if (!items.length) {
+                showNotice(transactionStatus, 'Add at least one line item.', 'error');
                 return;
+            }
+            if (!methodValue) {
+                showNotice(transactionStatus, 'Payment method is required.', 'error');
+                return;
+            }
+
+            const payload = {
+                partner_id: partnerId,
+                payment_method_id: methodValue,
+                type: typeValue,
+                items,
+            };
+            if (invoiceValue) {
+                payload.invoice_id = invoiceValue;
+            }
+            if (paymentDateValue) {
+                payload.payment_date = paymentDateValue;
+            }
+            if (noteValue) {
+                payload.note = noteValue;
             }
             try {
                 await fetchJson(`${window.APP_BASE}/api/partner_transactions/create.php`, {
@@ -3210,9 +3953,12 @@ function initPartnerView() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload),
                 });
-                showNotice(transactionStatus, 'Receipt recorded.', 'success');
-                transactionForm.querySelector('[name="amount"]').value = '';
-                transactionForm.querySelector('[name="note"]').value = '';
+                showNotice(transactionStatus, 'Transaction recorded.', 'success');
+                transactionForm.reset();
+                if (transactionLineManager) {
+                    transactionLineManager.updateTotal();
+                }
+                syncInvoiceSelect();
                 transactionsPage = 0;
                 loadPartner();
                 loadTransactions();
@@ -3259,7 +4005,6 @@ function initPartnerView() {
     loadInvoiceOptions();
     loadTransactions();
     loadShipmentOptions();
-    loadBranches();
     loadPaymentMethods();
 }
 
@@ -3465,23 +4210,18 @@ function initOrdersPage() {
     }
 
     const filterForm = page.querySelector('[data-orders-filter]');
+    const tableBody = page.querySelector('[data-orders-shipments-table]');
     const statusStack = page.querySelector('[data-orders-status]');
     const refreshButton = page.querySelector('[data-orders-refresh]');
-    const { role } = getUserContext();
-    const showMeta = hasAuditMetaAccess(role);
-    const columnCount = 10;
+    const prevButton = page.querySelector('[data-orders-prev]');
+    const nextButton = page.querySelector('[data-orders-next]');
+    const pageLabel = page.querySelector('[data-orders-page]');
+    const canSeeIncome = page.getAttribute('data-show-income') !== '0';
+
     const limit = 10;
+    let offset = 0;
     let lastFilters = {};
-    const statusGroups = [
-        { key: 'in_shipment', label: 'In shipment' },
-        { key: 'main_branch', label: 'Main branch' },
-        { key: 'pending_receipt', label: 'Pending receipt' },
-        { key: 'received_subbranch', label: 'Received sub-branch' },
-    ];
-    const stateByStatus = {};
-    statusGroups.forEach((group) => {
-        stateByStatus[group.key] = { offset: 0, lastCount: 0 };
-    });
+    let lastCount = 0;
 
     const showNotice = (message, type = 'error') => {
         if (!statusStack) {
@@ -3494,100 +4234,67 @@ function initOrdersPage() {
         setTimeout(() => notice.remove(), 6000);
     };
 
-    const renderRows = (tableBody, rows) => {
+    const formatAmount = (value) => {
+        const num = Number(value ?? 0);
+        return Number.isFinite(num) ? num.toFixed(2) : '0.00';
+    };
+
+    const renderRows = (rows) => {
         if (!tableBody) {
             return;
         }
         if (!rows.length) {
-            tableBody.innerHTML = `<tr><td colspan="${columnCount}" class="muted">No orders found.</td></tr>`;
+            tableBody.innerHTML = `<tr><td colspan="${canSeeIncome ? 6 : 5}" class="muted">No shipments found.</td></tr>`;
             return;
         }
         tableBody.innerHTML = rows
-            .map((order) => {
-                const customerLabel = order.customer_name
-                    ? order.customer_code
-                        ? `${order.customer_name} (${order.customer_code})`
-                        : order.customer_name
-                    : '-';
-                const qtyValue = order.qty !== null && order.qty !== undefined ? order.qty : null;
-                const qtyLabel = qtyValue !== null && qtyValue !== '' ? `${qtyValue} ${order.unit_type || ''}`.trim() : '-';
-                const createdLabel =
-                    showMeta && order.created_by_name
-                        ? `${order.created_by_name} - ${order.created_at || '-'}`
-                        : order.created_at || '-';
-                const updatedLabel =
-                    showMeta && order.updated_by_name
-                        ? `${order.updated_by_name} - ${order.updated_at || '-'}`
-                        : order.updated_at || '-';
-                const shipmentLink = order.shipment_id
-                    ? `${window.APP_BASE}/views/internal/shipment_view?id=${encodeURIComponent(order.shipment_id)}`
+            .map((row) => {
+                const viewUrl = row.id
+                    ? `${window.APP_BASE}/views/internal/shipment_orders?shipment_id=${encodeURIComponent(row.id)}`
                     : '#';
+                const totalCell = canSeeIncome ? `<td>${formatAmount(row.total_price)}</td>` : '';
                 return `<tr>
-                    <td>${order.tracking_number || '-'}</td>
-                    <td>${customerLabel}</td>
-                    <td>${order.shipment_number || '-'}</td>
-                    <td>${order.sub_branch_name || '-'}</td>
-                    <td>${qtyLabel}</td>
-                    <td>${order.total_price || '0.00'}</td>
-                    <td>${order.fulfillment_status || '-'}</td>
-                    <td class="meta-col">${createdLabel}</td>
-                    <td class="meta-col">${updatedLabel}</td>
-                    <td><a class="text-link" href="${shipmentLink}">Open shipment</a></td>
+                    <td>${row.shipment_number || '-'}</td>
+                    <td>${row.origin_country || '-'}</td>
+                    <td>${row.status || '-'}</td>
+                    <td>${row.order_count || 0}</td>
+                    ${totalCell}
+                    <td><a class="text-link" href="${viewUrl}">View orders</a></td>
                 </tr>`;
             })
             .join('');
     };
 
-    const loadOrders = async (statusKey, filters = {}) => {
-        const tableBody = page.querySelector(`[data-orders-table="${statusKey}"]`);
-        const prevButton = page.querySelector(`[data-orders-prev="${statusKey}"]`);
-        const nextButton = page.querySelector(`[data-orders-next="${statusKey}"]`);
-        const pageLabel = page.querySelector(`[data-orders-page="${statusKey}"]`);
-        const state = stateByStatus[statusKey];
-        if (!tableBody || !state) {
-            return;
+    const loadShipments = async (filters = {}) => {
+        if (tableBody) {
+            tableBody.innerHTML = `<tr><td colspan="${canSeeIncome ? 6 : 5}" class="muted">Loading shipments...</td></tr>`;
         }
-        tableBody.innerHTML = `<tr><td colspan="${columnCount}" class="muted">Loading orders...</td></tr>`;
         const params = new URLSearchParams();
         Object.entries(filters).forEach(([key, value]) => {
             if (value !== null && value !== undefined && String(value).trim() !== '') {
                 params.append(key, String(value));
             }
         });
-        params.append('fulfillment_status', statusKey);
         params.append('limit', String(limit));
-        params.append('offset', String(state.offset));
+        params.append('offset', String(offset));
         try {
-            const data = await fetchJson(`${window.APP_BASE}/api/orders/list.php?${params.toString()}`);
+            const data = await fetchJson(`${window.APP_BASE}/api/orders/grouped.php?${params.toString()}`);
             const rows = data.data || [];
-            state.lastCount = rows.length;
-            renderRows(tableBody, rows);
+            lastCount = rows.length;
+            renderRows(rows);
             if (prevButton) {
-                prevButton.disabled = state.offset === 0;
+                prevButton.disabled = offset === 0;
             }
             if (nextButton) {
                 nextButton.disabled = rows.length < limit;
             }
             if (pageLabel) {
-                pageLabel.textContent = `Page ${Math.floor(state.offset / limit) + 1}`;
+                pageLabel.textContent = `Page ${Math.floor(offset / limit) + 1}`;
             }
         } catch (error) {
-            renderRows(tableBody, []);
+            renderRows([]);
             showNotice(`Orders load failed: ${error.message}`, 'error');
         }
-    };
-
-    const resetOffsets = () => {
-        statusGroups.forEach((group) => {
-            stateByStatus[group.key].offset = 0;
-            stateByStatus[group.key].lastCount = 0;
-        });
-    };
-
-    const loadAllOrders = () => {
-        statusGroups.forEach((group) => {
-            loadOrders(group.key, lastFilters);
-        });
     };
 
     if (filterForm) {
@@ -3595,44 +4302,39 @@ function initOrdersPage() {
             event.preventDefault();
             const formData = new FormData(filterForm);
             lastFilters = Object.fromEntries(formData.entries());
-            resetOffsets();
-            loadAllOrders();
+            offset = 0;
+            loadShipments(lastFilters);
         });
     }
 
     if (refreshButton) {
         refreshButton.addEventListener('click', () => {
-            resetOffsets();
-            loadAllOrders();
+            offset = 0;
+            loadShipments(lastFilters);
         });
     }
 
-    statusGroups.forEach((group) => {
-        const prevButton = page.querySelector(`[data-orders-prev="${group.key}"]`);
-        const nextButton = page.querySelector(`[data-orders-next="${group.key}"]`);
-        if (prevButton) {
-            prevButton.addEventListener('click', () => {
-                const state = stateByStatus[group.key];
-                if (state.offset === 0) {
-                    return;
-                }
-                state.offset = Math.max(0, state.offset - limit);
-                loadOrders(group.key, lastFilters);
-            });
-        }
-        if (nextButton) {
-            nextButton.addEventListener('click', () => {
-                const state = stateByStatus[group.key];
-                if (state.lastCount < limit) {
-                    return;
-                }
-                state.offset += limit;
-                loadOrders(group.key, lastFilters);
-            });
-        }
-    });
+    if (prevButton) {
+        prevButton.addEventListener('click', () => {
+            if (offset === 0) {
+                return;
+            }
+            offset = Math.max(0, offset - limit);
+            loadShipments(lastFilters);
+        });
+    }
 
-    loadAllOrders();
+    if (nextButton) {
+        nextButton.addEventListener('click', () => {
+            if (lastCount < limit) {
+                return;
+            }
+            offset += limit;
+            loadShipments(lastFilters);
+        });
+    }
+
+    loadShipments();
 }
 
 function initOrderCreate() {
@@ -3646,9 +4348,11 @@ function initOrderCreate() {
     const collectionSelect = page.querySelector('[data-collection-select]');
     const customerInput = page.querySelector('[data-customer-input]');
     const customerIdInput = page.querySelector('[data-customer-id]');
-    const customerList = page.querySelector('#customer-options');
+    const customerMenu = page.querySelector('[data-customer-menu]');
+    const customerSelect = page.querySelector('[data-customer-select]');
+    const customerToggle = page.querySelector('[data-customer-toggle]');
     const subBranchDisplay = page.querySelector('[data-sub-branch-display]');
-    const weightTypeSelect = page.querySelector('[data-weight-type]');
+    const weightTypeInputs = page.querySelectorAll('[data-weight-type]');
     const unitTypeInput = page.querySelector('[data-unit-type]');
     const unitDisplay = page.querySelector('[data-unit-display]');
     const actualGroups = page.querySelectorAll('[data-weight-actual]');
@@ -3659,6 +4363,7 @@ function initOrderCreate() {
     const submitButton = createForm?.querySelector('button[type="submit"]');
     const { role } = getUserContext();
     const isWarehouse = role === 'Warehouse';
+    const minCustomerQuery = 2;
 
     const shipmentId = page.getAttribute('data-shipment-id');
     const shipmentNumber = page.getAttribute('data-shipment-number');
@@ -3726,17 +4431,39 @@ function initOrderCreate() {
         }
     };
 
-    const loadCustomers = async (query = '') => {
-        if (!customerList || !customerInput) {
+    const setCustomerMenuOpen = (open) => {
+        if (!customerSelect) {
             return;
         }
-        customerList.innerHTML = '';
+        customerSelect.classList.toggle('is-open', open);
+    };
+
+    const showCustomerHint = (message) => {
+        if (!customerMenu) {
+            return;
+        }
+        const hint = message || `Type at least ${minCustomerQuery} characters to search.`;
+        customerMenu.innerHTML = `<div class="selectize-empty">${hint}</div>`;
+        if (document.activeElement === customerInput) {
+            setCustomerMenuOpen(true);
+        }
+    };
+
+    const loadCustomers = async (query = '') => {
+        if (!customerMenu || !customerInput) {
+            return;
+        }
+        const trimmedQuery = query.trim();
+        if (trimmedQuery.length < minCustomerQuery) {
+            customerMap.clear();
+            showCustomerHint();
+            return;
+        }
+        customerMenu.innerHTML = '';
         customerMap.clear();
         try {
-            const params = new URLSearchParams({ limit: '200' });
-            if (query) {
-                params.append('q', query);
-            }
+            const params = new URLSearchParams({ limit: '100' });
+            params.append('q', trimmedQuery);
             if (shipmentOriginCountryId) {
                 params.append('profile_country_id', shipmentOriginCountryId);
             }
@@ -3755,14 +4482,41 @@ function initOrderCreate() {
                     subBranchId: customer.sub_branch_id ?? '',
                     subBranchName: customer.sub_branch_name ?? '',
                 });
-                const option = document.createElement('option');
-                option.value = label;
-                customerList.appendChild(option);
+                const option = document.createElement('button');
+                option.type = 'button';
+                option.className = 'selectize-option';
+                option.textContent = label;
+                option.setAttribute('data-customer-option', '');
+                option.setAttribute('data-customer-label', label);
+                customerMenu.appendChild(option);
             });
+            if (!customerMap.size) {
+                customerMenu.innerHTML = '<div class="selectize-empty">No matching customers.</div>';
+            }
+            if (document.activeElement === customerInput) {
+                setCustomerMenuOpen(true);
+            }
         } catch (error) {
             showNotice(`Customers load failed: ${error.message}`, 'error');
         }
     };
+
+    if (customerToggle) {
+        customerToggle.addEventListener('click', (event) => {
+            event.preventDefault();
+            if (!customerInput) {
+                return;
+            }
+            const value = customerInput.value.trim();
+            if (value.length >= minCustomerQuery) {
+                loadCustomers(value);
+            } else {
+                showCustomerHint();
+            }
+            setCustomerMenuOpen(true);
+            customerInput.focus();
+        });
+    }
 
     const findCustomerMatch = (value) => {
         const normalized = value.toLowerCase();
@@ -3821,8 +4575,13 @@ function initOrderCreate() {
         subBranchDisplay.value = branchName || `Branch #${branchId}`;
     };
 
+    const getWeightMode = () => {
+        const selected = page.querySelector('[data-weight-type]:checked');
+        return selected ? selected.value : 'actual';
+    };
+
     const applyWeightMode = () => {
-        const mode = weightTypeSelect?.value || 'actual';
+        const mode = getWeightMode();
         if (mode === 'actual') {
             actualGroups.forEach((el) => el.classList.remove('is-hidden'));
             volumeGroups.forEach((el) => el.classList.add('is-hidden'));
@@ -3873,7 +4632,7 @@ function initOrderCreate() {
             return;
         }
         const target =
-            weightTypeSelect?.value === 'volumetric'
+            getWeightMode() === 'volumetric'
                 ? createForm.querySelector('[name="w"]')
                 : createForm.querySelector('[name="actual_weight"]');
         if (target) {
@@ -3931,7 +4690,7 @@ function initOrderCreate() {
             loadCollections(resolvedId);
             fetchJson(`${window.APP_BASE}/api/shipments/view.php?shipment_id=${encodeURIComponent(resolvedId)}`)
                 .then((data) => {
-                    if (rateInput && data.shipment && !isWarehouse) {
+                    if (rateInput && data.shipment) {
                         const rateValue = data.shipment.default_rate;
                         if (rateValue !== null && rateValue !== undefined && String(rateValue) !== '') {
                             rateInput.value = rateValue;
@@ -3944,7 +4703,11 @@ function initOrderCreate() {
                         }
                         showNotice('Shipment is not active. Warehouse orders can only be created while status is active.', 'error');
                     }
-                    loadCustomers();
+                    if (customerInput && customerInput.value.trim().length >= minCustomerQuery) {
+                        loadCustomers(customerInput.value.trim());
+                    } else {
+                        showCustomerHint();
+                    }
                 })
                 .catch((error) => {
                     showNotice(`Shipment data load failed: ${error.message}`, 'error');
@@ -3953,7 +4716,7 @@ function initOrderCreate() {
     });
     const refreshCustomers = async (query = '') => {
         if (!query) {
-            await loadCustomers('');
+            showCustomerHint();
             return;
         }
         const existingMatch = findCustomerMatch(query);
@@ -3978,9 +4741,7 @@ function initOrderCreate() {
             }
             if (!value) {
                 syncCustomerBranch('');
-                searchTimer = setTimeout(() => {
-                    loadCustomers();
-                }, 200);
+                showCustomerHint();
                 return;
             }
             if (findCustomerMatch(value)) {
@@ -3989,25 +4750,62 @@ function initOrderCreate() {
             }
             searchTimer = setTimeout(() => {
                 refreshCustomers(value);
-            }, 300);
+            }, 250);
+        });
+        customerInput.addEventListener('focus', () => {
+            const value = customerInput.value.trim();
+            if (value) {
+                customerInput.select();
+            }
+            if (value.length >= minCustomerQuery) {
+                loadCustomers(value);
+            } else {
+                showCustomerHint();
+            }
         });
         customerInput.addEventListener('change', () => {
             const value = customerInput.value.trim();
             syncCustomerBranch(value);
             focusWeightField();
+            setCustomerMenuOpen(false);
         });
         customerInput.addEventListener('blur', () => {
             const value = customerInput.value.trim();
             syncCustomerBranch(value);
+            setTimeout(() => setCustomerMenuOpen(false), 150);
         });
     }
-    if (weightTypeSelect) {
-        weightTypeSelect.addEventListener('change', applyWeightMode);
-    }
+    weightTypeInputs.forEach((input) => {
+        input.addEventListener('change', applyWeightMode);
+    });
     if (subBranchDisplay) {
         subBranchDisplay.value = 'Select customer first';
     }
     applyWeightMode();
+
+    if (customerMenu) {
+        customerMenu.addEventListener('click', (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) {
+                return;
+            }
+            const option = target.closest('[data-customer-option]');
+            if (!option || !customerInput) {
+                return;
+            }
+            const label = option.getAttribute('data-customer-label') || '';
+            customerInput.value = label;
+            syncCustomerBranch(label);
+            setCustomerMenuOpen(false);
+            focusWeightField();
+        });
+    }
+
+    document.addEventListener('click', (event) => {
+        if (!customerSelect || !customerSelect.contains(event.target)) {
+            setCustomerMenuOpen(false);
+        }
+    });
 
     if (trackingInput) {
         trackingInput.focus();
@@ -4738,9 +5536,11 @@ function initStaffView() {
     const expensesPageLabel = page.querySelector('[data-staff-expenses-page]');
     const statusStack = page.querySelector('[data-staff-view-status]');
     const salaryForm = page.querySelector('[data-staff-salary-form]');
+    const payForm = page.querySelector('[data-staff-pay-form]');
     const advanceForm = page.querySelector('[data-staff-advance-form]');
     const bonusForm = page.querySelector('[data-staff-bonus-form]');
     const salaryStatus = page.querySelector('[data-staff-salary-status]');
+    const payStatus = page.querySelector('[data-staff-pay-status]');
     const advanceStatus = page.querySelector('[data-staff-advance-status]');
     const bonusStatus = page.querySelector('[data-staff-bonus-status]');
     const deleteButton = page.querySelector('[data-staff-delete]');
@@ -4794,7 +5594,7 @@ function initStaffView() {
             return;
         }
         if (!rows || rows.length === 0) {
-            expensesTable.innerHTML = '<tr><td colspan="6" class="muted">No expenses found.</td></tr>';
+            expensesTable.innerHTML = '<tr><td colspan="7" class="muted">No expenses found.</td></tr>';
             return;
         }
         const pageRows = paginateRows(rows, expensesPage);
@@ -4807,13 +5607,17 @@ function initStaffView() {
                           ? 'Advance'
                           : exp.type === 'bonus'
                             ? 'Bonus'
+                            : exp.type === 'salary_payment'
+                              ? 'Salary payment'
                             : exp.type
                     : '-';
+                const salaryMonth = exp.salary_month ? String(exp.salary_month).slice(0, 7) : '-';
                 return `<tr>
                     <td>${typeLabel}</td>
-                    <td>${exp.amount ?? '0.00'}</td>
+                    <td>${formatAmount(exp.amount)}</td>
                     <td>${exp.salary_before ?? '-'}</td>
                     <td>${exp.salary_after ?? '-'}</td>
+                    <td>${salaryMonth}</td>
                     <td>${exp.expense_date || exp.created_at || '-'}</td>
                     <td>${exp.note || '-'}</td>
                 </tr>`;
@@ -4904,6 +5708,30 @@ function initStaffView() {
                 loadStaffView();
             } catch (error) {
                 showFormNotice(salaryStatus, `Update failed: ${error.message}`, 'error');
+            }
+        });
+    }
+
+    if (payForm && canEdit) {
+        payForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            if (payStatus) {
+                payStatus.innerHTML = '';
+            }
+            const formData = new FormData(payForm);
+            const payload = Object.fromEntries(formData.entries());
+            payload.staff_id = staffId;
+            try {
+                await fetchJson(`${window.APP_BASE}/api/staff/pay_salary.php`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                showFormNotice(payStatus, 'Salary payment recorded.', 'success');
+                payForm.reset();
+                loadStaffView();
+            } catch (error) {
+                showFormNotice(payStatus, `Payment failed: ${error.message}`, 'error');
             }
         });
     }
@@ -8201,8 +9029,49 @@ function initReportsPage() {
         return;
     }
 
-    const shipmentSelects = page.querySelectorAll('[data-report-shipment-select]');
-    const branchSelects = page.querySelectorAll('[data-report-branch-select]');
+    const form = page.querySelector('[data-reports-form]');
+    const reportSelect = page.querySelector('[data-report-type]');
+    const shipmentSelect = page.querySelector('[data-report-shipment-select]');
+    const branchSelect = page.querySelector('[data-report-branch-select]');
+    const branchFixedInput = page.querySelector('[data-report-branch-fixed]');
+    const shipmentField = page.querySelector('[data-report-field="shipment"]');
+    const branchField = page.querySelector('[data-report-field="branch"]');
+    const modeField = page.querySelector('[data-report-field="mode"]');
+    const modeSelect = page.querySelector('[data-report-mode]');
+    const dateFrom = page.querySelector('[data-report-date-from]');
+    const dateTo = page.querySelector('[data-report-date-to]');
+    const frame = page.querySelector('[data-report-frame]');
+    const openLink = page.querySelector('[data-report-open]');
+    const printButton = page.querySelector('[data-report-print]');
+    const statusStack = page.querySelector('[data-report-status]');
+    const descriptionEl = page.querySelector('[data-report-description]');
+
+    const showNotice = (message, type = 'error') => {
+        if (!statusStack) {
+            return;
+        }
+        const notice = document.createElement('div');
+        notice.className = `notice ${type}`;
+        notice.textContent = message;
+        statusStack.appendChild(notice);
+        setTimeout(() => notice.remove(), 6000);
+    };
+
+    const setDefaultDates = () => {
+        if (!dateFrom || !dateTo) {
+            return;
+        }
+        if (!dateFrom.value) {
+            const start = new Date();
+            start.setDate(1);
+            dateFrom.value = start.toISOString().slice(0, 10);
+        }
+        if (!dateTo.value) {
+            const end = new Date(dateFrom.value || new Date());
+            end.setMonth(end.getMonth() + 1, 0);
+            dateTo.value = end.toISOString().slice(0, 10);
+        }
+    };
 
     const clearDynamicOptions = (select) => {
         if (!select) {
@@ -8212,21 +9081,19 @@ function initReportsPage() {
     };
 
     const loadShipments = async () => {
-        if (!shipmentSelects.length) {
+        if (!shipmentSelect) {
             return;
         }
         try {
             const data = await fetchJson(`${window.APP_BASE}/api/shipments/list.php?limit=200`);
             const rows = data.data || [];
-            shipmentSelects.forEach((select) => {
-                clearDynamicOptions(select);
-                rows.forEach((shipment) => {
-                    const option = document.createElement('option');
-                    option.value = shipment.id;
-                    option.textContent = shipment.shipment_number || `#${shipment.id}`;
-                    option.setAttribute('data-dynamic', 'true');
-                    select.appendChild(option);
-                });
+            clearDynamicOptions(shipmentSelect);
+            rows.forEach((shipment) => {
+                const option = document.createElement('option');
+                option.value = shipment.id;
+                option.textContent = shipment.shipment_number || `#${shipment.id}`;
+                option.setAttribute('data-dynamic', 'true');
+                shipmentSelect.appendChild(option);
             });
         } catch (error) {
             console.warn('Shipments load failed', error);
@@ -8234,27 +9101,147 @@ function initReportsPage() {
     };
 
     const loadBranches = async () => {
-        if (!branchSelects.length) {
+        if (!branchSelect) {
             return;
         }
         try {
             const data = await fetchJson(`${window.APP_BASE}/api/branches/list.php?limit=200`);
             const rows = data.data || [];
-            branchSelects.forEach((select) => {
-                clearDynamicOptions(select);
-                rows.forEach((branch) => {
-                    const option = document.createElement('option');
-                    option.value = branch.id;
-                    option.textContent = branch.name;
-                    option.setAttribute('data-dynamic', 'true');
-                    select.appendChild(option);
-                });
+            clearDynamicOptions(branchSelect);
+            rows.forEach((branch) => {
+                const option = document.createElement('option');
+                option.value = branch.id;
+                option.textContent = branch.name;
+                option.setAttribute('data-dynamic', 'true');
+                branchSelect.appendChild(option);
             });
         } catch (error) {
             console.warn('Branches load failed', error);
         }
     };
 
+    const getMeta = () => {
+        const option = reportSelect?.selectedOptions?.[0];
+        return {
+            url: option?.dataset.url || '',
+            branch: option?.dataset.branch || 'none',
+            shipment: option?.dataset.shipment || 'none',
+            mode: option?.dataset.mode === '1',
+            description: option?.dataset.description || '',
+        };
+    };
+
+    const updateFields = () => {
+        const meta = getMeta();
+        if (shipmentField) {
+            shipmentField.classList.toggle('is-hidden', meta.shipment === 'none');
+        }
+        if (branchField) {
+            branchField.classList.toggle('is-hidden', meta.branch === 'none');
+        }
+        if (modeField) {
+            modeField.classList.toggle('is-hidden', !meta.mode);
+        }
+        if (branchSelect) {
+            branchSelect.required = meta.branch === 'required';
+        }
+        if (branchFixedInput) {
+            branchFixedInput.required = meta.branch === 'required';
+        }
+        if (descriptionEl) {
+            descriptionEl.textContent = meta.description || 'Choose a report to preview it here.';
+        }
+    };
+
+    const buildUrl = () => {
+        const meta = getMeta();
+        if (!meta.url) {
+            return '';
+        }
+        const params = new URLSearchParams();
+        if (dateFrom?.value) {
+            params.append('date_from', dateFrom.value);
+        }
+        if (dateTo?.value) {
+            params.append('date_to', dateTo.value);
+        }
+        if (meta.shipment !== 'none' && shipmentSelect?.value) {
+            params.append('shipment_id', shipmentSelect.value);
+        }
+        if (meta.branch !== 'none') {
+            const branchValue = branchSelect?.value || branchFixedInput?.value || '';
+            if (branchValue) {
+                params.append('branch_id', branchValue);
+            }
+        }
+        if (meta.mode && modeSelect?.value) {
+            params.append('mode', modeSelect.value);
+        }
+        return `${meta.url}?${params.toString()}`;
+    };
+
+    const setPreview = (url) => {
+        if (!frame || !openLink || !printButton) {
+            return;
+        }
+        if (!url) {
+            frame.removeAttribute('src');
+            openLink.href = '#';
+            openLink.classList.add('is-disabled');
+            printButton.disabled = true;
+            return;
+        }
+        frame.src = url;
+        openLink.href = url;
+        openLink.classList.remove('is-disabled');
+        printButton.disabled = false;
+    };
+
+    if (printButton) {
+        printButton.addEventListener('click', () => {
+            if (frame?.contentWindow) {
+                frame.contentWindow.print();
+            }
+        });
+    }
+
+    if (form) {
+        form.addEventListener('submit', (event) => {
+            event.preventDefault();
+            const meta = getMeta();
+            if (!meta.url) {
+                showNotice('Select a report to generate.', 'error');
+                return;
+            }
+            if (meta.branch === 'required') {
+                const branchValue = branchSelect?.value || branchFixedInput?.value || '';
+                if (!branchValue) {
+                    showNotice('Branch is required for this report.', 'error');
+                    return;
+                }
+            }
+            if (meta.shipment === 'required' && !shipmentSelect?.value) {
+                showNotice('Shipment is required for this report.', 'error');
+                return;
+            }
+            const url = buildUrl();
+            setPreview(url);
+        });
+    }
+
+    if (reportSelect) {
+        reportSelect.addEventListener('change', () => {
+            updateFields();
+            setPreview('');
+        });
+    }
+
+    if (reportSelect) {
+        reportSelect.value = '';
+    }
+    setPreview('');
+    updateFields();
+    setDefaultDates();
     loadShipments();
     loadBranches();
 }
@@ -8267,6 +9254,11 @@ function initCompanyPage() {
 
     const form = page.querySelector('[data-company-form]');
     const status = page.querySelector('[data-company-status]');
+    const goodsPanel = document.querySelector('[data-goods-types-panel]');
+    const goodsForm = goodsPanel?.querySelector('[data-goods-types-form]');
+    const goodsInput = goodsPanel?.querySelector('[data-goods-types-input]');
+    const goodsTable = goodsPanel?.querySelector('[data-goods-types-table]');
+    const goodsStatus = goodsPanel?.querySelector('[data-goods-types-status]');
     const fields = {
         name: page.querySelector('[name="name"]'),
         phone: page.querySelector('[name="phone"]'),
@@ -8288,6 +9280,18 @@ function initCompanyPage() {
         notice.className = `notice ${type}`;
         notice.textContent = message;
         status.appendChild(notice);
+        setTimeout(() => notice.remove(), 6000);
+    };
+
+    const showGoodsNotice = (message, type = 'error') => {
+        if (!goodsStatus) {
+            showNotice(message, type);
+            return;
+        }
+        const notice = document.createElement('div');
+        notice.className = `notice ${type}`;
+        notice.textContent = message;
+        goodsStatus.appendChild(notice);
         setTimeout(() => notice.remove(), 6000);
     };
 
@@ -8325,6 +9329,36 @@ function initCompanyPage() {
             updateLogo(company.logo_url || '');
         } catch (error) {
             showNotice(`Company load failed: ${error.message}`, 'error');
+        }
+    };
+
+    const loadGoodsTypes = async () => {
+        if (!goodsTable) {
+            return;
+        }
+        goodsTable.innerHTML = '<tr><td colspan="2" class="muted">Loading goods types...</td></tr>';
+        try {
+            const data = await fetchJson(`${window.APP_BASE}/api/goods_types/list.php?limit=500`);
+            const rows = data.data || [];
+            if (!rows.length) {
+                goodsTable.innerHTML = '<tr><td colspan="2" class="muted">No goods types yet.</td></tr>';
+                return;
+            }
+            goodsTable.innerHTML = rows
+                .map(
+                    (row) => `<tr>
+                        <td>${row.name || '-'}</td>
+                        <td>
+                            <button class="button ghost small" type="button" data-goods-delete data-id="${row.id}">
+                                Delete
+                            </button>
+                        </td>
+                    </tr>`
+                )
+                .join('');
+        } catch (error) {
+            goodsTable.innerHTML = '<tr><td colspan="2" class="muted">Failed to load goods types.</td></tr>';
+            showGoodsNotice(`Goods types load failed: ${error.message}`, 'error');
         }
     };
 
@@ -8402,6 +9436,64 @@ function initCompanyPage() {
     }
 
     loadCompany();
+    loadGoodsTypes();
+
+    if (goodsForm) {
+        goodsForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            if (!goodsInput) {
+                return;
+            }
+            const name = goodsInput.value.trim();
+            if (!name) {
+                showGoodsNotice('Type name is required.', 'error');
+                return;
+            }
+            try {
+                await fetchJson(`${window.APP_BASE}/api/goods_types/create.php`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name }),
+                });
+                goodsInput.value = '';
+                showGoodsNotice('Goods type added.', 'success');
+                loadGoodsTypes();
+            } catch (error) {
+                showGoodsNotice(`Add failed: ${error.message}`, 'error');
+            }
+        });
+    }
+
+    if (goodsTable) {
+        goodsTable.addEventListener('click', async (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) {
+                return;
+            }
+            const button = target.closest('[data-goods-delete]');
+            if (!button) {
+                return;
+            }
+            const id = button.getAttribute('data-id');
+            if (!id) {
+                return;
+            }
+            if (!confirm('Delete this goods type?')) {
+                return;
+            }
+            try {
+                await fetchJson(`${window.APP_BASE}/api/goods_types/delete.php`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id }),
+                });
+                showGoodsNotice('Goods type removed.', 'success');
+                loadGoodsTypes();
+            } catch (error) {
+                showGoodsNotice(`Delete failed: ${error.message}`, 'error');
+            }
+        });
+    }
 }
 
 function initPartnersPage() {
@@ -8411,13 +9503,16 @@ function initPartnersPage() {
     }
 
     const filterForm = page.querySelector('[data-partners-filter]');
-    const tableBody = page.querySelector('[data-partners-table]');
+    const tableShippers = page.querySelector('[data-partners-table-shipper]');
+    const tableConsignees = page.querySelector('[data-partners-table-consignee]');
     const statusStack = page.querySelector('[data-partners-status]');
     const refreshButton = page.querySelector('[data-partners-refresh]');
-    const countryFilter = page.querySelector('[data-country-filter]');
-    const prevButton = page.querySelector('[data-partners-prev]');
-    const nextButton = page.querySelector('[data-partners-next]');
-    const pageLabel = page.querySelector('[data-partners-page]');
+    const prevShipper = page.querySelector('[data-partners-prev-shipper]');
+    const nextShipper = page.querySelector('[data-partners-next-shipper]');
+    const pageLabelShipper = page.querySelector('[data-partners-page-shipper]');
+    const prevConsignee = page.querySelector('[data-partners-prev-consignee]');
+    const nextConsignee = page.querySelector('[data-partners-next-consignee]');
+    const pageLabelConsignee = page.querySelector('[data-partners-page-consignee]');
     const addButton = page.querySelector('[data-partners-add]');
     const drawer = page.querySelector('[data-partners-drawer]');
     const form = page.querySelector('[data-partners-form]');
@@ -8425,12 +9520,11 @@ function initPartnersPage() {
     const submitLabel = page.querySelector('[data-partners-submit-label]');
     const drawerStatus = page.querySelector('[data-partners-form-status]');
     const partnerIdField = page.querySelector('[data-partner-id]');
-    const countrySelect = page.querySelector('[data-country-select]');
     const drawerCloseButtons = page.querySelectorAll('[data-partners-drawer-close]');
     const canEdit = page.getAttribute('data-can-edit') === '1';
 
     const limit = 5;
-    let offset = 0;
+    const offsets = { shipper: 0, consignee: 0 };
     let lastFilters = {};
     const partnerMap = new Map();
 
@@ -8489,42 +9583,6 @@ function initPartnersPage() {
         }
     };
 
-    const clearDynamicOptions = (select) => {
-        if (!select) {
-            return;
-        }
-        select.querySelectorAll('option[data-dynamic]').forEach((option) => option.remove());
-    };
-
-    const loadCountries = async () => {
-        try {
-            const data = await fetchJson(`${window.APP_BASE}/api/countries/list.php?limit=300`);
-            const rows = data.data || [];
-            if (countryFilter) {
-                clearDynamicOptions(countryFilter);
-                rows.forEach((country) => {
-                    const option = document.createElement('option');
-                    option.value = country.id;
-                    option.textContent = country.name;
-                    option.setAttribute('data-dynamic', 'true');
-                    countryFilter.appendChild(option);
-                });
-            }
-            if (countrySelect) {
-                clearDynamicOptions(countrySelect);
-                rows.forEach((country) => {
-                    const option = document.createElement('option');
-                    option.value = country.id;
-                    option.textContent = country.name;
-                    option.setAttribute('data-dynamic', 'true');
-                    countrySelect.appendChild(option);
-                });
-            }
-        } catch (error) {
-            showNotice(`Countries load failed: ${error.message}`, 'error');
-        }
-    };
-
     const setFormValues = (partner) => {
         if (!form) {
             return;
@@ -8542,28 +9600,23 @@ function initPartnersPage() {
         form.querySelector('[name="name"]').value = partner?.name || '';
         form.querySelector('[name="phone"]').value = partner?.phone || '';
         form.querySelector('[name="address"]').value = partner?.address || '';
-        if (countrySelect) {
-            countrySelect.value = partner?.country_id ? String(partner.country_id) : '';
-        }
     };
 
-    const renderRows = (rows) => {
+    const renderRows = (rows, type, tableBody) => {
         if (!tableBody) {
             return;
         }
-        partnerMap.clear();
         if (!rows.length) {
-            tableBody.innerHTML = '<tr><td colspan="6" class="muted">No partners found.</td></tr>';
+            tableBody.innerHTML =
+                '<tr><td colspan="4" class="muted">No partners found.</td></tr>';
             return;
         }
         tableBody.innerHTML = rows
             .map((row) => {
                 partnerMap.set(String(row.id), row);
-                const typeLabel = row.type === 'shipper' ? 'Shipper' : row.type === 'consignee' ? 'Consignee' : row.type;
-                const actions = [];
-                actions.push(
-                    `<a class="text-link" href="${window.APP_BASE}/views/internal/partner_view?id=${row.id}">Open</a>`
-                );
+                const actions = [
+                    `<a class="text-link" href="${window.APP_BASE}/views/internal/partner_view?id=${row.id}">Open</a>`,
+                ];
                 if (canEdit) {
                     actions.push(
                         `<button class="text-link" type="button" data-partner-edit data-partner-id="${row.id}">Edit</button>`
@@ -8574,8 +9627,6 @@ function initPartnersPage() {
                 }
                 return `<tr>
                     <td>${escapeHtml(row.name || '-')}</td>
-                    <td>${escapeHtml(typeLabel || '-')}</td>
-                    <td>${escapeHtml(row.country_name || '-')}</td>
                     <td>${escapeHtml(row.phone || '-')}</td>
                     <td>${formatAmount(row.balance)}</td>
                     <td>${actions.join(' | ')}</td>
@@ -8607,10 +9658,10 @@ function initPartnersPage() {
                         body: JSON.stringify({ id }),
                     });
                     showNotice('Partner removed.', 'success');
-                    if (rows.length === 1 && offset > 0) {
-                        offset = Math.max(0, offset - limit);
+                    if (rows.length === 1 && offsets[type] > 0) {
+                        offsets[type] = Math.max(0, offsets[type] - limit);
                     }
-                    loadPartners(lastFilters);
+                    loadPartners(type, lastFilters);
                 } catch (error) {
                     showNotice(`Delete failed: ${error.message}`, 'error');
                 }
@@ -8618,32 +9669,45 @@ function initPartnersPage() {
         });
     };
 
-    const loadPartners = async (filters = {}) => {
+    const loadPartners = async (type, filters = {}) => {
+        const tableBody = type === 'shipper' ? tableShippers : tableConsignees;
         if (tableBody) {
-            tableBody.innerHTML = '<tr><td colspan="6" class="muted">Loading partners...</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="4" class="muted">Loading partners...</td></tr>';
         }
-        const params = new URLSearchParams();
+        const params = new URLSearchParams({ type });
         Object.entries(filters).forEach(([key, value]) => {
             if (value !== null && value !== undefined && String(value).trim() !== '') {
                 params.append(key, String(value));
             }
         });
         params.append('limit', String(limit));
-        params.append('offset', String(offset));
+        params.append('offset', String(offsets[type] || 0));
         try {
             const data = await fetchJson(`${window.APP_BASE}/api/partners/list.php?${params.toString()}`);
-            renderRows(data.data || []);
-            if (prevButton) {
-                prevButton.disabled = offset === 0;
-            }
-            if (nextButton) {
-                nextButton.disabled = (data.data || []).length < limit;
-            }
-            if (pageLabel) {
-                pageLabel.textContent = `Page ${Math.floor(offset / limit) + 1}`;
+            renderRows(data.data || [], type, tableBody);
+            if (type === 'shipper') {
+                if (prevShipper) {
+                    prevShipper.disabled = offsets.shipper === 0;
+                }
+                if (nextShipper) {
+                    nextShipper.disabled = (data.data || []).length < limit;
+                }
+                if (pageLabelShipper) {
+                    pageLabelShipper.textContent = `Page ${Math.floor((offsets.shipper || 0) / limit) + 1}`;
+                }
+            } else {
+                if (prevConsignee) {
+                    prevConsignee.disabled = offsets.consignee === 0;
+                }
+                if (nextConsignee) {
+                    nextConsignee.disabled = (data.data || []).length < limit;
+                }
+                if (pageLabelConsignee) {
+                    pageLabelConsignee.textContent = `Page ${Math.floor((offsets.consignee || 0) / limit) + 1}`;
+                }
             }
         } catch (error) {
-            renderRows([]);
+            renderRows([], type, tableBody);
             showNotice(`Partners load failed: ${error.message}`, 'error');
         }
     };
@@ -8652,9 +9716,11 @@ function initPartnersPage() {
         filterForm.addEventListener('submit', (event) => {
             event.preventDefault();
             const formData = new FormData(filterForm);
-            offset = 0;
+            offsets.shipper = 0;
+            offsets.consignee = 0;
             lastFilters = Object.fromEntries(formData.entries());
-            loadPartners(lastFilters);
+            loadPartners('shipper', lastFilters);
+            loadPartners('consignee', lastFilters);
         });
     }
 
@@ -8662,31 +9728,52 @@ function initPartnersPage() {
         refreshButton.addEventListener('click', () => {
             if (filterForm) {
                 const formData = new FormData(filterForm);
-                offset = 0;
+                offsets.shipper = 0;
+                offsets.consignee = 0;
                 lastFilters = Object.fromEntries(formData.entries());
-                loadPartners(lastFilters);
+                loadPartners('shipper', lastFilters);
+                loadPartners('consignee', lastFilters);
             } else {
-                offset = 0;
+                offsets.shipper = 0;
+                offsets.consignee = 0;
                 lastFilters = {};
-                loadPartners();
+                loadPartners('shipper');
+                loadPartners('consignee');
             }
         });
     }
 
-    if (prevButton) {
-        prevButton.addEventListener('click', () => {
-            if (offset === 0) {
+    if (prevShipper) {
+        prevShipper.addEventListener('click', () => {
+            if (offsets.shipper === 0) {
                 return;
             }
-            offset = Math.max(0, offset - limit);
-            loadPartners(lastFilters);
+            offsets.shipper = Math.max(0, offsets.shipper - limit);
+            loadPartners('shipper', lastFilters);
         });
     }
 
-    if (nextButton) {
-        nextButton.addEventListener('click', () => {
-            offset += limit;
-            loadPartners(lastFilters);
+    if (nextShipper) {
+        nextShipper.addEventListener('click', () => {
+            offsets.shipper += limit;
+            loadPartners('shipper', lastFilters);
+        });
+    }
+
+    if (prevConsignee) {
+        prevConsignee.addEventListener('click', () => {
+            if (offsets.consignee === 0) {
+                return;
+            }
+            offsets.consignee = Math.max(0, offsets.consignee - limit);
+            loadPartners('consignee', lastFilters);
+        });
+    }
+
+    if (nextConsignee) {
+        nextConsignee.addEventListener('click', () => {
+            offsets.consignee += limit;
+            loadPartners('consignee', lastFilters);
         });
     }
 
@@ -8709,8 +9796,8 @@ function initPartnersPage() {
             const formData = new FormData(form);
             const payload = Object.fromEntries(formData.entries());
             const partnerId = payload.partner_id || '';
-            if (!payload.type || !payload.name || !payload.country_id) {
-                showFormNotice('Type, name, and country are required.', 'error');
+            if (!payload.type || !payload.name) {
+                showFormNotice('Type and name are required.', 'error');
                 return;
             }
             try {
@@ -8730,13 +9817,14 @@ function initPartnersPage() {
                     showNotice('Partner added.', 'success');
                 }
                 closeDrawer();
-                loadPartners(lastFilters);
+                loadPartners('shipper', lastFilters);
+                loadPartners('consignee', lastFilters);
             } catch (error) {
                 showFormNotice(`Save failed: ${error.message}`, 'error');
             }
         });
     }
 
-    loadCountries();
-    loadPartners();
+    loadPartners('shipper');
+    loadPartners('consignee');
 }

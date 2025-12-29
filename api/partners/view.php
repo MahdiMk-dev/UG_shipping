@@ -14,26 +14,14 @@ if (!$partnerId) {
 
 $db = db();
 $stmt = $db->prepare(
-    'SELECT p.*, c.name AS country_name '
+    'SELECT p.* '
     . 'FROM partner_profiles p '
-    . 'LEFT JOIN countries c ON c.id = p.country_id '
     . 'WHERE p.id = ? AND p.deleted_at IS NULL'
 );
 $stmt->execute([$partnerId]);
 $partner = $stmt->fetch();
 if (!$partner) {
     api_error('Partner profile not found', 404);
-}
-
-$role = $user['role'] ?? '';
-if ($role === 'Warehouse') {
-    $warehouseCountryId = get_branch_country_id($user);
-    if (!$warehouseCountryId) {
-        api_error('Warehouse country scope required', 403);
-    }
-    if ((int) ($partner['country_id'] ?? 0) !== (int) $warehouseCountryId) {
-        api_error('Forbidden', 403);
-    }
 }
 
 $shipmentsStmt = $db->prepare(

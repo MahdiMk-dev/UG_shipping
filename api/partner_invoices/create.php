@@ -11,36 +11,73 @@ $input = api_read_input();
 
 $partnerId = api_int($input['partner_id'] ?? null);
 $shipmentId = api_int($input['shipment_id'] ?? null);
-$invoiceNo = api_string($input['invoice_no'] ?? null);
-$total = api_float($input['total'] ?? null);
 $issuedAt = api_string($input['issued_at'] ?? null);
 $note = api_string($input['note'] ?? null);
+$items = $input['items'] ?? [];
 
-if (!$partnerId || $total === null) {
-    api_error('partner_id and total are required', 422);
+if (!$partnerId) {
+    api_error('partner_id is required', 422);
 }
-if ((float) $total <= 0.0) {
-    api_error('total must be greater than zero', 422);
+if (!is_array($items) || empty($items)) {
+    api_error('Invoice line items are required', 422);
 }
 if ($issuedAt !== null && strtotime($issuedAt) === false) {
     api_error('Invalid issued_at', 422);
 }
 
+$cleanItems = [];
+$total = 0.0;
+foreach ($items as $item) {
+    if (!is_array($item)) {
+        continue;
+    }
+    $description = api_string($item['description'] ?? null);
+    $amount = api_float($item['amount'] ?? null);
+    if (!$description) {
+        api_error('Each line item must include a description', 422);
+    }
+    if ($amount === null || (float) $amount === 0.0) {
+        api_error('Each line item must include a non-zero amount', 422);
+    }
+    $cleanItems[] = [
+        'description' => $description,
+        'amount' => (float) $amount,
+    ];
+    $total += (float) $amount;
+}
+
+$total = round($total, 2);
+if ($total <= 0.0) {
+    api_error('Invoice total must be greater than zero', 422);
+}
+
 $db = db();
-$partnerStmt = $db->prepare('SELECT id FROM partner_profiles WHERE id = ? AND deleted_at IS NULL');
+$partnerStmt = $db->prepare('SELECT id, name, type FROM partner_profiles WHERE id = ? AND deleted_at IS NULL');
 $partnerStmt->execute([$partnerId]);
-if (!$partnerStmt->fetch()) {
+$partner = $partnerStmt->fetch();
+if (!$partner) {
     api_error('Partner profile not found', 404);
 }
+
 if ($shipmentId) {
     $shipmentStmt = $db->prepare(
-        'SELECT id FROM shipments '
+        'SELECT id, shipment_number FROM shipments '
         . 'WHERE id = ? AND deleted_at IS NULL AND (shipper_profile_id = ? OR consignee_profile_id = ?)'
     );
     $shipmentStmt->execute([$shipmentId, $partnerId, $partnerId]);
-    if (!$shipmentStmt->fetch()) {
+    $shipment = $shipmentStmt->fetch();
+    if (!$shipment) {
         api_error('Shipment not found for this partner', 404);
     }
+    $existingStmt = $db->prepare(
+        'SELECT id FROM partner_invoices WHERE partner_id = ? AND shipment_id = ? AND deleted_at IS NULL LIMIT 1'
+    );
+    $existingStmt->execute([$partnerId, $shipmentId]);
+    if ($existingStmt->fetch()) {
+        api_error('An active invoice already exists for this shipment', 409);
+    }
+} else {
+    $shipment = null;
 }
 
 $issuedAtValue = $issuedAt ?: date('Y-m-d H:i:s');
@@ -51,21 +88,28 @@ $insertInvoice = $db->prepare(
     . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
 );
 
+$insertItem = $db->prepare(
+    'INSERT INTO partner_invoice_items (invoice_id, description, amount) VALUES (?, ?, ?)'
+);
+
+$insertExpense = $db->prepare(
+    'INSERT INTO general_expenses '
+    . '(branch_id, shipment_id, title, amount, expense_date, note, reference_type, reference_id, created_by_user_id) '
+    . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+);
+
 $db->beginTransaction();
 try {
-    $finalInvoiceNo = $invoiceNo;
+    $finalInvoiceNo = null;
     $tries = 0;
-    $inserted = false;
-    while (!$inserted && $tries < 3) {
+    while ($tries < 3 && !$finalInvoiceNo) {
         $tries++;
-        if (!$finalInvoiceNo) {
-            $finalInvoiceNo = 'PINV-' . date('Ymd-His') . '-' . random_int(100, 999);
-        }
+        $candidate = 'PINV-' . date('Ymd-His') . '-' . random_int(100, 999);
         try {
             $insertInvoice->execute([
                 $partnerId,
                 $shipmentId,
-                $finalInvoiceNo,
+                $candidate,
                 'open',
                 $total,
                 0,
@@ -74,26 +118,46 @@ try {
                 $user['id'] ?? null,
                 $note,
             ]);
-            $inserted = true;
+            $finalInvoiceNo = $candidate;
         } catch (PDOException $e) {
             if ((int) $e->getCode() === 23000) {
-                if ($invoiceNo) {
-                    api_error('Invoice number already exists', 409);
-                }
-                $finalInvoiceNo = null;
                 continue;
             }
             throw $e;
         }
     }
 
-    if (!$inserted) {
+    if (!$finalInvoiceNo) {
         api_error('Unable to generate invoice number', 500);
     }
 
     $invoiceId = (int) $db->lastInsertId();
+    foreach ($cleanItems as $item) {
+        $insertItem->execute([$invoiceId, $item['description'], $item['amount']]);
+    }
+
     $db->prepare('UPDATE partner_profiles SET balance = balance - ? WHERE id = ?')
         ->execute([$total, $partnerId]);
+
+    if ($shipmentId) {
+        $expenseDate = date('Y-m-d', strtotime($issuedAtValue));
+        $partnerLabel = $partner['name'] ?? 'Partner';
+        $title = sprintf('Partner invoice %s - %s', $finalInvoiceNo, $partnerLabel);
+        $expenseNote = $shipment
+            ? sprintf('Shipment %s (%s)', $shipment['shipment_number'], $partner['type'] ?? 'partner')
+            : null;
+        $insertExpense->execute([
+            null,
+            $shipmentId,
+            $title,
+            $total,
+            $expenseDate,
+            $expenseNote,
+            'partner_invoice',
+            $invoiceId,
+            $user['id'] ?? null,
+        ]);
+    }
 
     $rowStmt = $db->prepare('SELECT * FROM partner_invoices WHERE id = ?');
     $rowStmt->execute([$invoiceId]);

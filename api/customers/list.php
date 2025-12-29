@@ -24,23 +24,29 @@ $where = ['c.deleted_at IS NULL'];
 $params = [];
 
 $role = $user['role'] ?? '';
+$isWarehouse = $role === 'Warehouse';
 $fullAccess = in_array($role, ['Admin', 'Owner', 'Main Branch'], true);
 $branchId = $user['branch_id'] ?? null;
 
-if (!$fullAccess && $role !== 'Warehouse') {
+if ($isWarehouse) {
+    $warehouseCountryId = get_branch_country_id($user);
+    if (!$warehouseCountryId) {
+        api_error('Warehouse country scope required', 403);
+    }
+    if ($profileCountryId && (int) $profileCountryId !== (int) $warehouseCountryId) {
+        api_error('Forbidden', 403);
+    }
+    if (!$search) {
+        api_json(['ok' => true, 'data' => []]);
+    }
+    $where[] = 'c.profile_country_id = ?';
+    $params[] = $warehouseCountryId;
+} elseif (!$fullAccess) {
     if (!$branchId) {
         api_error('Branch scope required', 403);
     }
     $where[] = 'c.sub_branch_id = ?';
     $params[] = $branchId;
-}
-if ($role === 'Warehouse') {
-    $warehouseCountryId = get_branch_country_id($user);
-    if (!$warehouseCountryId) {
-        api_error('Warehouse country scope required', 403);
-    }
-    $where[] = 'c.profile_country_id = ?';
-    $params[] = $warehouseCountryId;
 }
 
 if ($search) {
@@ -57,7 +63,7 @@ if ($subBranchId && $fullAccess) {
     $params[] = $subBranchId;
 }
 
-if ($profileCountryId && $fullAccess) {
+if ($profileCountryId && ($fullAccess || $isWarehouse)) {
     $where[] = 'c.profile_country_id = ?';
     $params[] = $profileCountryId;
 }

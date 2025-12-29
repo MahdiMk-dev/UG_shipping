@@ -38,6 +38,7 @@ $ordersStmt = $db->prepare(
     . 'LEFT JOIN shipments s ON s.id = o.shipment_id '
     . 'LEFT JOIN customers c ON c.id = o.customer_id '
     . 'WHERE o.customer_id IN (' . $placeholders . ') AND o.deleted_at IS NULL '
+    . "AND o.fulfillment_status IN ('in_shipment','main_branch') "
     . 'ORDER BY o.id DESC LIMIT 50'
 );
 $ordersStmt->execute($profileIds);
@@ -54,6 +55,18 @@ $invoicesStmt = $db->prepare(
 $invoicesStmt->execute($profileIds);
 $invoices = $invoicesStmt->fetchAll();
 
+$transactionsStmt = $db->prepare(
+    'SELECT t.id, t.customer_id, c.name AS customer_name, c.code AS customer_code, '
+    . 't.type, t.amount, t.payment_date, t.created_at, pm.name AS payment_method '
+    . 'FROM transactions t '
+    . 'LEFT JOIN customers c ON c.id = t.customer_id '
+    . 'LEFT JOIN payment_methods pm ON pm.id = t.payment_method_id '
+    . 'WHERE t.customer_id IN (' . $placeholders . ') AND t.deleted_at IS NULL '
+    . 'ORDER BY t.id DESC LIMIT 50'
+);
+$transactionsStmt->execute($profileIds);
+$transactions = $transactionsStmt->fetchAll();
+
 api_json([
     'ok' => true,
     'account' => [
@@ -65,4 +78,5 @@ api_json([
     'profiles' => $profiles,
     'orders' => $orders,
     'invoices' => $invoices,
+    'transactions' => $transactions,
 ]);

@@ -6,7 +6,7 @@ require_once __DIR__ . '/../../app/permissions.php';
 require_once __DIR__ . '/../../app/audit.php';
 
 api_require_method('PATCH');
-$user = require_role(['Admin', 'Owner', 'Main Branch', 'Sub Branch', 'Warehouse']);
+$user = require_role(['Admin', 'Owner', 'Main Branch', 'Sub Branch']);
 $input = api_read_input();
 
 $customerId = api_int($input['customer_id'] ?? ($input['id'] ?? null));

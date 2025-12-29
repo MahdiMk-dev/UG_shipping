@@ -5,20 +5,22 @@ require_once __DIR__ . '/_layout.php';
 
 $user = internal_require_user();
 internal_page_start($user, 'shipments', 'Create Shipment', 'Add a new shipment and set its origin.');
-$canEdit = in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch', 'Warehouse'], true);
+$role = $user['role'] ?? '';
+$canEdit = in_array($role, ['Admin', 'Owner', 'Main Branch', 'Warehouse'], true);
+$showRates = $role !== 'Warehouse';
 ?>
-<div data-shipment-create>
-    <section class="panel">
-        <div class="panel-header">
+<div data-shipment-create class="shipment-create-shell">
+    <section class="panel shipment-create-panel">
+        <div class="panel-header shipment-create-header">
             <div>
                 <h3>Shipment details</h3>
-                <p>Required fields are shipment number, origin, and type.</p>
+                <p>Required fields are shipment number, origin, type, and goods.</p>
             </div>
         </div>
         <?php if (!$canEdit): ?>
             <p class="muted">You have view-only access. Creating shipments is restricted to Admin, Owner, Main Branch, and Warehouse roles.</p>
         <?php else: ?>
-        <form class="grid-form" data-shipments-create>
+        <form class="grid-form shipment-create-form" data-shipments-create>
             <label>
                 <span>Shipment number</span>
                 <input type="text" name="shipment_number" placeholder="UG-2025-0001" required>
@@ -31,11 +33,25 @@ $canEdit = in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch', 'Ware
             </label>
             <label>
                 <span>Shipping type</span>
-                <select name="shipping_type" required>
+                <div class="option-group" data-shipping-type-group>
+                    <label class="option-pill">
+                        <input type="radio" name="shipping_type" value="air" required>
+                        <span>Air</span>
+                    </label>
+                    <label class="option-pill">
+                        <input type="radio" name="shipping_type" value="sea">
+                        <span>Sea</span>
+                    </label>
+                    <label class="option-pill">
+                        <input type="radio" name="shipping_type" value="land">
+                        <span>Land</span>
+                    </label>
+                </div>
+            </label>
+            <label>
+                <span>Type of goods</span>
+                <select name="type_of_goods" data-goods-select required>
                     <option value="">Select type</option>
-                    <option value="air">Air</option>
-                    <option value="sea">Sea</option>
-                    <option value="land">Land</option>
                 </select>
             </label>
             <label>
@@ -69,18 +85,12 @@ $canEdit = in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch', 'Ware
                 <span>Arrival date</span>
                 <input type="date" name="arrival_date">
             </label>
-            <label>
-                <span>Default rate</span>
-                <input type="number" step="0.01" name="default_rate" placeholder="0.00">
-            </label>
-            <label>
-                <span>Rate unit</span>
-                <select name="default_rate_unit">
-                    <option value="">Select unit</option>
-                    <option value="kg">KG</option>
-                    <option value="cbm">CBM</option>
-                </select>
-            </label>
+            <?php if ($showRates): ?>
+                <label>
+                    <span>Default rate</span>
+                    <input type="number" step="0.01" name="default_rate" placeholder="0.00">
+                </label>
+            <?php endif; ?>
             <label class="full">
                 <span>Notes</span>
                 <input type="text" name="note" placeholder="Optional notes">

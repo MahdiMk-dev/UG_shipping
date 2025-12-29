@@ -34,8 +34,9 @@ UG Shipping is an internal web app + API for managing shipments, orders, receivi
 - Warehouse constraints:
   - Shipments must match warehouse country.
   - Warehouse can only edit/create orders when shipment status is `active`.
-  - Warehouse can only view customer profiles that match their country.
+  - Warehouse cannot view customer profiles; customer selection is search-only in order creation.
   - Warehouse can only view partner profiles that match their country.
+  - Warehouse cannot view or edit shipment pricing (rates, costs) or shipment income totals.
 - Main Branch access:
   - Can manage shipments, orders, customers, and receiving.
   - Cannot access branches, users, roles, or staff screens/APIs.
@@ -59,6 +60,8 @@ Shipment lifecycle:
 - When shipment status changes to `arrived`, orders stay in `in_shipment` until main branch receiving scans them.
 - When shipment status changes to `active` or `airport`, orders in `main_branch`, `pending_receipt`, `received_subbranch`
   move back to `in_shipment`.
+- Shipments require `type_of_goods` on create/update.
+- `type_of_goods` values come from `goods_types` and are managed in Company settings (Admin/Owner).
 
 Distribution:
 - Distribution requires shipment status `arrived` or `partially_distributed`.
@@ -74,12 +77,16 @@ Receiving:
 - Scans match `shipment_id + tracking_number` (and branch if provided).
 - Matched scans move orders to `received_subbranch`.
 - All scans are logged in `branch_receiving_scans` with `matched`/`unmatched`.
+- Unmatched scans are de-duplicated per branch/shipment/tracking; Admin/Owner/Main Branch can return them to `in_shipment`.
+- Returning to main branch reverses customer/branch balances for `received_subbranch` orders and resolves the scan.
 - Main branch receiving uses orders in `in_shipment` for shipments with status `arrived` or `partially_distributed`.
 - Main branch scans move orders to `main_branch`.
 
 Orders:
 - Order creation allows customers without a `sub_branch_id`.
 - Order creation and reassignment require the customer profile country to match the shipment `origin_country_id`.
+- Order creation defaults `rate` from shipment `default_rate` when omitted.
+- Order unit type is derived from weight type (`actual` = `kg`, `volumetric` = `cbm`).
 - `update_shipment_totals()` recalculates shipment weight/volume from orders.
 
 Customer profiles:
@@ -93,10 +100,11 @@ Invoices + Transactions:
 - Sub Branch users can create invoices and payments for customers in their branch.
 
 Balances + Transfers:
-- Customer balance decreases when orders are created, and increases when payments are recorded.
-- Price updates adjust customer balance by the delta; shipment default-rate sync skips invoiced orders.
+- Customer balance increases when orders reach `received_subbranch`, and decreases when payments are recorded.
+- Price updates adjust customer balance by the delta for `received_subbranch` orders; shipment default-rate sync skips invoiced orders.
 - Customer balance activity is logged in `customer_balance_entries` (order charges/reversals and payments).
 - Sub-branch balance entries are recorded when orders reach `received_subbranch`, reversed when moved out or deleted.
+- Admin-recorded customer payments for sub branches reduce branch balances (`customer_payment` entries).
 - Internal branch transfers are tracked in `branch_transfers` and mirrored in `branch_balance_entries`.
 
 Attachments:
@@ -131,6 +139,14 @@ Audit:
 - Endpoint filenames mirror actions (list/create/update/delete).
 
 ## Change Log (keep current)
+- 2026-01-06: Added `goods_types` list with company-managed goods dropdown for shipments (seeded defaults).
+- 2026-01-05: Shipments require type of goods, shipment rate unit is removed from internal forms, order create always
+  defaults rate from shipment, and returning unmatched scans reverses customer balances.
+- 2026-01-02: Order create defaults rate to shipment default rate, unit type follows weight type, warehouse access to customers is removed,
+- 2026-01-02: Order create defaults rate to shipment default rate, unit type follows weight type, warehouse access to customers is removed,
+  duplicate unmatched receiving scans are ignored, and orders list groups by shipment with a dedicated shipment orders view.
+- 2026-01-03: Customer balances post on sub-branch receipt and payments reduce balance; portal shows incoming orders and transactions;
+  branch balances include admin-recorded customer payments.
 - 2025-12-21: Shipment distribute only queues orders with a branch; shipment status stays `main_branch` until all orders
   have a branch; repeated distribute does not requeue already distributed orders.
 - 2025-12-21: Wired internal attachments page for upload, list, download, and delete with pagination.

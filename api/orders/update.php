@@ -67,6 +67,9 @@ if ($role === 'Warehouse') {
 if ($role === 'Warehouse' && ($shipment['status'] ?? '') !== 'active') {
     api_error('Shipment must be active to edit orders', 403);
 }
+if ($role === 'Warehouse' && (array_key_exists('rate', $input) || array_key_exists('adjustments', $input))) {
+    api_error('Rate and adjustments are restricted for warehouse users', 403);
+}
 
 $previousShipmentId = (int) $order['shipment_id'];
 $previousCustomerId = (int) $order['customer_id'];
@@ -77,7 +80,6 @@ $fields = [];
 $params = [];
 
 $allowedDelivery = ['pickup', 'delivery'];
-$allowedUnit = ['kg', 'cbm'];
 $allowedWeight = ['actual', 'volumetric'];
 $allowedFulfillment = [
     'in_shipment',
@@ -96,7 +98,6 @@ $mapFields = [
     'collection_id' => 'collection_id',
     'tracking_number' => 'tracking_number',
     'delivery_type' => 'delivery_type',
-    'unit_type' => 'unit_type',
     'weight_type' => 'weight_type',
     'actual_weight' => 'actual_weight',
     'w' => 'w',
@@ -126,11 +127,6 @@ foreach ($mapFields as $inputKey => $column) {
         $value = api_string($value);
         if (!$value || !in_array($value, $allowedDelivery, true)) {
             api_error('Invalid delivery_type', 422);
-        }
-    } elseif (in_array($inputKey, ['unit_type'], true)) {
-        $value = api_string($value);
-        if (!$value || !in_array($value, $allowedUnit, true)) {
-            api_error('Invalid unit_type', 422);
         }
     } elseif (in_array($inputKey, ['weight_type'], true)) {
         $value = api_string($value);
@@ -164,6 +160,7 @@ foreach ($mapFields as $inputKey => $column) {
 }
 
 $shipmentIdUpdated = array_key_exists('shipment_id', $input);
+$weightTypeUpdated = array_key_exists('weight_type', $input);
 $targetShipment = $shipment;
 if ($shipmentIdUpdated && (int) $newValues['shipment_id'] !== (int) $order['shipment_id']) {
     $targetStmt = $db->prepare('SELECT status, origin_country_id FROM shipments WHERE id = ? AND deleted_at IS NULL');
@@ -254,6 +251,16 @@ foreach ($adjustments as $adjustment) {
 }
 
 $weightType = $newValues['weight_type'];
+$unitType = $newValues['unit_type'] ?? 'kg';
+if ($weightTypeUpdated) {
+    $derivedUnitType = $weightType === 'volumetric' ? 'cbm' : 'kg';
+    if ($unitType !== $derivedUnitType) {
+        $unitType = $derivedUnitType;
+        $newValues['unit_type'] = $derivedUnitType;
+        $fields[] = 'unit_type = ?';
+        $params[] = $derivedUnitType;
+    }
+}
 $actualWeight = $newValues['actual_weight'];
 $w = $newValues['w'];
 $d = $newValues['d'];
@@ -266,7 +273,7 @@ if ($weightType === 'volumetric' && ($w === null || $d === null || $h === null))
     api_error('w, d, h are required for volumetric weight_type', 422);
 }
 
-$qty = compute_qty($newValues['unit_type'], $weightType, (float) $actualWeight, (float) $w, (float) $d, (float) $h);
+$qty = compute_qty($unitType, $weightType, (float) $actualWeight, (float) $w, (float) $d, (float) $h);
 $basePrice = compute_base_price($qty, (float) $newValues['rate']);
 
 $computedAdjustments = [];
@@ -358,14 +365,44 @@ try {
     $newBranchId = (int) $newValues['sub_branch_id'];
     $newStatus = (string) $newValues['fulfillment_status'];
 
+    $chargedBefore = $previousStatus === 'received_subbranch';
+    $chargedAfter = $newStatus === 'received_subbranch';
+
     if ($newCustomerId === $previousCustomerId) {
-        if (abs($previousTotal - $totalPrice) > 0.0001) {
-            adjust_customer_balance($db, $newCustomerId, $previousTotal - $totalPrice);
+        if ($chargedBefore && !$chargedAfter) {
+            adjust_customer_balance($db, $previousCustomerId, -$previousTotal);
+            record_customer_balance(
+                $db,
+                $previousCustomerId,
+                $previousBranchId ?: null,
+                -$previousTotal,
+                'order_reversal',
+                'order',
+                $orderId,
+                $user['id'] ?? null,
+                'Order status reversed'
+            );
+        } elseif (!$chargedBefore && $chargedAfter) {
+            adjust_customer_balance($db, $newCustomerId, $totalPrice);
             record_customer_balance(
                 $db,
                 $newCustomerId,
                 $newBranchId ?: null,
-                $previousTotal,
+                $totalPrice,
+                'order_charge',
+                'order',
+                $orderId,
+                $user['id'] ?? null,
+                'Order received'
+            );
+        } elseif ($chargedBefore && $chargedAfter && abs($totalPrice - $previousTotal) > 0.0001) {
+            $delta = $totalPrice - $previousTotal;
+            adjust_customer_balance($db, $newCustomerId, $delta);
+            record_customer_balance(
+                $db,
+                $newCustomerId,
+                $newBranchId ?: null,
+                -$previousTotal,
                 'order_reversal',
                 'order',
                 $orderId,
@@ -376,7 +413,7 @@ try {
                 $db,
                 $newCustomerId,
                 $newBranchId ?: null,
-                -$totalPrice,
+                $totalPrice,
                 'order_charge',
                 'order',
                 $orderId,
@@ -385,30 +422,34 @@ try {
             );
         }
     } else {
-        adjust_customer_balance($db, $previousCustomerId, $previousTotal);
-        adjust_customer_balance($db, $newCustomerId, -$totalPrice);
-        record_customer_balance(
-            $db,
-            $previousCustomerId,
-            $previousBranchId ?: null,
-            $previousTotal,
-            'order_reversal',
-            'order',
-            $orderId,
-            $user['id'] ?? null,
-            'Order reassigned'
-        );
-        record_customer_balance(
-            $db,
-            $newCustomerId,
-            $newBranchId ?: null,
-            -$totalPrice,
-            'order_charge',
-            'order',
-            $orderId,
-            $user['id'] ?? null,
-            'Order reassigned'
-        );
+        if ($chargedBefore) {
+            adjust_customer_balance($db, $previousCustomerId, -$previousTotal);
+            record_customer_balance(
+                $db,
+                $previousCustomerId,
+                $previousBranchId ?: null,
+                -$previousTotal,
+                'order_reversal',
+                'order',
+                $orderId,
+                $user['id'] ?? null,
+                'Order reassigned'
+            );
+        }
+        if ($chargedAfter) {
+            adjust_customer_balance($db, $newCustomerId, $totalPrice);
+            record_customer_balance(
+                $db,
+                $newCustomerId,
+                $newBranchId ?: null,
+                $totalPrice,
+                'order_charge',
+                'order',
+                $orderId,
+                $user['id'] ?? null,
+                'Order reassigned'
+            );
+        }
     }
 
     if ($previousStatus !== 'received_subbranch' && $newStatus === 'received_subbranch') {

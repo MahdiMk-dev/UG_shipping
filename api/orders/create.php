@@ -16,7 +16,6 @@ $customerId = api_int($input['customer_id'] ?? null);
 $collectionId = api_int($input['collection_id'] ?? null);
 $trackingNumber = api_string($input['tracking_number'] ?? null);
 $deliveryType = api_string($input['delivery_type'] ?? null);
-$unitType = api_string($input['unit_type'] ?? null);
 $weightType = api_string($input['weight_type'] ?? null);
 $rate = api_float($input['rate'] ?? null);
 $note = api_string($input['note'] ?? null);
@@ -28,37 +27,25 @@ if (!$deliveryType) {
     $deliveryType = 'pickup';
 }
 
-if (!$shipmentId || !$customerId || !$trackingNumber || !$unitType || !$weightType) {
-    api_error('shipment_id, customer_id, tracking_number, unit_type, weight_type are required', 422);
+if (!$shipmentId || !$customerId || !$trackingNumber || !$weightType) {
+    api_error('shipment_id, customer_id, tracking_number, weight_type are required', 422);
 }
 
 $allowedDelivery = ['pickup', 'delivery'];
-$allowedUnit = ['kg', 'cbm'];
 $allowedWeight = ['actual', 'volumetric'];
 
 if (!in_array($deliveryType, $allowedDelivery, true)) {
     api_error('Invalid delivery_type', 422);
 }
-if (!in_array($unitType, $allowedUnit, true)) {
-    api_error('Invalid unit_type', 422);
-}
 if (!in_array($weightType, $allowedWeight, true)) {
     api_error('Invalid weight_type', 422);
-}
-if ($rate === null) {
-    if ($isWarehouse) {
-        $rate = 0.0;
-    } else {
-        api_error('rate is required', 422);
-    }
-}
-if ($isWarehouse) {
-    $rate = 0.0;
 }
 
 $db = db();
 
-$shipmentStmt = $db->prepare('SELECT id, status, origin_country_id FROM shipments WHERE id = ? AND deleted_at IS NULL');
+$shipmentStmt = $db->prepare(
+    'SELECT id, status, origin_country_id, default_rate FROM shipments WHERE id = ? AND deleted_at IS NULL'
+);
 $shipmentStmt->execute([$shipmentId]);
 $shipment = $shipmentStmt->fetch();
 if (!$shipment) {
@@ -75,6 +62,18 @@ if ($isWarehouse) {
 }
 if ($role === 'Warehouse' && ($shipment['status'] ?? '') !== 'active') {
     api_error('Shipment must be active to create orders', 403);
+}
+
+$unitType = $weightType === 'volumetric' ? 'cbm' : 'kg';
+
+if ($isWarehouse) {
+    $rate = null;
+}
+if ($rate === null || abs((float) $rate) < 0.0001) {
+    $rate = $shipment['default_rate'] !== null ? (float) $shipment['default_rate'] : null;
+}
+if ($rate === null || abs((float) $rate) < 0.0001) {
+    api_error('rate is required', 422);
 }
 
 $customerStmt = $db->prepare('SELECT id, sub_branch_id, profile_country_id FROM customers WHERE id = ? AND deleted_at IS NULL');
@@ -225,18 +224,6 @@ try {
     audit_log($user, 'orders.create', 'order', $orderId, null, $after, [
         'adjustments' => $normalizedAdjustments,
     ]);
-    adjust_customer_balance($db, (int) $customerId, -$totalPrice);
-    record_customer_balance(
-        $db,
-        (int) $customerId,
-        $subBranchId ? (int) $subBranchId : null,
-        -$totalPrice,
-        'order_charge',
-        'order',
-        $orderId,
-        $user['id'] ?? null,
-        'Order created'
-    );
     if (($shipment['status'] ?? '') === 'distributed') {
         $db->prepare(
             'UPDATE shipments SET status = ?, updated_at = NOW(), updated_by_user_id = ? '

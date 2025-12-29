@@ -30,6 +30,13 @@ try {
         api_error('Transaction not found', 404);
     }
 
+    $branchTypeStmt = $db->prepare('SELECT type FROM branches WHERE id = ? AND deleted_at IS NULL');
+    $branchTypeStmt->execute([(int) $transaction['branch_id']]);
+    $branchType = $branchTypeStmt->fetchColumn();
+    if (!$branchType) {
+        api_error('Branch not found', 404);
+    }
+
     $allocStmt = $db->prepare(
         'SELECT invoice_id, amount_allocated FROM transaction_allocations WHERE transaction_id = ?'
     );
@@ -70,9 +77,9 @@ try {
     )->execute([$user['id'] ?? null, $transactionId]);
 
     $normalizedAmount = abs((float) ($transaction['amount'] ?? 0));
-    $balanceDelta = $normalizedAmount;
+    $balanceDelta = -$normalizedAmount;
     if (in_array($transaction['type'] ?? '', ['refund', 'adjustment'], true)) {
-        $balanceDelta = -$normalizedAmount;
+        $balanceDelta = $normalizedAmount;
     }
     adjust_customer_balance($db, (int) $transaction['customer_id'], -$balanceDelta);
     record_customer_balance(
@@ -86,6 +93,21 @@ try {
         $user['id'] ?? null,
         'Transaction voided'
     );
+
+    if ($branchType === 'sub'
+        && in_array((string) ($transaction['type'] ?? ''), ['payment', 'deposit', 'admin_settlement'], true)
+    ) {
+        record_branch_balance(
+            $db,
+            (int) $transaction['branch_id'],
+            $normalizedAmount,
+            'customer_payment',
+            'transaction',
+            $transactionId,
+            $user['id'] ?? null,
+            'Transaction voided'
+        );
+    }
 
     $afterStmt = $db->prepare('SELECT * FROM transactions WHERE id = ?');
     $afterStmt->execute([$transactionId]);

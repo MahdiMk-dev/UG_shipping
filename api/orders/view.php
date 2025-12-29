@@ -57,6 +57,11 @@ $adjStmt = $db->prepare(
 $adjStmt->execute([$orderId]);
 $adjustments = $adjStmt->fetchAll() ?: [];
 
+if ($role === 'Warehouse') {
+    unset($order['rate'], $order['base_price'], $order['adjustments_total'], $order['total_price']);
+    $adjustments = [];
+}
+
 api_json([
     'ok' => true,
     'order' => $order,

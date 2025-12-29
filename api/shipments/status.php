@@ -43,16 +43,30 @@ try {
 
     if (in_array($status, ['active', 'airport'], true) && ($before['status'] ?? '') !== $status) {
         $receivedStmt = $db->prepare(
-            'SELECT id, sub_branch_id, total_price FROM orders '
+            'SELECT id, customer_id, sub_branch_id, total_price FROM orders '
             . 'WHERE shipment_id = ? AND deleted_at IS NULL AND fulfillment_status = \'received_subbranch\''
         );
         $receivedStmt->execute([$shipmentId]);
         $receivedOrders = $receivedStmt->fetchAll() ?: [];
         foreach ($receivedOrders as $order) {
+            $totalPrice = (float) ($order['total_price'] ?? 0);
+            $customerId = (int) ($order['customer_id'] ?? 0);
+            adjust_customer_balance($db, $customerId, -$totalPrice);
+            record_customer_balance(
+                $db,
+                $customerId,
+                !empty($order['sub_branch_id']) ? (int) $order['sub_branch_id'] : null,
+                -$totalPrice,
+                'order_reversal',
+                'order',
+                (int) $order['id'],
+                $user['id'] ?? null,
+                'Shipment status reset'
+            );
             record_branch_balance(
                 $db,
                 (int) ($order['sub_branch_id'] ?? 0),
-                -(float) ($order['total_price'] ?? 0),
+                -$totalPrice,
                 'order_reversal',
                 'order',
                 (int) $order['id'],

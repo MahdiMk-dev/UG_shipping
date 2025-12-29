@@ -12,29 +12,55 @@ $input = api_read_input();
 
 $partnerId = api_int($input['partner_id'] ?? null);
 $invoiceId = api_int($input['invoice_id'] ?? null);
-$branchId = api_int($input['branch_id'] ?? null);
 $paymentMethodId = api_int($input['payment_method_id'] ?? null);
 $type = api_string($input['type'] ?? 'receipt') ?? 'receipt';
-$amount = api_float($input['amount'] ?? null);
 $paymentDate = api_string($input['payment_date'] ?? null);
 $note = api_string($input['note'] ?? null);
+$items = $input['items'] ?? [];
 
-if (!$partnerId || !$branchId || !$paymentMethodId || $amount === null) {
-    api_error('partner_id, branch_id, payment_method_id, and amount are required', 422);
+if (!$partnerId || !$paymentMethodId) {
+    api_error('partner_id and payment_method_id are required', 422);
 }
-if ((float) $amount === 0.0) {
-    api_error('amount cannot be zero', 422);
+if ($paymentDate !== null && strtotime($paymentDate) === false) {
+    api_error('Invalid payment_date', 422);
 }
 
 $allowedTypes = ['receipt', 'refund', 'adjustment'];
 if (!in_array($type, $allowedTypes, true)) {
     api_error('Invalid transaction type', 422);
 }
-if ($type === 'receipt' && (float) $amount <= 0.0) {
-    api_error('receipt amount must be greater than zero', 422);
+
+if (!is_array($items) || empty($items)) {
+    api_error('Transaction line items are required', 422);
 }
-if ($paymentDate !== null && strtotime($paymentDate) === false) {
-    api_error('Invalid payment_date', 422);
+
+$cleanItems = [];
+$amount = 0.0;
+foreach ($items as $item) {
+    if (!is_array($item)) {
+        continue;
+    }
+    $description = api_string($item['description'] ?? null);
+    $lineAmount = api_float($item['amount'] ?? null);
+    if (!$description) {
+        api_error('Each line item must include a description', 422);
+    }
+    if ($lineAmount === null || (float) $lineAmount === 0.0) {
+        api_error('Each line item must include a non-zero amount', 422);
+    }
+    $cleanItems[] = [
+        'description' => $description,
+        'amount' => (float) $lineAmount,
+    ];
+    $amount += (float) $lineAmount;
+}
+
+$amount = round($amount, 2);
+if ($amount === 0.0) {
+    api_error('amount cannot be zero', 422);
+}
+if ($type === 'receipt' && $amount <= 0.0) {
+    api_error('receipt amount must be greater than zero', 422);
 }
 
 $db = db();
@@ -42,12 +68,6 @@ $partnerStmt = $db->prepare('SELECT id FROM partner_profiles WHERE id = ? AND de
 $partnerStmt->execute([$partnerId]);
 if (!$partnerStmt->fetch()) {
     api_error('Partner profile not found', 404);
-}
-
-$branchStmt = $db->prepare('SELECT id FROM branches WHERE id = ? AND deleted_at IS NULL');
-$branchStmt->execute([$branchId]);
-if (!$branchStmt->fetch()) {
-    api_error('Branch not found', 404);
 }
 
 $methodStmt = $db->prepare('SELECT id FROM payment_methods WHERE id = ?');
@@ -77,22 +97,27 @@ if ($invoiceId) {
         api_error('Only receipt transactions can be applied to an invoice', 422);
     }
     $remaining = (float) ($invoice['due_total'] ?? 0);
-    if ((float) $amount > $remaining) {
+    if ($amount > $remaining) {
         api_error('Amount exceeds invoice due total', 422);
     }
 }
 
+$insertTransaction = $db->prepare(
+    'INSERT INTO partner_transactions '
+    . '(partner_id, invoice_id, branch_id, type, payment_method_id, amount, payment_date, note, created_by_user_id) '
+    . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+);
+
+$insertItem = $db->prepare(
+    'INSERT INTO partner_transaction_items (transaction_id, description, amount) VALUES (?, ?, ?)'
+);
+
 $db->beginTransaction();
 try {
-    $stmt = $db->prepare(
-        'INSERT INTO partner_transactions '
-        . '(partner_id, invoice_id, branch_id, type, payment_method_id, amount, payment_date, note, created_by_user_id) '
-        . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    );
-    $stmt->execute([
+    $insertTransaction->execute([
         $partnerId,
         $invoiceId ?: null,
-        $branchId,
+        null,
         $type,
         $paymentMethodId,
         $amount,
@@ -101,11 +126,16 @@ try {
         $user['id'] ?? null,
     ]);
 
+    $transactionId = (int) $db->lastInsertId();
+    foreach ($cleanItems as $item) {
+        $insertItem->execute([$transactionId, $item['description'], $item['amount']]);
+    }
+
     $db->prepare('UPDATE partner_profiles SET balance = balance + ? WHERE id = ?')
         ->execute([$amount, $partnerId]);
 
     if ($invoice) {
-        $paidTotal = (float) $invoice['paid_total'] + (float) $amount;
+        $paidTotal = (float) $invoice['paid_total'] + $amount;
         $total = (float) $invoice['total'];
         $paidTotal = min($paidTotal, $total);
         $dueTotal = round($total - $paidTotal, 2);
@@ -117,7 +147,6 @@ try {
         $updateInvoice->execute([$paidTotal, $dueTotal, $status, $user['id'] ?? null, $invoiceId]);
     }
 
-    $transactionId = (int) $db->lastInsertId();
     $rowStmt = $db->prepare('SELECT * FROM partner_transactions WHERE id = ?');
     $rowStmt->execute([$transactionId]);
     $after = $rowStmt->fetch();

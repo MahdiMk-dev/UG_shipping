@@ -11,6 +11,7 @@ $shipmentId = $_GET['shipment_id'] ?? null;
 $shipmentNumber = $_GET['shipment_number'] ?? null;
 $collectionId = $_GET['collection_id'] ?? null;
 $canEdit = in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch', 'Warehouse'], true);
+$isWarehouse = ($user['role'] ?? '') === 'Warehouse';
 ?>
 <div
     data-order-create
@@ -28,7 +29,7 @@ $canEdit = in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch', 'Ware
         <?php if (!$canEdit): ?>
             <p class="muted">You have view-only access. Creating orders is restricted to Admin, Owner, Main Branch, and Warehouse roles.</p>
         <?php else: ?>
-        <form class="grid-form" data-orders-create>
+        <form class="grid-form order-create-form" data-orders-create>
             <label>
                 <span>Collection</span>
                 <select name="collection_id" data-collection-select>
@@ -41,26 +42,39 @@ $canEdit = in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch', 'Ware
             </label>
             <label>
                 <span>Customer</span>
-                <input type="text" data-customer-input list="customer-options" placeholder="Search by code, phone, or name" required>
-                <input type="hidden" name="customer_id" data-customer-id>
-                <datalist id="customer-options"></datalist>
+                <div class="selectize" data-customer-select>
+                    <div class="selectize-control">
+                        <input type="text" data-customer-input placeholder="Type to search (2+ chars)" autocomplete="off" required>
+                        <button class="selectize-toggle" type="button" data-customer-toggle aria-label="Toggle customer list">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+                        </button>
+                    </div>
+                    <input type="hidden" name="customer_id" data-customer-id>
+                    <div class="selectize-menu" data-customer-menu></div>
+                </div>
             </label>
             <label>
                 <span>Assigned sub branch</span>
                 <input type="text" data-sub-branch-display readonly>
             </label>
             <input type="hidden" name="delivery_type" value="pickup">
-            <label>
+            <label class="order-create-unit">
                 <span>Unit</span>
                 <input type="text" data-unit-display readonly>
                 <input type="hidden" name="unit_type" data-unit-type>
             </label>
-            <label>
+            <label class="order-create-weight-type">
                 <span>Weight type</span>
-                <select name="weight_type" required data-weight-type>
-                    <option value="actual">Actual</option>
-                    <option value="volumetric">Volumetric</option>
-                </select>
+                <div class="option-group" data-weight-type-group>
+                    <label class="option-pill">
+                        <input type="radio" name="weight_type" value="actual" data-weight-type checked required>
+                        <span>Actual (KG)</span>
+                    </label>
+                    <label class="option-pill">
+                        <input type="radio" name="weight_type" value="volumetric" data-weight-type>
+                        <span>Volumetric (CBM)</span>
+                    </label>
+                </div>
             </label>
             <label data-weight-actual>
                 <span>Actual weight</span>
@@ -78,7 +92,7 @@ $canEdit = in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch', 'Ware
                 <span>Height (h)</span>
                 <input type="number" step="0.01" name="h">
             </label>
-            <label>
+            <label class="<?= $isWarehouse ? 'is-hidden' : '' ?>">
                 <span>Rate</span>
                 <input type="number" step="0.01" name="rate">
             </label>

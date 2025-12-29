@@ -6,7 +6,23 @@ require_once __DIR__ . '/_layout.php';
 $user = internal_require_user();
 $role = $user['role'] ?? '';
 $canCreatePayment = in_array($role, ['Admin', 'Owner', 'Main Branch', 'Sub Branch'], true);
+$canReassign = in_array($role, ['Admin', 'Owner', 'Main Branch'], true);
 internal_page_start($user, 'customers', 'Customer Details', 'Profile, balance, and activity.');
+if ($role === 'Warehouse') {
+    http_response_code(403);
+    ?>
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <h3>Access denied</h3>
+                <p>Warehouse users cannot view customer profiles.</p>
+            </div>
+        </div>
+    </section>
+    <?php
+    internal_page_end();
+    exit;
+}
 ?>
 <?php
 $customerId = $_GET['id'] ?? null;
@@ -98,11 +114,13 @@ $customerId = $_GET['id'] ?? null;
                 <h3>Un-invoiced orders</h3>
                 <p>Orders received at the sub branch that are ready to invoice.</p>
             </div>
+            <button class="button primary small" type="button" id="create-invoice-from-orders" style="display:none;">Create Invoice</button>
         </div>
         <div class="table-wrap">
             <table>
                 <thead>
                     <tr>
+                        <th><input type="checkbox" id="select-all-uninvoiced"></th>
                         <th>Tracking</th>
                         <th>Shipment</th>
                         <th>Status</th>
@@ -111,7 +129,7 @@ $customerId = $_GET['id'] ?? null;
                     </tr>
                 </thead>
                 <tbody data-customer-uninvoiced>
-                    <tr><td colspan="5" class="muted">Loading orders...</td></tr>
+                    <tr><td colspan="6" class="muted">Loading orders...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -120,6 +138,95 @@ $customerId = $_GET['id'] ?? null;
             <span class="page-label" data-customer-uninvoiced-page>Page 1</span>
             <button class="button ghost small" type="button" data-customer-uninvoiced-next>Next</button>
         </div>
+        <script>
+        // Add JS for multi-select and invoice creation
+        (function() {
+            const table = document.querySelector('[data-customer-uninvoiced]');
+            const selectAll = document.getElementById('select-all-uninvoiced');
+            const createBtn = document.getElementById('create-invoice-from-orders');
+            const statusStack = document.querySelector('[data-customer-view-status]');
+            let selected = new Set();
+            function showNotice(message, type = 'error') {
+                if (!statusStack) {
+                    return;
+                }
+                const notice = document.createElement('div');
+                notice.className = `notice ${type}`;
+                notice.textContent = message;
+                statusStack.appendChild(notice);
+                setTimeout(() => notice.remove(), 6000);
+            }
+            function updateButton() {
+                createBtn.style.display = selected.size > 0 ? '' : 'none';
+            }
+            function refreshSelection() {
+                selected.clear();
+                table.querySelectorAll('input[type=checkbox][data-order-id]:checked').forEach(cb => {
+                    selected.add(cb.getAttribute('data-order-id'));
+                });
+                updateButton();
+            }
+            table.addEventListener('change', function(e) {
+                if (e.target.matches('input[type=checkbox][data-order-id]')) {
+                    refreshSelection();
+                }
+            });
+            if (selectAll) {
+                selectAll.addEventListener('change', function() {
+                    const checked = selectAll.checked;
+                    table.querySelectorAll('input[type=checkbox][data-order-id]').forEach(cb => {
+                        cb.checked = checked;
+                    });
+                    refreshSelection();
+                });
+            }
+            createBtn.addEventListener('click', async function() {
+                if (!selected.size) return;
+                createBtn.disabled = true;
+                createBtn.textContent = 'Creating...';
+                const customerId = document.querySelector('[data-customer-view]').getAttribute('data-customer-id');
+                const orderIds = Array.from(selected);
+                try {
+                    const resp = await fetch(window.APP_BASE + '/api/invoices/create.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ customer_id: customerId, order_ids: orderIds })
+                    });
+                    const data = await resp.json();
+                    if (data.ok) {
+                        window.location.reload();
+                    } else {
+                        showNotice(data.error || 'Failed to create invoice', 'error');
+                    }
+                } catch (e) {
+                    showNotice('Failed to create invoice', 'error');
+                }
+                createBtn.disabled = false;
+                createBtn.textContent = 'Create Invoice';
+            });
+            // Patch table rendering to add checkboxes
+            const origRender = window.renderCustomerUninvoicedOrders;
+            window.renderCustomerUninvoicedOrders = function(rows) {
+                let html = '';
+                if (!rows.length) {
+                    html = '<tr><td colspan="6" class="muted">No orders found.</td></tr>';
+                } else {
+                    html = rows.map(row =>
+                        `<tr>`+
+                        `<td><input type="checkbox" data-order-id="${row.id}"></td>`+
+                        `<td>${row.tracking_number || '-'}</td>`+
+                        `<td>${row.shipment_number || '-'}</td>`+
+                        `<td>${row.fulfillment_status || '-'}</td>`+
+                        `<td>${row.total_price ? Number(row.total_price).toFixed(2) : '-'}</td>`+
+                        `<td>${row.created_at ? row.created_at.substr(0,10) : '-'}</td>`+
+                        `</tr>`
+                    ).join('');
+                }
+                table.innerHTML = html;
+                refreshSelection();
+            };
+        })();
+        </script>
     </section>
 
     <section class="panel">
@@ -199,13 +306,15 @@ $customerId = $_GET['id'] ?? null;
                     <input type="text" data-order-note-search placeholder="Search notes">
                 </label>
                 <button class="button ghost small" type="button" data-order-note-submit>Search</button>
-                <label class="inline-field">
-                    <span>Move selected to</span>
-                    <select data-reassign-customer>
-                        <option value="">Select customer</option>
-                    </select>
-                </label>
-                <button class="button primary small" type="button" data-reassign-submit>Change customer</button>
+                <?php if ($canReassign): ?>
+                    <label class="inline-field">
+                        <span>Move selected to</span>
+                        <select data-reassign-customer>
+                            <option value="">Select customer</option>
+                        </select>
+                    </label>
+                    <button class="button primary small" type="button" data-reassign-submit>Change customer</button>
+                <?php endif; ?>
             </div>
         </div>
         <div class="table-wrap">

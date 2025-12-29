@@ -19,6 +19,9 @@ if (!$customerId && !$customerCode) {
 $role = $user['role'] ?? '';
 $fullAccess = in_array($role, ['Admin', 'Owner', 'Main Branch'], true);
 $metaAccess = in_array($role, ['Admin', 'Owner', 'Main Branch'], true);
+if ($role === 'Warehouse') {
+    api_error('Forbidden', 403);
+}
 
 $db = db();
 if ($customerId) {
@@ -51,16 +54,9 @@ if (!$customer) {
 }
 
 if (!$fullAccess) {
-    if (($role ?? '') === 'Warehouse') {
-        $warehouseCountryId = get_branch_country_id($user);
-        if (!$warehouseCountryId || (int) $customer['profile_country_id'] !== (int) $warehouseCountryId) {
-            api_error('Forbidden', 403);
-        }
-    } else {
-        $branchId = $user['branch_id'] ?? null;
-        if (!$branchId || (int) $customer['sub_branch_id'] !== (int) $branchId) {
-            api_error('Forbidden', 403);
-        }
+    $branchId = $user['branch_id'] ?? null;
+    if (!$branchId || (int) $customer['sub_branch_id'] !== (int) $branchId) {
+        api_error('Forbidden', 403);
     }
 }
 

@@ -29,12 +29,24 @@ $canEdit = in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch', 'Ware
                 <option value="partially_distributed">Partially distributed</option>
                 <option value="distributed">Distributed</option>
             </select>
-            <select name="shipping_type">
-                <option value="">All types</option>
-                <option value="air">Air</option>
-                <option value="sea">Sea</option>
-                <option value="land">Land</option>
-            </select>
+            <div class="option-group" role="group" aria-label="Shipping type">
+                <label class="option-pill">
+                    <input type="radio" name="shipping_type" value="" checked>
+                    <span>All types</span>
+                </label>
+                <label class="option-pill">
+                    <input type="radio" name="shipping_type" value="air">
+                    <span>Air</span>
+                </label>
+                <label class="option-pill">
+                    <input type="radio" name="shipping_type" value="sea">
+                    <span>Sea</span>
+                </label>
+                <label class="option-pill">
+                    <input type="radio" name="shipping_type" value="land">
+                    <span>Land</span>
+                </label>
+            </div>
             <button class="button primary" type="submit">Search</button>
             <button class="button ghost" type="button" data-shipments-refresh>Refresh</button>
         </form>

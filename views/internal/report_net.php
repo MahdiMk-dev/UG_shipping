@@ -31,6 +31,13 @@ if ($dateTo !== '' && strtotime($dateTo) === false) {
     exit;
 }
 
+
+// Report mode: detailed (default) or brief
+$mode = strtolower(trim((string)($_GET['mode'] ?? 'detailed')));
+if (!in_array($mode, ['detailed', 'brief'], true)) {
+    $mode = 'detailed';
+}
+
 $orderWhere = ['o.deleted_at IS NULL'];
 $orderParams = [];
 if ($dateFrom !== '') {
@@ -42,27 +49,43 @@ if ($dateTo !== '') {
     $orderParams[] = $dateTo;
 }
 
-$orderTotalsStmt = db()->prepare(
-    'SELECT COUNT(*) AS order_count, COALESCE(SUM(o.total_price), 0) AS order_total '
-    . 'FROM orders o '
-    . 'WHERE ' . implode(' AND ', $orderWhere)
+// Group orders by shipment
+$ordersByShipment = [];
+$shipmentTotals = [];
+$shipmentStmt = db()->prepare(
+    'SELECT s.id, s.shipment_number, s.origin_country_id, s.status, s.shipping_type, s.shipment_date '
+    . 'FROM shipments s '
+    . 'WHERE s.deleted_at IS NULL'
 );
-$orderTotalsStmt->execute($orderParams);
-$orderTotals = $orderTotalsStmt->fetch();
-$orderCount = (int) ($orderTotals['order_count'] ?? 0);
-$orderTotal = (float) ($orderTotals['order_total'] ?? 0);
+$shipmentStmt->execute();
+$shipments = [];
+foreach ($shipmentStmt->fetchAll() as $s) {
+    $shipments[$s['id']] = $s;
+}
 
 $ordersStmt = db()->prepare(
-    'SELECT o.id, o.tracking_number, o.total_price, o.created_at, '
+    'SELECT o.id, o.tracking_number, o.total_price, o.created_at, o.shipment_id, '
     . 's.shipment_number, c.name AS customer_name '
     . 'FROM orders o '
     . 'LEFT JOIN shipments s ON s.id = o.shipment_id '
     . 'LEFT JOIN customers c ON c.id = o.customer_id '
     . 'WHERE ' . implode(' AND ', $orderWhere) . ' '
-    . 'ORDER BY o.created_at DESC, o.id DESC'
+    . 'ORDER BY s.shipment_number, o.created_at DESC, o.id DESC'
 );
 $ordersStmt->execute($orderParams);
 $orders = $ordersStmt->fetchAll();
+$orderCount = count($orders);
+$orderTotal = 0.0;
+foreach ($orders as $order) {
+    $sid = $order['shipment_id'] ?? 0;
+    if (!isset($ordersByShipment[$sid])) {
+        $ordersByShipment[$sid] = [];
+        $shipmentTotals[$sid] = 0.0;
+    }
+    $ordersByShipment[$sid][] = $order;
+    $shipmentTotals[$sid] += (float)($order['total_price'] ?? 0);
+    $orderTotal += (float)($order['total_price'] ?? 0);
+}
 
 $generalWhere = ['e.deleted_at IS NULL'];
 $generalParams = [];
@@ -97,8 +120,9 @@ if ($dateTo !== '') {
     $staffWhere[] = 'COALESCE(e.expense_date, DATE(e.created_at)) <= ?';
     $staffParams[] = $dateTo;
 }
+$staffWhere[] = "e.type IN ('advance', 'bonus', 'salary_payment')";
 $staffStmt = db()->prepare(
-    'SELECT e.id, e.type, e.amount, e.expense_date, e.note, e.created_at, '
+    'SELECT e.id, e.type, e.amount, e.expense_date, e.salary_month, e.note, e.created_at, '
     . 's.name AS staff_name, b.name AS branch_name '
     . 'FROM staff_expenses e '
     . 'LEFT JOIN staff_members s ON s.id = e.staff_id '
@@ -109,97 +133,6 @@ $staffStmt = db()->prepare(
 $staffStmt->execute($staffParams);
 $staffExpenses = $staffStmt->fetchAll();
 
-$salaryMonths = [];
-$monthStart = new DateTime($dateFrom);
-$monthStart->modify('first day of this month');
-$monthEnd = new DateTime($dateTo);
-$monthEnd->modify('first day of this month');
-$cursor = clone $monthStart;
-while ($cursor <= $monthEnd) {
-    $salaryMonths[] = $cursor->format('Y-m-01');
-    $cursor->modify('+1 month');
-}
-
-$staffListStmt = db()->prepare(
-    'SELECT s.id, s.name, s.base_salary, s.status, s.hired_at, b.name AS branch_name '
-    . 'FROM staff_members s '
-    . 'LEFT JOIN branches b ON b.id = s.branch_id '
-    . 'WHERE s.deleted_at IS NULL'
-);
-$staffListStmt->execute();
-$staffList = $staffListStmt->fetchAll();
-
-$advanceMap = [];
-if (!empty($salaryMonths)) {
-    $firstMonth = new DateTime($salaryMonths[0]);
-    $lastMonth = new DateTime($salaryMonths[count($salaryMonths) - 1]);
-    $advanceStart = $firstMonth->modify('-1 month')->format('Y-m-01');
-    $advanceEnd = $lastMonth->modify('-1 month')->format('Y-m-t');
-
-    $advanceStmt = db()->prepare(
-        'SELECT staff_id, COALESCE(expense_date, DATE(created_at)) AS expense_day, amount '
-        . 'FROM staff_expenses '
-        . "WHERE deleted_at IS NULL AND type = 'advance' "
-        . 'AND COALESCE(expense_date, DATE(created_at)) BETWEEN ? AND ?'
-    );
-    $advanceStmt->execute([$advanceStart, $advanceEnd]);
-    $advanceRows = $advanceStmt->fetchAll();
-
-    foreach ($advanceRows as $advance) {
-        $staffId = (int) $advance['staff_id'];
-        $expenseDay = $advance['expense_day'] ?: null;
-        if (!$expenseDay) {
-            continue;
-        }
-        $expenseMonth = new DateTime($expenseDay);
-        $expenseMonth->modify('first day of this month');
-        $salaryMonthKey = (clone $expenseMonth)->modify('first day of next month')->format('Y-m-01');
-        if (!isset($advanceMap[$staffId])) {
-            $advanceMap[$staffId] = [];
-        }
-        if (!isset($advanceMap[$staffId][$salaryMonthKey])) {
-            $advanceMap[$staffId][$salaryMonthKey] = 0.0;
-        }
-        $advanceMap[$staffId][$salaryMonthKey] += (float) ($advance['amount'] ?? 0);
-    }
-}
-
-$salaryRows = [];
-$salaryTotal = 0.0;
-$rangeStart = strtotime($dateFrom);
-$rangeEnd = strtotime($dateTo);
-foreach ($salaryMonths as $salaryDate) {
-    $salaryTs = strtotime($salaryDate);
-    if ($salaryTs < $rangeStart || $salaryTs > $rangeEnd) {
-        continue;
-    }
-    foreach ($staffList as $staff) {
-        if (($staff['status'] ?? '') !== 'active') {
-            continue;
-        }
-        $hiredAt = $staff['hired_at'] ?? null;
-        if ($hiredAt && strtotime($hiredAt) > strtotime($salaryDate)) {
-            continue;
-        }
-        $baseSalary = (float) ($staff['base_salary'] ?? 0);
-        if ($baseSalary <= 0) {
-            continue;
-        }
-        $advancePrev = $advanceMap[(int) $staff['id']][$salaryDate] ?? 0.0;
-        $advanceDeducted = min($advancePrev, $baseSalary);
-        $netSalary = max(0.0, $baseSalary - $advancePrev);
-        $salaryRows[] = [
-            'salary_date' => $salaryDate,
-            'staff_name' => $staff['name'] ?? '-',
-            'branch_name' => $staff['branch_name'] ?? '-',
-            'base_salary' => $baseSalary,
-            'advance_deducted' => $advanceDeducted,
-            'net_salary' => $netSalary,
-        ];
-        $salaryTotal += $netSalary;
-    }
-}
-
 $generalTotal = 0.0;
 foreach ($generalExpenses as $row) {
     $generalTotal += (float) ($row['amount'] ?? 0);
@@ -208,16 +141,16 @@ $staffTotal = 0.0;
 foreach ($staffExpenses as $row) {
     $staffTotal += (float) ($row['amount'] ?? 0);
 }
-$expenseTotal = $generalTotal + $staffTotal + $salaryTotal;
+$expenseTotal = $generalTotal + $staffTotal;
 $netTotal = $orderTotal - $expenseTotal;
 
 $company = company_settings();
 $escape = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 $periodLabel = $dateFrom && $dateTo ? "{$dateFrom} to {$dateTo}" : 'All dates';
 $typeLabels = [
-    'salary_adjustment' => 'Salary adjustment',
     'advance' => 'Advance',
     'bonus' => 'Bonus',
+    'salary_payment' => 'Salary payment',
 ];
 ?>
 <!doctype html>
@@ -301,34 +234,100 @@ $typeLabels = [
         </div>
     </section>
 
+    <div class="actions actions-top">
+        <form method="get" style="display:inline-block; margin-right:12px;">
+            <input type="hidden" name="date_from" value="<?= $escape($dateFrom) ?>">
+            <input type="hidden" name="date_to" value="<?= $escape($dateTo) ?>">
+            <label>View mode:
+                <select name="mode" onchange="this.form.submit()">
+                    <option value="detailed"<?= $mode==='detailed'?' selected':'' ?>>Detailed</option>
+                    <option value="brief"<?= $mode==='brief'?' selected':'' ?>>Brief (totals only)</option>
+                </select>
+            </label>
+        </form>
+        <button type="button" onclick="window.print()">Print</button>
+    </div>
+
     <section class="section">
-        <h3>Orders (income)</h3>
-        <?php if (empty($orders)): ?>
-            <p>No orders found for this period.</p>
-        <?php else: ?>
+        <h3>Income & Expenses by Month</h3>
+        <?php if ($mode === 'brief'): ?>
+            <?php
+            // Group orders, generalExpenses, staffExpenses by month
+            $monthTotals = [];
+            foreach ($orders as $order) {
+                $month = $order['created_at'] ? date('Y-m', strtotime($order['created_at'])) : '';
+                if (!$month) continue;
+                if (!isset($monthTotals[$month])) $monthTotals[$month] = ['income'=>0,'orders'=>0,'gen'=>0,'staff'=>0];
+                $monthTotals[$month]['income'] += (float)($order['total_price'] ?? 0);
+                $monthTotals[$month]['orders']++;
+            }
+            foreach ($generalExpenses as $row) {
+                $dt = $row['expense_date'] ?: ($row['created_at'] ? date('Y-m-d', strtotime($row['created_at'])) : '');
+                $month = $dt ? date('Y-m', strtotime($dt)) : '';
+                if (!$month) continue;
+                if (!isset($monthTotals[$month])) $monthTotals[$month] = ['income'=>0,'orders'=>0,'gen'=>0,'staff'=>0];
+                $monthTotals[$month]['gen'] += (float)($row['amount'] ?? 0);
+            }
+            foreach ($staffExpenses as $row) {
+                $dt = $row['expense_date'] ?: ($row['created_at'] ? date('Y-m-d', strtotime($row['created_at'])) : '');
+                $month = $dt ? date('Y-m', strtotime($dt)) : '';
+                if (!$month) continue;
+                if (!isset($monthTotals[$month])) $monthTotals[$month] = ['income'=>0,'orders'=>0,'gen'=>0,'staff'=>0];
+                $monthTotals[$month]['staff'] += (float)($row['amount'] ?? 0);
+            }
+            ksort($monthTotals);
+            ?>
             <table>
                 <thead>
                     <tr>
-                        <th>Date</th>
-                        <th>Shipment</th>
-                        <th>Tracking</th>
-                        <th>Customer</th>
-                        <th>Amount</th>
+                        <th>Month</th>
+                        <th>Income</th>
+                        <th>Orders</th>
+                        <th>General Expenses</th>
+                        <th>Staff Expenses</th>
+                        <th>Total Expenses</th>
+                        <th>Net</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($orders as $order): ?>
-                        <?php $dateLabel = $order['created_at'] ? date('Y-m-d', strtotime($order['created_at'])) : ''; ?>
+                    <?php foreach ($monthTotals as $month => $tot): ?>
+                        <?php $exp = $tot['gen'] + $tot['staff']; ?>
                         <tr>
-                            <td><?= $escape($dateLabel ?: '-') ?></td>
-                            <td><?= $escape($order['shipment_number'] ?? '-') ?></td>
-                            <td><?= $escape($order['tracking_number'] ?? '-') ?></td>
-                            <td><?= $escape($order['customer_name'] ?? '-') ?></td>
-                            <td><?= number_format((float) ($order['total_price'] ?? 0), 2) ?></td>
+                            <td><?= $escape($month) ?></td>
+                            <td><?= number_format($tot['income'], 2) ?></td>
+                            <td><?= number_format($tot['orders']) ?></td>
+                            <td><?= number_format($tot['gen'], 2) ?></td>
+                            <td><?= number_format($tot['staff'], 2) ?></td>
+                            <td><?= number_format($exp, 2) ?></td>
+                            <td><?= number_format($tot['income'] - $exp, 2) ?></td>
                         </tr>
                     <?php endforeach; ?>
                 </tbody>
             </table>
+        <?php else: ?>
+            <?php if (empty($ordersByShipment)): ?>
+                <p>No shipments with income found for this period.</p>
+            <?php else: ?>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Shipment</th>
+                            <th>Orders count</th>
+                            <th>Total income</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($ordersByShipment as $sid => $ordersList): ?>
+                            <?php $shipment = $shipments[$sid] ?? null; ?>
+                            <tr>
+                                <td><?= $escape($shipment['shipment_number'] ?? '-') ?></td>
+                                <td><?= count($ordersList) ?></td>
+                                <td><?= number_format($shipmentTotals[$sid] ?? 0, 2) ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php endif; ?>
         <?php endif; ?>
     </section>
 
@@ -337,33 +336,54 @@ $typeLabels = [
         <?php if (empty($generalExpenses)): ?>
             <p>No general expenses found for this period.</p>
         <?php else: ?>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th>Title</th>
-                        <th>Shipment</th>
-                        <th>Branch</th>
-                        <th>Amount</th>
-                        <th>Note</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($generalExpenses as $row): ?>
-                        <?php
-                        $dateLabel = $row['expense_date'] ?: ($row['created_at'] ? date('Y-m-d', strtotime($row['created_at'])) : '');
-                        ?>
+            <?php if ($mode === 'detailed'): ?>
+                <table>
+                    <thead>
                         <tr>
-                            <td><?= $escape($dateLabel ?: '-') ?></td>
-                            <td><?= $escape($row['title'] ?? '-') ?></td>
-                            <td><?= $escape($row['shipment_number'] ?? '-') ?></td>
-                            <td><?= $escape($row['branch_name'] ?? '-') ?></td>
-                            <td><?= number_format((float) ($row['amount'] ?? 0), 2) ?></td>
-                            <td><?= $escape($row['note'] ?? '-') ?></td>
+                            <th>Date</th>
+                            <th>Title</th>
+                            <th>Shipment</th>
+                            <th>Branch</th>
+                            <th>Amount</th>
+                            <th>Note</th>
                         </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($generalExpenses as $row): ?>
+                            <?php
+                            $dateLabel = $row['expense_date'] ?: ($row['created_at'] ? date('Y-m-d', strtotime($row['created_at'])) : '');
+                            ?>
+                            <tr>
+                                <td><?= $escape($dateLabel ?: '-') ?></td>
+                                <td><?= $escape($row['title'] ?? '-') ?></td>
+                                <td><?= $escape($row['shipment_number'] ?? '-') ?></td>
+                                <td><?= $escape($row['branch_name'] ?? '-') ?></td>
+                                <td><?= number_format((float) ($row['amount'] ?? 0), 2) ?></td>
+                                <td><?= $escape($row['note'] ?? '-') ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php else: ?>
+                <?php
+                $byTitle = [];
+                foreach ($generalExpenses as $row) {
+                    $title = $row['title'] ?? '-';
+                    if (!isset($byTitle[$title])) $byTitle[$title] = 0.0;
+                    $byTitle[$title] += (float)($row['amount'] ?? 0);
+                }
+                ?>
+                <table>
+                    <thead>
+                        <tr><th>Category</th><th>Total</th></tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($byTitle as $cat => $amt): ?>
+                            <tr><td><?= $escape($cat) ?></td><td><?= number_format($amt, 2) ?></td></tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php endif; ?>
         <?php endif; ?>
     </section>
 
@@ -372,72 +392,67 @@ $typeLabels = [
         <?php if (empty($staffExpenses)): ?>
             <p>No staff expenses found for this period.</p>
         <?php else: ?>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th>Staff</th>
-                        <th>Type</th>
-                        <th>Branch</th>
-                        <th>Amount</th>
-                        <th>Note</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($staffExpenses as $row): ?>
-                        <?php
-                        $dateLabel = $row['expense_date'] ?: ($row['created_at'] ? date('Y-m-d', strtotime($row['created_at'])) : '');
-                        $typeLabel = $typeLabels[$row['type'] ?? ''] ?? ($row['type'] ?? '-');
-                        ?>
+            <?php if ($mode === 'detailed'): ?>
+                <table>
+                    <thead>
                         <tr>
-                            <td><?= $escape($dateLabel ?: '-') ?></td>
-                            <td><?= $escape($row['staff_name'] ?? '-') ?></td>
-                            <td><?= $escape($typeLabel) ?></td>
-                            <td><?= $escape($row['branch_name'] ?? '-') ?></td>
-                            <td><?= number_format((float) ($row['amount'] ?? 0), 2) ?></td>
-                            <td><?= $escape($row['note'] ?? '-') ?></td>
+                            <th>Date</th>
+                            <th>Staff</th>
+                            <th>Type</th>
+                            <th>Salary month</th>
+                            <th>Branch</th>
+                            <th>Amount</th>
+                            <th>Note</th>
                         </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($staffExpenses as $row): ?>
+                            <?php
+                            $dateLabel = $row['expense_date'] ?: ($row['created_at'] ? date('Y-m-d', strtotime($row['created_at'])) : '');
+                            $typeLabel = $typeLabels[$row['type'] ?? ''] ?? ($row['type'] ?? '-');
+                            $salaryMonth = $row['salary_month'] ? date('Y-m', strtotime($row['salary_month'])) : '-';
+                            ?>
+                            <tr>
+                                <td><?= $escape($dateLabel ?: '-') ?></td>
+                                <td><?= $escape($row['staff_name'] ?? '-') ?></td>
+                                <td><?= $escape($typeLabel) ?></td>
+                                <td><?= $escape($salaryMonth) ?></td>
+                                <td><?= $escape($row['branch_name'] ?? '-') ?></td>
+                                <td><?= number_format((float) ($row['amount'] ?? 0), 2) ?></td>
+                                <td><?= $escape($row['note'] ?? '-') ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php else: ?>
+                <?php
+                $byType = [];
+                foreach ($staffExpenses as $row) {
+                    $type = $typeLabels[$row['type'] ?? ''] ?? ($row['type'] ?? '-');
+                    if (!isset($byType[$type])) $byType[$type] = 0.0;
+                    $byType[$type] += (float)($row['amount'] ?? 0);
+                }
+                ?>
+                <table>
+                    <thead>
+                        <tr><th>Type</th><th>Total</th></tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($byType as $cat => $amt): ?>
+                            <tr><td><?= $escape($cat) ?></td><td><?= number_format($amt, 2) ?></td></tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php endif; ?>
         <?php endif; ?>
     </section>
 
-    <section class="section">
-        <h3>Salaries (monthly payouts)</h3>
-        <?php if (empty($salaryRows)): ?>
-            <p>No salary payouts found for this period.</p>
-        <?php else: ?>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Salary date</th>
-                        <th>Staff</th>
-                        <th>Branch</th>
-                        <th>Base salary</th>
-                        <th>Advance deducted</th>
-                        <th>Net salary</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($salaryRows as $row): ?>
-                        <tr>
-                            <td><?= $escape($row['salary_date']) ?></td>
-                            <td><?= $escape($row['staff_name'] ?? '-') ?></td>
-                            <td><?= $escape($row['branch_name'] ?? '-') ?></td>
-                            <td><?= number_format((float) ($row['base_salary'] ?? 0), 2) ?></td>
-                            <td><?= number_format((float) ($row['advance_deducted'] ?? 0), 2) ?></td>
-                            <td><?= number_format((float) ($row['net_salary'] ?? 0), 2) ?></td>
-                        </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-        <?php endif; ?>
-    </section>
-
-    <div class="actions">
-        <button type="button" onclick="window.print()">Print</button>
-    </div>
+    <style>
+        .actions-top { margin-bottom: 18px; }
+        @media print {
+            .actions, .actions-top { display: none !important; }
+        }
+    </style>
 </div>
 </body>
 </html>

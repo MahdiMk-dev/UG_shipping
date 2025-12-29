@@ -5,7 +5,7 @@ require_once __DIR__ . '/../../app/api.php';
 require_once __DIR__ . '/../../app/permissions.php';
 
 api_require_method('POST');
-$user = require_role(['Admin', 'Owner', 'Main Branch', 'Sub Branch', 'Warehouse']);
+$user = require_role(['Admin', 'Owner', 'Main Branch', 'Sub Branch']);
 $input = api_read_input();
 
 $customerId = api_int($input['customer_id'] ?? ($input['id'] ?? null));

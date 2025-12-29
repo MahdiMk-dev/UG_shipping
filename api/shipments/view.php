@@ -53,6 +53,7 @@ $shipment['total_volume'] = $shipment['size'];
 
 $role = $user['role'] ?? '';
 $warehouseCountryId = null;
+$hideRates = $role === 'Warehouse';
 if ($role === 'Warehouse') {
     $warehouseCountryId = get_branch_country_id($user);
     if (!$warehouseCountryId) {
@@ -82,6 +83,9 @@ if ($readOnly) {
 $showMeta = in_array($role, ['Admin', 'Owner', 'Main Branch'], true);
 if (!$showMeta) {
     unset($shipment['created_by_name'], $shipment['updated_by_name']);
+}
+if ($hideRates) {
+    unset($shipment['default_rate'], $shipment['cost_per_unit'], $shipment['default_rate_unit']);
 }
 
 if ($readOnly) {
@@ -151,6 +155,17 @@ if ($readOnly) {
     $customerOrdersStmt->execute([$shipment['id']]);
 }
 $customerOrders = $customerOrdersStmt->fetchAll();
+
+if ($hideRates) {
+    foreach ($orders as &$order) {
+        unset($order['total_price'], $order['rate']);
+    }
+    unset($order);
+    foreach ($customerOrders as &$row) {
+        unset($row['total_price']);
+    }
+    unset($row);
+}
 
 $orderIds = array_map(static fn ($row) => (int) $row['id'], $orders);
 

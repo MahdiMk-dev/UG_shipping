@@ -70,33 +70,33 @@ try {
         'new_customer_id' => $customerId,
     ]);
 
-    $orderTotal = (float) ($before['total_price'] ?? 0);
-    adjust_customer_balance($db, (int) $before['customer_id'], $orderTotal);
-    adjust_customer_balance($db, $customerId, -$orderTotal);
-    record_customer_balance(
-        $db,
-        (int) $before['customer_id'],
-        !empty($before['sub_branch_id']) ? (int) $before['sub_branch_id'] : null,
-        $orderTotal,
-        'order_reversal',
-        'order',
-        $orderId,
-        $user['id'] ?? null,
-        'Order reassigned'
-    );
-    record_customer_balance(
-        $db,
-        $customerId,
-        !empty($customer['sub_branch_id']) ? (int) $customer['sub_branch_id'] : null,
-        -$orderTotal,
-        'order_charge',
-        'order',
-        $orderId,
-        $user['id'] ?? null,
-        'Order reassigned'
-    );
-
     if (($before['fulfillment_status'] ?? '') === 'received_subbranch') {
+        $orderTotal = (float) ($before['total_price'] ?? 0);
+        adjust_customer_balance($db, (int) $before['customer_id'], -$orderTotal);
+        adjust_customer_balance($db, $customerId, $orderTotal);
+        record_customer_balance(
+            $db,
+            (int) $before['customer_id'],
+            !empty($before['sub_branch_id']) ? (int) $before['sub_branch_id'] : null,
+            -$orderTotal,
+            'order_reversal',
+            'order',
+            $orderId,
+            $user['id'] ?? null,
+            'Order reassigned'
+        );
+        record_customer_balance(
+            $db,
+            $customerId,
+            !empty($customer['sub_branch_id']) ? (int) $customer['sub_branch_id'] : null,
+            $orderTotal,
+            'order_charge',
+            'order',
+            $orderId,
+            $user['id'] ?? null,
+            'Order reassigned'
+        );
+
         $oldBranchId = (int) $before['sub_branch_id'];
         $newBranchId = (int) $customer['sub_branch_id'];
         if ($oldBranchId && $newBranchId && $oldBranchId !== $newBranchId) {

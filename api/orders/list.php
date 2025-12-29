@@ -67,8 +67,11 @@ if ($fulfillmentStatus) {
 }
 
 if ($search) {
-    $where[] = '(o.tracking_number LIKE ? OR c.name LIKE ? OR c.code LIKE ? OR s.shipment_number LIKE ?)';
+    $where[] = '(o.tracking_number LIKE ? OR c.name LIKE ? OR c.code LIKE ? OR c.phone LIKE ? OR ca.phone LIKE ? '
+        . 'OR s.shipment_number LIKE ?)';
     $like = '%' . $search . '%';
+    $params[] = $like;
+    $params[] = $like;
     $params[] = $like;
     $params[] = $like;
     $params[] = $like;
@@ -82,6 +85,7 @@ $sql = 'SELECT o.id, o.shipment_id, s.shipment_number, o.customer_id, c.name AS 
     . 'FROM orders o '
     . 'LEFT JOIN shipments s ON s.id = o.shipment_id '
     . 'LEFT JOIN customers c ON c.id = o.customer_id '
+    . 'LEFT JOIN customer_accounts ca ON ca.id = c.account_id '
     . 'LEFT JOIN branches b ON b.id = o.sub_branch_id '
     . 'LEFT JOIN users cu ON cu.id = o.created_by_user_id '
     . 'LEFT JOIN users uu ON uu.id = o.updated_by_user_id '
@@ -104,6 +108,12 @@ $showMeta = in_array($role, ['Admin', 'Owner', 'Main Branch'], true);
 if (!$showMeta) {
     foreach ($rows as &$row) {
         unset($row['created_by_name'], $row['updated_by_name']);
+    }
+    unset($row);
+}
+if ($role === 'Warehouse') {
+    foreach ($rows as &$row) {
+        unset($row['total_price']);
     }
     unset($row);
 }

@@ -41,7 +41,7 @@ $limit = max(1, min(200, $limit ?? 50));
 $offset = max(0, $offset ?? 0);
 
 $expenseStmt = $db->prepare(
-    'SELECT e.id, e.type, e.amount, e.salary_before, e.salary_after, e.expense_date, e.note, '
+    'SELECT e.id, e.type, e.amount, e.salary_before, e.salary_after, e.expense_date, e.salary_month, e.note, '
     . 'e.created_at, u.name AS created_by_name '
     . 'FROM staff_expenses e '
     . 'LEFT JOIN users u ON u.id = e.created_by_user_id '

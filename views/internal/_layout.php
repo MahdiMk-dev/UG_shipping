@@ -64,7 +64,7 @@ function internal_page_start(array $user, string $active, string $title, string 
         unset($navItems['staff']);
     }
     if (($user['role'] ?? '') === 'Warehouse') {
-        unset($navItems['invoices'], $navItems['transactions'], $navItems['attachments'], $navItems['receiving']);
+        unset($navItems['customers'], $navItems['invoices'], $navItems['transactions'], $navItems['attachments'], $navItems['receiving']);
     }
     if (($user['role'] ?? '') === 'Owner') {
         $navItems['audit'] = ['label' => 'Audit', 'href' => BASE_URL . '/views/internal/audit'];

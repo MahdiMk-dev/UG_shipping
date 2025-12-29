@@ -84,11 +84,33 @@ $summaryStmt = db()->prepare($summarySql);
 $summaryStmt->execute($params);
 $summaryRows = $summaryStmt->fetchAll();
 
+$customerParams = [];
+$customerWhere = ['c.deleted_at IS NULL', 'c.is_system = 0', 'c.sub_branch_id IS NOT NULL'];
+if ($branchId > 0) {
+    $customerWhere[] = 'c.sub_branch_id = ?';
+    $customerParams[] = $branchId;
+}
+$customerSummaryStmt = db()->prepare(
+    'SELECT c.sub_branch_id, '
+    . 'SUM(CASE WHEN c.balance < 0 THEN -c.balance ELSE 0 END) AS credit_total, '
+    . 'SUM(CASE WHEN c.balance > 0 THEN c.balance ELSE 0 END) AS due_total '
+    . 'FROM customers c '
+    . 'WHERE ' . implode(' AND ', $customerWhere) . ' '
+    . 'GROUP BY c.sub_branch_id'
+);
+$customerSummaryStmt->execute($customerParams);
+$customerSummary = $customerSummaryStmt->fetchAll();
+$customerSummaryMap = [];
+foreach ($customerSummary as $row) {
+    $customerSummaryMap[(int) ($row['sub_branch_id'] ?? 0)] = $row;
+}
+
 $detailsSql = 'SELECT e.id, e.branch_id, b.name AS branch_name, e.entry_type, e.amount, e.reference_type, '
     . 'e.reference_id, e.note, e.created_at, '
     . 'o.tracking_number, s.shipment_number, '
     . 't.from_branch_id, bf.name AS from_branch_name, '
-    . 't.to_branch_id, bt.name AS to_branch_name '
+    . 't.to_branch_id, bt.name AS to_branch_name, '
+    . 'tr.customer_id, c.name AS customer_name, c.code AS customer_code '
     . 'FROM branch_balance_entries e '
     . 'LEFT JOIN branches b ON b.id = e.branch_id '
     . 'LEFT JOIN orders o ON o.id = e.reference_id AND e.reference_type = \'order\' '
@@ -96,6 +118,8 @@ $detailsSql = 'SELECT e.id, e.branch_id, b.name AS branch_name, e.entry_type, e.
     . 'LEFT JOIN branch_transfers t ON t.id = e.reference_id AND e.reference_type = \'branch_transfer\' '
     . 'LEFT JOIN branches bf ON bf.id = t.from_branch_id '
     . 'LEFT JOIN branches bt ON bt.id = t.to_branch_id '
+    . 'LEFT JOIN transactions tr ON tr.id = e.reference_id AND e.reference_type = \'transaction\' '
+    . 'LEFT JOIN customers c ON c.id = tr.customer_id '
     . 'WHERE ' . implode(' AND ', $where) . ' '
     . 'ORDER BY e.created_at DESC, e.id DESC';
 $detailsStmt = db()->prepare($detailsSql);
@@ -108,6 +132,7 @@ $entryLabels = [
     'transfer_out' => 'Transfer out',
     'transfer_in' => 'Transfer in',
     'adjustment' => 'Adjustment',
+    'customer_payment' => 'Customer payment',
 ];
 
 $company = company_settings();
@@ -185,11 +210,16 @@ $periodLabel = $dateFrom && $dateTo ? "{$dateFrom} to {$dateTo}" : 'All dates';
                 $totalOut = 0.0;
                 $totalNet = 0.0;
                 $totalCount = 0;
+                $totalCustomerCredit = 0.0;
                 foreach ($summaryRows as $row) {
                     $totalIn += (float) ($row['total_in'] ?? 0);
                     $totalOut += (float) ($row['total_out'] ?? 0);
                     $totalNet += (float) ($row['net_total'] ?? 0);
                     $totalCount += (int) ($row['entry_count'] ?? 0);
+                    $branchIdValue = (int) ($row['branch_id'] ?? 0);
+                    if ($branchIdValue && isset($customerSummaryMap[$branchIdValue])) {
+                        $totalCustomerCredit += (float) ($customerSummaryMap[$branchIdValue]['credit_total'] ?? 0);
+                    }
                 }
                 ?>
                 <div class="summary-card">
@@ -208,6 +238,10 @@ $periodLabel = $dateFrom && $dateTo ? "{$dateFrom} to {$dateTo}" : 'All dates';
                     <div>Net change</div>
                     <strong><?= number_format($totalNet, 2) ?></strong>
                 </div>
+                <div class="summary-card">
+                    <div>Customer credit</div>
+                    <strong><?= number_format($totalCustomerCredit, 2) ?></strong>
+                </div>
             </div>
         </section>
     <?php endif; ?>
@@ -225,16 +259,24 @@ $periodLabel = $dateFrom && $dateTo ? "{$dateFrom} to {$dateTo}" : 'All dates';
                         <th>Total in</th>
                         <th>Total out</th>
                         <th>Net change</th>
+                        <th>Customer credit</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php foreach ($summaryRows as $row): ?>
+                        <?php
+                        $branchIdValue = (int) ($row['branch_id'] ?? 0);
+                        $creditTotal = $branchIdValue && isset($customerSummaryMap[$branchIdValue])
+                            ? (float) ($customerSummaryMap[$branchIdValue]['credit_total'] ?? 0)
+                            : 0.0;
+                        ?>
                         <tr>
                             <td><?= $escape($row['branch_name'] ?? '-') ?></td>
                             <td><?= number_format((int) ($row['entry_count'] ?? 0)) ?></td>
                             <td><?= number_format((float) ($row['total_in'] ?? 0), 2) ?></td>
                             <td><?= number_format((float) ($row['total_out'] ?? 0), 2) ?></td>
                             <td><?= number_format((float) ($row['net_total'] ?? 0), 2) ?></td>
+                            <td><?= number_format($creditTotal, 2) ?></td>
                         </tr>
                     <?php endforeach; ?>
                 </tbody>
@@ -272,6 +314,12 @@ $periodLabel = $dateFrom && $dateTo ? "{$dateFrom} to {$dateTo}" : 'All dates';
                             $reference = $reference !== '' ? $reference : 'Order #' . ($row['reference_id'] ?? '');
                         } elseif (($row['reference_type'] ?? '') === 'branch_transfer') {
                             $reference = trim(($row['from_branch_name'] ?? '-') . ' -> ' . ($row['to_branch_name'] ?? '-'));
+                        } elseif (($row['reference_type'] ?? '') === 'transaction') {
+                            $customerLabel = $row['customer_name'] ?? '';
+                            if (!empty($row['customer_code'])) {
+                                $customerLabel = trim($customerLabel . ' (' . $row['customer_code'] . ')');
+                            }
+                            $reference = $customerLabel !== '' ? $customerLabel : 'Transaction #' . ($row['reference_id'] ?? '');
                         } elseif (!empty($row['reference_id'])) {
                             $reference = ($row['reference_type'] ?? 'Ref') . ' #' . $row['reference_id'];
                         }

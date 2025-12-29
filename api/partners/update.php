@@ -53,20 +53,6 @@ if (array_key_exists('address', $input)) {
     $params[] = api_string($input['address'] ?? null);
 }
 
-if (array_key_exists('country_id', $input)) {
-    $countryId = api_int($input['country_id'] ?? null);
-    if (!$countryId) {
-        api_error('country_id is required', 422);
-    }
-    $countryStmt = $db->prepare('SELECT id FROM countries WHERE id = ?');
-    $countryStmt->execute([$countryId]);
-    if (!$countryStmt->fetch()) {
-        api_error('Country not found', 404);
-    }
-    $fields[] = 'country_id = ?';
-    $params[] = $countryId;
-}
-
 if (empty($fields)) {
     api_error('No fields to update', 422);
 }

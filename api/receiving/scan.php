@@ -60,7 +60,7 @@ try {
     }
 
     $orderStmt = $db->prepare(
-        'SELECT id, sub_branch_id, total_price FROM orders '
+        'SELECT id, customer_id, sub_branch_id, total_price FROM orders '
         . 'WHERE ' . implode(' AND ', $orderWhere) . ' '
         . 'LIMIT 1'
     );
@@ -88,10 +88,24 @@ try {
         )->execute([$receivedStatus, $user['id'] ?? null, $matchedOrderId]);
 
         if (!$isMainBranch && $matchedBranchId) {
+            $customerId = (int) ($order['customer_id'] ?? 0);
+            $totalPrice = (float) ($order['total_price'] ?? 0);
+            adjust_customer_balance($db, $customerId, $totalPrice);
+            record_customer_balance(
+                $db,
+                $customerId,
+                $matchedBranchId,
+                $totalPrice,
+                'order_charge',
+                'order',
+                $matchedOrderId,
+                $user['id'] ?? null,
+                'Order received'
+            );
             record_branch_balance(
                 $db,
                 $matchedBranchId,
-                (float) ($order['total_price'] ?? 0),
+                $totalPrice,
                 'order_received',
                 'order',
                 $matchedOrderId,
@@ -110,6 +124,18 @@ try {
     }
     if (!$scanBranchId) {
         api_error('branch_id is required for unmatched scans', 422);
+    }
+
+    if (!$matched) {
+        $dupStmt = $db->prepare(
+            'SELECT id FROM branch_receiving_scans '
+            . 'WHERE branch_id = ? AND shipment_id = ? AND tracking_number = ? AND match_status = ? LIMIT 1'
+        );
+        $dupStmt->execute([$scanBranchId, $shipmentId, $trackingNumber, 'unmatched']);
+        if ($dupStmt->fetch()) {
+            $db->commit();
+            api_json(['ok' => true, 'matched' => false, 'matched_order_id' => null, 'duplicate' => true]);
+        }
     }
 
     $scanStmt = $db->prepare(

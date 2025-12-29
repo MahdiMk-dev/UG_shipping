@@ -43,23 +43,24 @@ try {
     $after = $afterStmt->fetch();
     audit_log($user, 'orders.delete', 'order', $orderId, $order, $after);
 
-    adjust_customer_balance($db, (int) $order['customer_id'], (float) $order['total_price']);
-    record_customer_balance(
-        $db,
-        (int) $order['customer_id'],
-        !empty($order['sub_branch_id']) ? (int) $order['sub_branch_id'] : null,
-        (float) $order['total_price'],
-        'order_reversal',
-        'order',
-        $orderId,
-        $user['id'] ?? null,
-        'Order deleted'
-    );
     if (($order['fulfillment_status'] ?? '') === 'received_subbranch') {
+        $totalPrice = (float) $order['total_price'];
+        adjust_customer_balance($db, (int) $order['customer_id'], -$totalPrice);
+        record_customer_balance(
+            $db,
+            (int) $order['customer_id'],
+            !empty($order['sub_branch_id']) ? (int) $order['sub_branch_id'] : null,
+            -$totalPrice,
+            'order_reversal',
+            'order',
+            $orderId,
+            $user['id'] ?? null,
+            'Order deleted'
+        );
         record_branch_balance(
             $db,
             (int) $order['sub_branch_id'],
-            -(float) $order['total_price'],
+            -$totalPrice,
             'order_reversal',
             'order',
             $orderId,

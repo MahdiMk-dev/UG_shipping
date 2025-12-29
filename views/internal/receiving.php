@@ -6,6 +6,7 @@ require_once __DIR__ . '/_layout.php';
 $user = internal_require_user();
 $canManage = in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch'], true);
 internal_page_start($user, 'receiving', 'Receiving', 'Scan and confirm deliveries at the main or sub branch.');
+$unmatchedCols = $canManage ? 7 : 6;
 ?>
 <div data-receiving-page>
     <section class="panel">
@@ -73,12 +74,16 @@ internal_page_start($user, 'receiving', 'Receiving', 'Scan and confirm deliverie
                         <th>Tracking</th>
                         <th>Shipment</th>
                         <th>Branch</th>
+                        <th>Match</th>
                         <th>Scanned at</th>
                         <th>Note</th>
+                        <?php if ($canManage): ?>
+                            <th>Action</th>
+                        <?php endif; ?>
                     </tr>
                 </thead>
                 <tbody data-receiving-unmatched-table>
-                    <tr><td colspan="5" class="muted">Loading unmatched scans...</td></tr>
+                    <tr><td colspan="<?= $unmatchedCols ?>" class="muted">Loading unmatched scans...</td></tr>
                 </tbody>
             </table>
         </div>

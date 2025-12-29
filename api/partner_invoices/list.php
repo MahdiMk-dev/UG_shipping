@@ -16,22 +16,6 @@ if (!$partnerId) {
     api_error('partner_id is required', 422);
 }
 
-if (($user['role'] ?? '') === 'Warehouse') {
-    $warehouseCountryId = get_branch_country_id($user);
-    if (!$warehouseCountryId) {
-        api_error('Warehouse country scope required', 403);
-    }
-    $partnerStmt = db()->prepare('SELECT country_id FROM partner_profiles WHERE id = ? AND deleted_at IS NULL');
-    $partnerStmt->execute([$partnerId]);
-    $partner = $partnerStmt->fetch();
-    if (!$partner) {
-        api_error('Partner profile not found', 404);
-    }
-    if ((int) ($partner['country_id'] ?? 0) !== (int) $warehouseCountryId) {
-        api_error('Forbidden', 403);
-    }
-}
-
 $limit = max(1, min(200, $limit ?? 50));
 $offset = max(0, $offset ?? 0);
 
