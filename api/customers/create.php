@@ -86,6 +86,7 @@ if ($account) {
 $db->beginTransaction();
 try {
     $accountId = null;
+    $initialBalance = 0.0;
     if ($account) {
         $accountId = (int) $account['id'];
         $shouldUpdateAccount = $portalPassword || empty($account['phone']) || ($subBranchId && empty($account['sub_branch_id']));
@@ -115,6 +116,14 @@ try {
                 $accountUpdate->execute($accountParams);
             }
         }
+        $balanceStmt = $db->prepare(
+            'SELECT balance FROM customers WHERE account_id = ? AND deleted_at IS NULL ORDER BY id DESC LIMIT 1'
+        );
+        $balanceStmt->execute([$accountId]);
+        $balanceRow = $balanceStmt->fetch();
+        if ($balanceRow && isset($balanceRow['balance'])) {
+            $initialBalance = (float) $balanceRow['balance'];
+        }
     } else {
         $hash = password_hash($portalPassword, PASSWORD_DEFAULT);
         $accountInsert = $db->prepare(
@@ -132,8 +141,8 @@ try {
     }
 
     $stmt = $db->prepare(
-        'INSERT INTO customers (account_id, name, code, phone, address, sub_branch_id, profile_country_id, '
-        . 'created_by_user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO customers (account_id, name, code, phone, address, sub_branch_id, profile_country_id, balance, '
+        . 'created_by_user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     $stmt->execute([
         $accountId,
@@ -143,6 +152,7 @@ try {
         $address,
         $subBranchId,
         $profileCountryId,
+        $initialBalance,
         $user['id'] ?? null,
     ]);
 

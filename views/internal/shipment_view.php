@@ -138,18 +138,20 @@ if ($shipmentId) {
                             <option value="">Select type</option>
                         </select>
                     </label>
-                    <label>
-                        <span>Shipper profile</span>
-                        <select name="shipper_profile_id" data-partner-select data-partner-type="shipper">
-                            <option value="">Select shipper (optional)</option>
-                        </select>
-                    </label>
-                    <label>
-                        <span>Consignee profile</span>
-                        <select name="consignee_profile_id" data-partner-select data-partner-type="consignee">
-                            <option value="">Select consignee (optional)</option>
-                        </select>
-                    </label>
+                    <?php if (!$isWarehouse): ?>
+                        <label>
+                            <span>Shipper profile</span>
+                            <select name="shipper_profile_id" data-partner-select data-partner-type="shipper">
+                                <option value="">Select shipper (optional)</option>
+                            </select>
+                        </label>
+                        <label>
+                            <span>Consignee profile</span>
+                            <select name="consignee_profile_id" data-partner-select data-partner-type="consignee">
+                                <option value="">Select consignee (optional)</option>
+                            </select>
+                        </label>
+                    <?php endif; ?>
                     <label>
                         <span>Status</span>
                         <select name="status">

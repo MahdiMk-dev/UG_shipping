@@ -30,13 +30,16 @@ $db->beginTransaction();
 
 try {
     $txStmt = $db->prepare(
-        'SELECT id, customer_id, branch_id, amount FROM transactions WHERE id = ? AND deleted_at IS NULL'
+        'SELECT id, customer_id, branch_id, amount, status FROM transactions WHERE id = ? AND deleted_at IS NULL'
     );
     $txStmt->execute([$transactionId]);
     $transaction = $txStmt->fetch();
 
     if (!$transaction) {
         api_error('Transaction not found', 404);
+    }
+    if (($transaction['status'] ?? '') !== 'active') {
+        api_error('Cannot allocate a canceled transaction', 409);
     }
     if ($userBranchId && (int) $transaction['branch_id'] !== (int) $userBranchId) {
         api_error('Forbidden', 403);
@@ -105,7 +108,10 @@ try {
     }
 
     $sumStmt = $db->prepare(
-        'SELECT SUM(amount_allocated) AS total_allocated FROM transaction_allocations WHERE invoice_id = ?'
+        'SELECT SUM(ta.amount_allocated) AS total_allocated '
+        . 'FROM transaction_allocations ta '
+        . 'JOIN transactions t ON t.id = ta.transaction_id '
+        . 'WHERE ta.invoice_id = ? AND t.deleted_at IS NULL AND t.status = ?'
     );
     $updateInvoice = $db->prepare(
         'UPDATE invoices SET paid_total = ?, due_total = ?, status = ?, updated_at = NOW(), updated_by_user_id = ? '
@@ -120,7 +126,7 @@ try {
         if (!$invoice) {
             continue;
         }
-        $sumStmt->execute([$invoiceId]);
+        $sumStmt->execute([$invoiceId, 'active']);
         $sumRow = $sumStmt->fetch();
         $paidTotal = (float) ($sumRow['total_allocated'] ?? 0);
         $dueTotal = (float) $invoice['total'] - $paidTotal;

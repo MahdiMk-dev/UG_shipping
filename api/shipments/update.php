@@ -44,6 +44,12 @@ if ($role === 'Warehouse') {
             api_error('Rate fields are restricted for warehouse users', 403);
         }
     }
+    $blockedPartnerFields = ['shipper_profile_id', 'consignee_profile_id', 'shipper', 'consignee'];
+    foreach ($blockedPartnerFields as $blockedField) {
+        if (array_key_exists($blockedField, $input)) {
+            api_error('Shipper/consignee fields are restricted for warehouse users', 403);
+        }
+    }
 }
 
 $newDepartureDate = array_key_exists('departure_date', $input)
@@ -204,7 +210,6 @@ $optionalNumbers = [
     'weight',
     'gross_weight',
     'default_rate',
-    'cost_per_unit',
 ];
 foreach ($optionalNumbers as $field) {
     if (array_key_exists($field, $input)) {
@@ -362,6 +367,11 @@ try {
         }
     }
 
+    $costNeedsUpdate =
+        array_key_exists('weight', $input)
+        || array_key_exists('size', $input)
+        || array_key_exists('default_rate_unit', $input);
+
     if ($statusChangedToInShipment) {
         $receivedStmt = $db->prepare(
             'SELECT id, customer_id, sub_branch_id, total_price FROM orders '
@@ -402,6 +412,10 @@ try {
             . "AND fulfillment_status IN ('main_branch', 'pending_receipt', 'received_subbranch')"
         );
         $ordersStmt->execute(['in_shipment', $user['id'] ?? null, $shipmentId]);
+    }
+
+    if ($costNeedsUpdate) {
+        update_shipment_cost_per_unit($shipmentId);
     }
 
     $afterStmt = $db->prepare('SELECT * FROM shipments WHERE id = ?');

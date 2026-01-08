@@ -247,15 +247,17 @@ if (!in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch', 'Warehouse'
                     <tr>
                         <th>Date</th>
                         <th>Type</th>
+                        <th>Status</th>
                         <th>Method</th>
                         <th>Amount</th>
                         <th>Invoice</th>
                         <th>Note</th>
                         <th>Print</th>
+                        <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody data-partner-transactions>
-                    <tr><td colspan="7" class="muted">Loading transactions...</td></tr>
+                    <tr><td colspan="9" class="muted">Loading transactions...</td></tr>
                 </tbody>
             </table>
         </div>

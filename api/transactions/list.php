@@ -11,6 +11,7 @@ $filters = $_GET ?? [];
 $branchId = api_int($filters['branch_id'] ?? null);
 $customerId = api_int($filters['customer_id'] ?? null);
 $type = api_string($filters['type'] ?? null);
+$status = api_string($filters['status'] ?? null);
 $dateFrom = api_string($filters['date_from'] ?? null);
 $dateTo = api_string($filters['date_to'] ?? null);
 $limit = api_int($filters['limit'] ?? 50, 50);
@@ -51,6 +52,15 @@ if ($type) {
     $params[] = $type;
 }
 
+if ($status) {
+    $allowed = ['active', 'canceled'];
+    if (!in_array($status, $allowed, true)) {
+        api_error('Invalid transaction status', 422);
+    }
+    $where[] = 't.status = ?';
+    $params[] = $status;
+}
+
 if ($dateFrom) {
     if (strtotime($dateFrom) === false) {
         api_error('Invalid date_from', 422);
@@ -67,8 +77,9 @@ if ($dateTo) {
 }
 
 $sql = 'SELECT t.id, t.branch_id, b.name AS branch_name, t.customer_id, c.name AS customer_name, '
-    . 't.type, t.payment_method_id, pm.name AS payment_method, t.amount, t.payment_date, '
-    . 't.whish_phone, t.note, t.created_at, t.updated_at, cu.name AS created_by_name, uu.name AS updated_by_name '
+    . 't.type, t.status, t.payment_method_id, pm.name AS payment_method, t.amount, t.payment_date, '
+    . 't.whish_phone, t.note, t.canceled_reason, t.created_at, t.updated_at, '
+    . 'cu.name AS created_by_name, uu.name AS updated_by_name '
     . 'FROM transactions t '
     . 'LEFT JOIN branches b ON b.id = t.branch_id '
     . 'LEFT JOIN customers c ON c.id = t.customer_id '
@@ -89,6 +100,13 @@ foreach ($params as $index => $value) {
 $stmt->execute();
 $rows = $stmt->fetchAll();
 
+$branchBalance = null;
+if ($branchId) {
+    $balanceStmt = db()->prepare('SELECT COALESCE(SUM(amount), 0) FROM branch_balance_entries WHERE branch_id = ?');
+    $balanceStmt->execute([$branchId]);
+    $branchBalance = (float) $balanceStmt->fetchColumn();
+}
+
 $showMeta = in_array($role, ['Admin', 'Owner', 'Main Branch'], true);
 if (!$showMeta) {
     foreach ($rows as &$row) {
@@ -97,4 +115,9 @@ if (!$showMeta) {
     unset($row);
 }
 
-api_json(['ok' => true, 'data' => $rows]);
+$response = ['ok' => true, 'data' => $rows];
+if ($branchBalance !== null) {
+    $response['branch_balance'] = $branchBalance;
+}
+
+api_json($response);

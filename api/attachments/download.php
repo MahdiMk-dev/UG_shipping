@@ -21,6 +21,7 @@ $attachmentId = api_int($_GET['id'] ?? ($_GET['attachment_id'] ?? null));
 if (!$attachmentId) {
     api_error('attachment id is required', 422);
 }
+$inline = api_bool($_GET['inline'] ?? null, false);
 
 $db = db();
 $stmt = $db->prepare(
@@ -77,6 +78,10 @@ if ($customer) {
             api_error('Forbidden', 403);
         }
     }
+
+    if ($entityType === 'collection') {
+        api_error('Forbidden', 403);
+    }
 }
 
 $publicRoot = realpath(APP_ROOT . '/public');
@@ -90,9 +95,16 @@ if (!is_file($fullPath)) {
     api_error('File not found', 404);
 }
 
-header('Content-Type: ' . $attachment['mime_type']);
+$mimeType = (string) ($attachment['mime_type'] ?? 'application/octet-stream');
+$originalName = basename((string) ($attachment['original_name'] ?? 'file'));
+$disposition = 'attachment';
+if ($inline && str_starts_with($mimeType, 'image/')) {
+    $disposition = 'inline';
+}
+
+header('Content-Type: ' . $mimeType);
 header('Content-Length: ' . $attachment['size_bytes']);
-header('Content-Disposition: attachment; filename="' . basename($attachment['original_name']) . '"');
+header('Content-Disposition: ' . $disposition . '; filename="' . $originalName . '"');
 
 readfile($fullPath);
 exit;

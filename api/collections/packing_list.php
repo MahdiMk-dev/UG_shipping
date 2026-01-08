@@ -51,8 +51,7 @@ if ($readOnly) {
     }
     $accessStmt = $db->prepare(
         'SELECT 1 FROM orders o '
-        . 'INNER JOIN customers cu2 ON cu2.id = o.customer_id '
-        . 'WHERE o.collection_id = ? AND o.deleted_at IS NULL AND cu2.sub_branch_id = ? LIMIT 1'
+        . 'WHERE o.collection_id = ? AND o.deleted_at IS NULL AND o.sub_branch_id = ? LIMIT 1'
     );
     $accessStmt->execute([$collectionId, $branchId]);
     if (!$accessStmt->fetch()) {
@@ -62,18 +61,20 @@ if ($readOnly) {
 
 if ($readOnly) {
     $ordersStmt = $db->prepare(
-        'SELECT o.*, cu.name AS customer_name '
+        'SELECT o.*, cu.name AS customer_name, b.name AS sub_branch_name '
         . 'FROM orders o '
         . 'LEFT JOIN customers cu ON cu.id = o.customer_id '
-        . 'WHERE o.collection_id = ? AND o.deleted_at IS NULL AND cu.sub_branch_id = ? '
+        . 'LEFT JOIN branches b ON b.id = o.sub_branch_id '
+        . 'WHERE o.collection_id = ? AND o.deleted_at IS NULL AND o.sub_branch_id = ? '
         . 'ORDER BY o.id ASC'
     );
     $ordersStmt->execute([$collectionId, $branchId]);
 } else {
     $ordersStmt = $db->prepare(
-        'SELECT o.*, cu.name AS customer_name '
+        'SELECT o.*, cu.name AS customer_name, b.name AS sub_branch_name '
         . 'FROM orders o '
         . 'LEFT JOIN customers cu ON cu.id = o.customer_id '
+        . 'LEFT JOIN branches b ON b.id = o.sub_branch_id '
         . 'WHERE o.collection_id = ? AND o.deleted_at IS NULL '
         . 'ORDER BY o.id ASC'
     );
@@ -157,8 +158,8 @@ if ($download) {
     $pdf->Cell(0, 5, pdf_text('Total orders: ' . $orderCount), 0, 1, 'L');
     $pdf->Ln(4);
 
-    $headers = ['Tracking', 'Customer', 'Delivery', 'Unit', 'Weight Type', 'Dimensions / Weight'];
-    $widths = [30, 50, 20, 14, 22, 52];
+    $headers = ['Tracking', 'Customer', 'Sub branch', 'Delivery', 'Unit', 'Weight Type', 'Dimensions / Weight'];
+    $widths = [28, 42, 26, 16, 12, 18, 44];
 
     $pdf->SetFont('Helvetica', 'B', 9);
     $pdf->SetFillColor(232, 241, 205);
@@ -178,6 +179,7 @@ if ($download) {
             $cells = [
                 pdf_truncate($order['tracking_number'] ?? '-', 18),
                 pdf_truncate($order['customer_name'] ?? '-', 24),
+                pdf_truncate($order['sub_branch_name'] ?? '-', 18),
                 $order['delivery_type'] ?? '-',
                 $order['unit_type'] ?? '-',
                 $order['weight_type'] ?? '-',
@@ -196,12 +198,92 @@ if ($download) {
 }
 header('Content-Type: text/html; charset=utf-8');
 
+$shipmentAttachments = [];
+$collectionAttachments = [];
+$orderAttachmentMap = [];
+
+$shipmentId = (int) ($collection['shipment_id'] ?? 0);
+if (!$readOnly && $shipmentId > 0) {
+    $shipmentAttStmt = $db->prepare(
+        'SELECT id, title, original_name, mime_type, created_at '
+        . 'FROM attachments WHERE entity_type = \'shipment\' AND entity_id = ? AND deleted_at IS NULL '
+        . 'ORDER BY id DESC'
+    );
+    $shipmentAttStmt->execute([$shipmentId]);
+    $shipmentAttachments = $shipmentAttStmt->fetchAll();
+}
+
+if (!$readOnly) {
+    $collectionAttStmt = $db->prepare(
+        'SELECT id, title, original_name, mime_type, created_at '
+        . 'FROM attachments WHERE entity_type = \'collection\' AND entity_id = ? AND deleted_at IS NULL '
+        . 'ORDER BY id DESC'
+    );
+    $collectionAttStmt->execute([$collectionId]);
+    $collectionAttachments = $collectionAttStmt->fetchAll();
+}
+
+$orderIds = array_values(array_filter(array_map(static fn($row) => (int) ($row['id'] ?? 0), $orders)));
+if (!empty($orderIds)) {
+    $placeholders = implode(',', array_fill(0, count($orderIds), '?'));
+    $orderAttStmt = $db->prepare(
+        'SELECT id, entity_id, title, original_name, mime_type, created_at '
+        . 'FROM attachments WHERE entity_type = \'order\' AND deleted_at IS NULL '
+        . 'AND entity_id IN (' . $placeholders . ') '
+        . 'ORDER BY id DESC'
+    );
+    $orderAttStmt->execute($orderIds);
+    $orderAttachments = $orderAttStmt->fetchAll();
+    foreach ($orderAttachments as $attachment) {
+        $entityId = (int) ($attachment['entity_id'] ?? 0);
+        if (!$entityId) {
+            continue;
+        }
+        if (!isset($orderAttachmentMap[$entityId])) {
+            $orderAttachmentMap[$entityId] = [];
+        }
+        $orderAttachmentMap[$entityId][] = $attachment;
+    }
+}
+
 $safe = static fn ($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 $company = config_get('company', []);
 $companyName = $company['name'] ?? 'United Group';
 $companyLocation = $company['location'] ?? '';
 $companyPhone = $company['phone'] ?? '';
 $companyLogo = $company['logo_public'] ?? (PUBLIC_URL . '/assets/img/ug-logo.svg');
+
+function render_media_list(array $attachments): string
+{
+    if (empty($attachments)) {
+        return '<span class="muted">-</span>';
+    }
+    $items = [];
+    foreach ($attachments as $attachment) {
+        $title = $attachment['title'] ?? '';
+        $original = $attachment['original_name'] ?? '';
+        $label = $title !== '' ? $title : ($original !== '' ? $original : 'Attachment');
+        $url = BASE_URL . '/api/attachments/download.php?id=' . ($attachment['id'] ?? '');
+        $mime = (string) ($attachment['mime_type'] ?? '');
+        $thumb = '';
+        if (str_starts_with($mime, 'image/')) {
+            $thumbUrl = $url . '&inline=1';
+            $thumb =
+                '<img class="media-thumb" src="'
+                . htmlspecialchars($thumbUrl, ENT_QUOTES, 'UTF-8')
+                . '" alt="">';
+        }
+        $items[] =
+            '<li>'
+            . $thumb
+            . '<a href="'
+            . htmlspecialchars($url, ENT_QUOTES, 'UTF-8')
+            . '" target="_blank" rel="noopener">'
+            . htmlspecialchars($label, ENT_QUOTES, 'UTF-8')
+            . '</a></li>';
+    }
+    return '<ul class="media-list">' . implode('', $items) . '</ul>';
+}
 
 ?>
 <!doctype html>
@@ -224,6 +306,11 @@ $companyLogo = $company['logo_public'] ?? (PUBLIC_URL . '/assets/img/ug-logo.svg
         table { width: 100%; border-collapse: collapse; margin-bottom: 18px; background: var(--surface); }
         th, td { border: 1px solid var(--line); padding: 8px; font-size: 12.5px; text-align: left; }
         th { background: #e7f1c7; text-transform: uppercase; letter-spacing: 0.6px; color: var(--accent-dark); }
+        .section-title { margin: 18px 0 10px; font-size: 15px; font-weight: 700; color: #364315; }
+        .media-list { margin: 0; padding-left: 0; list-style: none; }
+        .media-list li { margin: 0 0 6px; display: flex; gap: 6px; align-items: center; }
+        .media-thumb { width: 42px; height: 42px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); }
+        .muted { color: #6b7265; }
         .footer { margin-top: 24px; font-size: 12px; color: #6b7265; }
         @media print {
             body { margin: 10mm; background: #fff; }
@@ -255,34 +342,119 @@ $companyLogo = $company['logo_public'] ?? (PUBLIC_URL . '/assets/img/ug-logo.svg
         <span>Total orders: <?= $safe($orderCount) ?></span>
     </div>
 
+    <?php if (!empty($shipmentAttachments)): ?>
+        <div class="section-title">Shipment media</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>Preview</th>
+                    <th>File</th>
+                    <th>Type</th>
+                    <th>Uploaded</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($shipmentAttachments as $attachment): ?>
+                    <?php
+                        $title = $attachment['title'] ?? '';
+                        $original = $attachment['original_name'] ?? '';
+                        $label = $title !== '' ? $title : ($original !== '' ? $original : 'Attachment');
+                        $url = BASE_URL . '/api/attachments/download.php?id=' . ($attachment['id'] ?? '');
+                        $mime = (string) ($attachment['mime_type'] ?? '');
+                        $previewUrl = str_starts_with($mime, 'image/') ? $url . '&inline=1' : '';
+                    ?>
+                    <tr>
+                        <td><?= $safe($label) ?></td>
+                        <td>
+                            <?php if ($previewUrl !== ''): ?>
+                                <img class="media-thumb" src="<?= $safe($previewUrl) ?>" alt="">
+                            <?php else: ?>
+                                <span class="muted">-</span>
+                            <?php endif; ?>
+                        </td>
+                        <td><a href="<?= $safe($url) ?>" target="_blank" rel="noopener">Download</a></td>
+                        <td><?= $safe($attachment['mime_type'] ?? '-') ?></td>
+                        <td><?= $safe($attachment['created_at'] ?? '-') ?></td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+    <?php endif; ?>
+
+    <?php if (!empty($collectionAttachments)): ?>
+        <div class="section-title">Collection media</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>Preview</th>
+                    <th>File</th>
+                    <th>Type</th>
+                    <th>Uploaded</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($collectionAttachments as $attachment): ?>
+                    <?php
+                        $title = $attachment['title'] ?? '';
+                        $original = $attachment['original_name'] ?? '';
+                        $label = $title !== '' ? $title : ($original !== '' ? $original : 'Attachment');
+                        $url = BASE_URL . '/api/attachments/download.php?id=' . ($attachment['id'] ?? '');
+                        $mime = (string) ($attachment['mime_type'] ?? '');
+                        $previewUrl = str_starts_with($mime, 'image/') ? $url . '&inline=1' : '';
+                    ?>
+                    <tr>
+                        <td><?= $safe($label) ?></td>
+                        <td>
+                            <?php if ($previewUrl !== ''): ?>
+                                <img class="media-thumb" src="<?= $safe($previewUrl) ?>" alt="">
+                            <?php else: ?>
+                                <span class="muted">-</span>
+                            <?php endif; ?>
+                        </td>
+                        <td><a href="<?= $safe($url) ?>" target="_blank" rel="noopener">Download</a></td>
+                        <td><?= $safe($attachment['mime_type'] ?? '-') ?></td>
+                        <td><?= $safe($attachment['created_at'] ?? '-') ?></td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+    <?php endif; ?>
+
     <table>
         <thead>
             <tr>
                 <th>Tracking</th>
                 <th>Customer</th>
+                <th>Sub branch</th>
                 <th>Delivery</th>
                 <th>Unit</th>
                 <th>Weight Type</th>
                 <th>Dimensions / Weight</th>
+                <th>Media</th>
             </tr>
         </thead>
         <tbody>
             <?php if (empty($orders)): ?>
-                <tr><td colspan="6">No orders in this collection.</td></tr>
+                <tr><td colspan="8">No orders in this collection.</td></tr>
             <?php else: ?>
                 <?php foreach ($orders as $order): ?>
                     <?php
                         $dims = $order['weight_type'] === 'volumetric'
                             ? $safe(($order['w'] ?? '-') . ' x ' . ($order['d'] ?? '-') . ' x ' . ($order['h'] ?? '-'))
                             : $safe($order['actual_weight'] ?? '-');
+                        $orderMedia = $orderAttachmentMap[(int) ($order['id'] ?? 0)] ?? [];
                     ?>
                     <tr>
                         <td><?= $safe($order['tracking_number']) ?></td>
                         <td><?= $safe($order['customer_name'] ?? '-') ?></td>
+                        <td><?= $safe($order['sub_branch_name'] ?? '-') ?></td>
                         <td><?= $safe($order['delivery_type']) ?></td>
                         <td><?= $safe($order['unit_type']) ?></td>
                         <td><?= $safe($order['weight_type']) ?></td>
                         <td><?= $dims ?></td>
+                        <td><?= render_media_list($orderMedia) ?></td>
                     </tr>
                 <?php endforeach; ?>
             <?php endif; ?>

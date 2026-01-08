@@ -4,14 +4,14 @@ declare(strict_types=1);
 require_once __DIR__ . '/_layout.php';
 
 $user = internal_require_user();
-internal_page_start($user, 'attachments', 'Attachments', 'Upload and manage documents tied to shipments and orders.');
+internal_page_start($user, 'attachments', 'Attachments', 'Upload and manage documents tied to shipments, orders, and collections.');
 ?>
 <div data-attachments-page>
     <section class="panel">
         <div class="panel-header">
             <div>
                 <h3>Upload file</h3>
-                <p>Attach documents to shipments, orders, shopping orders, or invoices.</p>
+                <p>Attach documents to shipments, orders, collections, shopping orders, or invoices.</p>
             </div>
         </div>
         <form class="grid-form" data-attachments-upload-form enctype="multipart/form-data">
@@ -22,6 +22,7 @@ internal_page_start($user, 'attachments', 'Attachments', 'Upload and manage docu
                     <option value="order">Order</option>
                     <option value="shopping_order">Shopping order</option>
                     <option value="invoice">Invoice</option>
+                    <option value="collection">Collection</option>
                 </select>
             </label>
             <label>
@@ -53,13 +54,14 @@ internal_page_start($user, 'attachments', 'Attachments', 'Upload and manage docu
             </div>
         </div>
         <form class="filter-bar" data-attachments-filter>
-            <input type="text" name="q" placeholder="Shipment # or tracking #">
+            <input type="text" name="q" placeholder="Shipment #, tracking, or collection">
             <select name="entity_type">
                 <option value="">All types</option>
                 <option value="shipment">Shipment</option>
                 <option value="order">Order</option>
                 <option value="shopping_order">Shopping order</option>
                 <option value="invoice">Invoice</option>
+                <option value="collection">Collection</option>
             </select>
             <button class="button primary" type="submit">Search</button>
             <button class="button ghost" type="button" data-attachments-refresh>Refresh</button>

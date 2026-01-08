@@ -15,6 +15,10 @@ $showIncome = !$isWarehouse;
 $backUrl = $shipmentId
     ? BASE_URL . '/views/internal/shipment_view?id=' . urlencode((string) $shipmentId)
     : BASE_URL . '/views/internal/shipments';
+$packingListUrl = ($shipmentId && $customerId)
+    ? BASE_URL . '/api/shipments/packing_list.php?shipment_id=' . urlencode((string) $shipmentId)
+        . '&customer_id=' . urlencode((string) $customerId)
+    : '';
 ?>
 <div data-shipment-customer-orders data-shipment-id="<?= htmlspecialchars((string) $shipmentId, ENT_QUOTES) ?>"
      data-customer-id="<?= htmlspecialchars((string) $customerId, ENT_QUOTES) ?>"
@@ -23,6 +27,9 @@ $backUrl = $shipmentId
     <div class="app-toolbar">
         <a class="button ghost" href="<?= htmlspecialchars($backUrl, ENT_QUOTES) ?>">Back to shipment</a>
         <span class="toolbar-title">Customer orders</span>
+        <?php if ($packingListUrl !== ''): ?>
+            <a class="button ghost" href="<?= htmlspecialchars($packingListUrl, ENT_QUOTES) ?>" target="_blank" rel="noopener">Packing list</a>
+        <?php endif; ?>
     </div>
     <section class="panel detail-grid">
         <article class="detail-card">
@@ -96,12 +103,18 @@ $backUrl = $shipmentId
                 </div>
                 <form class="grid-form" data-order-edit-form>
                     <input type="hidden" name="order_id" data-order-id-field>
-                    <label>
+                    <label class="order-edit-weight-type">
                         <span>Weight type</span>
-                        <select name="weight_type" data-order-weight-type required>
-                            <option value="actual">Actual</option>
-                            <option value="volumetric">Volumetric</option>
-                        </select>
+                        <div class="option-group option-group-equal">
+                            <label class="option-pill">
+                                <input type="radio" name="weight_type" value="actual" data-order-weight-type-input checked required>
+                                <span>Actual (KG)</span>
+                            </label>
+                            <label class="option-pill">
+                                <input type="radio" name="weight_type" value="volumetric" data-order-weight-type-input>
+                                <span>Volumetric (CBM)</span>
+                            </label>
+                        </div>
                     </label>
                     <label data-order-weight-actual>
                         <span>Actual weight</span>

@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../app/api.php';
 require_once __DIR__ . '/../../app/permissions.php';
 require_once __DIR__ . '/../../app/audit.php';
+require_once __DIR__ . '/../../app/services/shipment_service.php';
 
 api_require_method('POST');
 $user = require_role(['Admin', 'Owner', 'Main Branch']);
@@ -167,6 +168,10 @@ try {
 } catch (Throwable $e) {
     $db->rollBack();
     api_error('Failed to create partner invoice', 500);
+}
+
+if ($shipmentId) {
+    update_shipment_cost_per_unit($shipmentId);
 }
 
 api_json([

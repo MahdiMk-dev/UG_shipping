@@ -34,7 +34,7 @@ UG Shipping is an internal web app + API for managing shipments, orders, receivi
 - Warehouse constraints:
   - Shipments must match warehouse country.
   - Warehouse can only edit/create orders when shipment status is `active`.
-  - Warehouse cannot view customer profiles; customer selection is search-only in order creation.
+  - Warehouse can view customer accounts filtered to their country (summary profiles); customer selection is search-only in order creation.
   - Warehouse can only view partner profiles that match their country.
   - Warehouse cannot view or edit shipment pricing (rates, costs) or shipment income totals.
 - Main Branch access:
@@ -52,7 +52,8 @@ UG Shipping is an internal web app + API for managing shipments, orders, receivi
 - Staff: `active`, `inactive`.
 - Staff expenses: `salary_adjustment`, `advance`, `bonus`.
 - Partner profiles: `shipper`, `consignee`.
-- Partner transactions: `receipt`, `refund`, `adjustment`.
+- Partner transactions: `receipt`, `refund`, `adjustment` (status: `active`, `canceled`).
+- Customer transactions status: `active`, `canceled`.
 - Soft deletes: most tables use `deleted_at`; `roles`, `countries`, `payment_methods` are hard delete.
 
 ## Workflows
@@ -92,12 +93,14 @@ Orders:
 Customer profiles:
 - Profiles are grouped under `customer_accounts` by shared phone/username.
 - Each account can only have one profile per `profile_country_id`.
+- Profiles in the same account share one balance and one sub-branch assignment; profile codes stay per profile.
 
 Invoices + Transactions:
 - Invoices track totals and status; allocations link transactions to invoices.
 - Orders can be invoiced only when `fulfillment_status = received_subbranch` and all orders belong to the same sub branch.
 - Invoiced orders are locked against price/identity changes and delete/reassign actions.
 - Sub Branch users can create invoices and payments for customers in their branch.
+- Invoice/receipt cancellations require a reason, keep records via status, and invoices cannot be canceled while active receipts exist.
 
 Balances + Transfers:
 - Customer balance increases when orders reach `received_subbranch`, and decreases when payments are recorded.
@@ -139,6 +142,18 @@ Audit:
 - Endpoint filenames mirror actions (list/create/update/delete).
 
 ## Change Log (keep current)
+- 2026-01-11: Mobile responsiveness improved for toolbar, panels, and scrollable tables.
+- 2026-01-10: Dashboard now shows role-specific charts/insights for admin, main branch, sub branch, and warehouse.
+- 2026-01-09: Branch list shows balances, branch payments can be recorded with printable receipts, transactions page
+  shows branch balance summary, and receiving auto-focuses tracking after scans.
+- 2026-01-08: Packing list orders display sub-branch, sub-branch packing lists/media are scoped to their own orders,
+  and warehouse customer list hides balances.
+- 2026-01-08: Invoice/receipt cancellations now record reasons, keep records (status-based), reverse balances, and
+  shipment-linked partner invoice cancellations reverse expense totals; reports exclude canceled receipts.
+- 2026-01-07: Customer list now shows account summaries (profile count + countries), profile drawer shows country/order count/created date,
+  add-profile links prefill account logins, and balances sync across profiles in the same account.
+- 2026-01-07: Packing lists show media per order, plus shipment/collection media tables, and attachments support collections.
+- 2026-01-07: Shipment cost per unit auto-calculates from shipment expenses divided by weight/volume (kg/cbm).
 - 2026-01-06: Added `goods_types` list with company-managed goods dropdown for shipments (seeded defaults).
 - 2026-01-05: Shipments require type of goods, shipment rate unit is removed from internal forms, order create always
   defaults rate from shipment, and returning unmatched scans reverses customer balances.

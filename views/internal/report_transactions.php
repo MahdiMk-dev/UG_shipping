@@ -41,7 +41,7 @@ if ($dateTo !== '' && strtotime($dateTo) === false) {
     exit;
 }
 
-$dateWhere = ['t.deleted_at IS NULL'];
+$dateWhere = ['t.deleted_at IS NULL', "t.status = 'active'"];
 $dateParams = [];
 if ($branchId > 0) {
     $dateWhere[] = 't.branch_id = ?';

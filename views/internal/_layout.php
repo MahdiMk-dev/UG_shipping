@@ -45,10 +45,11 @@ function internal_page_start(array $user, string $active, string $title, string 
     if (($user['role'] ?? '') !== 'Owner') {
         unset($navItems['roles']);
     }
-    if (!in_array($user['role'] ?? '', ['Admin', 'Owner'], true)) {
+    $role = $user['role'] ?? '';
+    if (!in_array($role, ['Admin', 'Owner'], true)) {
         unset($navItems['expenses']);
     }
-    if (!in_array($user['role'] ?? '', ['Admin', 'Owner', 'Sub Branch'], true)) {
+    if (!in_array($role, ['Admin', 'Owner', 'Sub Branch'], true)) {
         unset($navItems['reports']);
     }
     if (!in_array($user['role'] ?? '', ['Admin', 'Owner'], true)) {
@@ -57,16 +58,16 @@ function internal_page_start(array $user, string $active, string $title, string 
     if (!in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch', 'Warehouse'], true)) {
         unset($navItems['partners']);
     }
-    if (in_array($user['role'] ?? '', ['Staff', 'Sub Branch', 'Warehouse', 'Main Branch'], true)) {
+    if (in_array($role, ['Staff', 'Sub Branch', 'Warehouse', 'Main Branch'], true)) {
         unset($navItems['branches'], $navItems['users']);
     }
-    if (in_array($user['role'] ?? '', ['Staff', 'Warehouse', 'Main Branch'], true)) {
+    if (in_array($role, ['Staff', 'Warehouse', 'Main Branch'], true)) {
         unset($navItems['staff']);
     }
-    if (($user['role'] ?? '') === 'Warehouse') {
-        unset($navItems['customers'], $navItems['invoices'], $navItems['transactions'], $navItems['attachments'], $navItems['receiving']);
+    if ($role === 'Warehouse') {
+        unset($navItems['invoices'], $navItems['transactions'], $navItems['attachments'], $navItems['receiving']);
     }
-    if (($user['role'] ?? '') === 'Owner') {
+    if ($role === 'Owner') {
         $navItems['audit'] = ['label' => 'Audit', 'href' => BASE_URL . '/views/internal/audit'];
     }
     $navIcons = [

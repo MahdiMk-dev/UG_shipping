@@ -69,11 +69,11 @@ $unitType = $weightType === 'volumetric' ? 'cbm' : 'kg';
 if ($isWarehouse) {
     $rate = null;
 }
-if ($rate === null || abs((float) $rate) < 0.0001) {
+if ($rate === null) {
     $rate = $shipment['default_rate'] !== null ? (float) $shipment['default_rate'] : null;
 }
-if ($rate === null || abs((float) $rate) < 0.0001) {
-    api_error('rate is required', 422);
+if ($rate === null) {
+    $rate = 0.0;
 }
 
 $customerStmt = $db->prepare('SELECT id, sub_branch_id, profile_country_id FROM customers WHERE id = ? AND deleted_at IS NULL');

@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../app/api.php';
 require_once __DIR__ . '/../../app/permissions.php';
 require_once __DIR__ . '/../../app/audit.php';
+require_once __DIR__ . '/../../app/services/shipment_service.php';
 
 api_require_method('PATCH');
 $user = require_role(['Admin', 'Owner']);
@@ -21,6 +22,7 @@ $before = $beforeStmt->fetch();
 if (!$before) {
     api_error('Expense not found', 404);
 }
+$beforeShipmentId = !empty($before['shipment_id']) ? (int) $before['shipment_id'] : null;
 
 $fields = [];
 $params = [];
@@ -110,6 +112,14 @@ try {
 } catch (PDOException $e) {
     $db->rollBack();
     api_error('Failed to update expense', 500);
+}
+
+if ($beforeShipmentId) {
+    update_shipment_cost_per_unit($beforeShipmentId);
+}
+$afterShipmentId = !empty($after['shipment_id']) ? (int) $after['shipment_id'] : null;
+if ($afterShipmentId && $afterShipmentId !== $beforeShipmentId) {
+    update_shipment_cost_per_unit($afterShipmentId);
 }
 
 api_json(['ok' => true]);

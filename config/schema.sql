@@ -216,6 +216,9 @@ CREATE TABLE IF NOT EXISTS partner_invoices (
     note TEXT NULL,
     updated_at DATETIME NULL DEFAULT NULL,
     updated_by_user_id INT UNSIGNED NULL,
+    canceled_at DATETIME NULL DEFAULT NULL,
+    canceled_reason TEXT NULL,
+    canceled_by_user_id INT UNSIGNED NULL,
     deleted_at DATETIME NULL,
     invoice_no_active VARCHAR(80)
         GENERATED ALWAYS AS (CASE WHEN deleted_at IS NULL THEN invoice_no ELSE NULL END) STORED,
@@ -251,6 +254,7 @@ CREATE TABLE IF NOT EXISTS partner_transactions (
     invoice_id INT UNSIGNED NULL,
     branch_id INT UNSIGNED NULL,
     type ENUM('receipt','refund','adjustment') NOT NULL DEFAULT 'receipt',
+    status ENUM('active','canceled') NOT NULL DEFAULT 'active',
     payment_method_id INT UNSIGNED NOT NULL,
     amount DECIMAL(12,2) NOT NULL,
     payment_date DATE NULL,
@@ -259,6 +263,9 @@ CREATE TABLE IF NOT EXISTS partner_transactions (
     created_by_user_id INT UNSIGNED NULL,
     updated_at DATETIME NULL DEFAULT NULL,
     updated_by_user_id INT UNSIGNED NULL,
+    canceled_at DATETIME NULL DEFAULT NULL,
+    canceled_reason TEXT NULL,
+    canceled_by_user_id INT UNSIGNED NULL,
     deleted_at DATETIME NULL,
     KEY idx_partner_transactions_partner (partner_id),
     KEY idx_partner_transactions_invoice (invoice_id),
@@ -370,6 +377,104 @@ SET @stmt = (SELECT IF(
     ),
     'ALTER TABLE partner_transactions MODIFY branch_id INT UNSIGNED NULL',
     'SELECT 1'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'partner_invoices'
+          AND COLUMN_NAME = 'canceled_at'
+    ),
+    'SELECT 1',
+    'ALTER TABLE partner_invoices ADD COLUMN canceled_at DATETIME NULL DEFAULT NULL'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'partner_invoices'
+          AND COLUMN_NAME = 'canceled_reason'
+    ),
+    'SELECT 1',
+    'ALTER TABLE partner_invoices ADD COLUMN canceled_reason TEXT NULL'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'partner_invoices'
+          AND COLUMN_NAME = 'canceled_by_user_id'
+    ),
+    'SELECT 1',
+    'ALTER TABLE partner_invoices ADD COLUMN canceled_by_user_id INT UNSIGNED NULL'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'partner_transactions'
+          AND COLUMN_NAME = 'status'
+    ),
+    'SELECT 1',
+    'ALTER TABLE partner_transactions ADD COLUMN status ENUM(\'active\',\'canceled\') NOT NULL DEFAULT \'active\''
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'partner_transactions'
+          AND COLUMN_NAME = 'canceled_at'
+    ),
+    'SELECT 1',
+    'ALTER TABLE partner_transactions ADD COLUMN canceled_at DATETIME NULL DEFAULT NULL'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'partner_transactions'
+          AND COLUMN_NAME = 'canceled_reason'
+    ),
+    'SELECT 1',
+    'ALTER TABLE partner_transactions ADD COLUMN canceled_reason TEXT NULL'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'partner_transactions'
+          AND COLUMN_NAME = 'canceled_by_user_id'
+    ),
+    'SELECT 1',
+    'ALTER TABLE partner_transactions ADD COLUMN canceled_by_user_id INT UNSIGNED NULL'
 ));
 PREPARE stmt FROM @stmt;
 EXECUTE stmt;
@@ -863,6 +968,9 @@ CREATE TABLE IF NOT EXISTS invoices (
     note TEXT NULL,
     updated_at DATETIME NULL DEFAULT NULL,
     updated_by_user_id INT UNSIGNED NULL,
+    canceled_at DATETIME NULL DEFAULT NULL,
+    canceled_reason TEXT NULL,
+    canceled_by_user_id INT UNSIGNED NULL,
     deleted_at DATETIME NULL,
     invoice_no_active VARCHAR(80)
         GENERATED ALWAYS AS (CASE WHEN deleted_at IS NULL THEN invoice_no ELSE NULL END) STORED,
@@ -894,6 +1002,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     branch_id INT UNSIGNED NOT NULL,
     customer_id INT UNSIGNED NOT NULL,
     type ENUM('payment','deposit','refund','adjustment','admin_settlement') NOT NULL DEFAULT 'payment',
+    status ENUM('active','canceled') NOT NULL DEFAULT 'active',
     payment_method_id INT UNSIGNED NOT NULL,
     amount DECIMAL(12,2) NOT NULL,
     payment_date DATE NULL,
@@ -903,6 +1012,9 @@ CREATE TABLE IF NOT EXISTS transactions (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NULL DEFAULT NULL,
     updated_by_user_id INT UNSIGNED NULL,
+    canceled_at DATETIME NULL DEFAULT NULL,
+    canceled_reason TEXT NULL,
+    canceled_by_user_id INT UNSIGNED NULL,
     deleted_at DATETIME NULL,
     KEY idx_transactions_branch (branch_id),
     KEY idx_transactions_customer (customer_id),
@@ -947,6 +1059,48 @@ SET @stmt = (SELECT IF(
     EXISTS(
         SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'invoices'
+          AND COLUMN_NAME = 'canceled_at'
+    ),
+    'SELECT 1',
+    'ALTER TABLE invoices ADD COLUMN canceled_at DATETIME NULL DEFAULT NULL'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'invoices'
+          AND COLUMN_NAME = 'canceled_reason'
+    ),
+    'SELECT 1',
+    'ALTER TABLE invoices ADD COLUMN canceled_reason TEXT NULL'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'invoices'
+          AND COLUMN_NAME = 'canceled_by_user_id'
+    ),
+    'SELECT 1',
+    'ALTER TABLE invoices ADD COLUMN canceled_by_user_id INT UNSIGNED NULL'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
           AND TABLE_NAME = 'transactions'
           AND COLUMN_NAME = 'updated_at'
     ),
@@ -966,6 +1120,62 @@ SET @stmt = (SELECT IF(
     ),
     'SELECT 1',
     'ALTER TABLE transactions ADD COLUMN updated_by_user_id INT UNSIGNED NULL'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'transactions'
+          AND COLUMN_NAME = 'status'
+    ),
+    'SELECT 1',
+    'ALTER TABLE transactions ADD COLUMN status ENUM(\'active\',\'canceled\') NOT NULL DEFAULT \'active\''
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'transactions'
+          AND COLUMN_NAME = 'canceled_at'
+    ),
+    'SELECT 1',
+    'ALTER TABLE transactions ADD COLUMN canceled_at DATETIME NULL DEFAULT NULL'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'transactions'
+          AND COLUMN_NAME = 'canceled_reason'
+    ),
+    'SELECT 1',
+    'ALTER TABLE transactions ADD COLUMN canceled_reason TEXT NULL'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'transactions'
+          AND COLUMN_NAME = 'canceled_by_user_id'
+    ),
+    'SELECT 1',
+    'ALTER TABLE transactions ADD COLUMN canceled_by_user_id INT UNSIGNED NULL'
 ));
 PREPARE stmt FROM @stmt;
 EXECUTE stmt;
@@ -1008,7 +1218,7 @@ CREATE TABLE IF NOT EXISTS branch_receiving_scans (
 
 CREATE TABLE IF NOT EXISTS attachments (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    entity_type ENUM('shipment','order','shopping_order','invoice') NOT NULL,
+    entity_type ENUM('shipment','order','shopping_order','invoice','collection') NOT NULL,
     entity_id INT UNSIGNED NOT NULL,
     title VARCHAR(160) NOT NULL,
     description VARCHAR(255) NULL,
@@ -1049,6 +1259,21 @@ CREATE TABLE IF NOT EXISTS shopping_orders (
     CONSTRAINT fk_shopping_orders_sub_branch
         FOREIGN KEY (sub_branch_id) REFERENCES branches(id)
 ) ENGINE=InnoDB;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'attachments'
+          AND COLUMN_NAME = 'entity_type'
+          AND COLUMN_TYPE LIKE '%collection%'
+    ),
+    'SELECT 1',
+    'ALTER TABLE attachments MODIFY entity_type ENUM(''shipment'',''order'',''shopping_order'',''invoice'',''collection'') NOT NULL'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 CREATE TABLE IF NOT EXISTS staff_members (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,

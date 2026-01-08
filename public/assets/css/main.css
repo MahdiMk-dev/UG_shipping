@@ -629,6 +629,44 @@ body.drawer-open {
     color: var(--muted);
 }
 
+.chart-list {
+    display: grid;
+    gap: 12px;
+}
+
+.chart-row {
+    display: grid;
+    grid-template-columns: minmax(140px, 1fr) 1fr 72px;
+    gap: 12px;
+    align-items: center;
+    font-size: 14px;
+}
+
+.chart-label {
+    font-weight: 600;
+}
+
+.chart-bar {
+    position: relative;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--surface-soft);
+    overflow: hidden;
+}
+
+.chart-bar span {
+    display: block;
+    height: 100%;
+    width: var(--bar, 0%);
+    background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.2), rgba(var(--accent-rgb), 0.75));
+    border-radius: inherit;
+}
+
+.chart-value {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
 .panel-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -780,6 +818,7 @@ body.drawer-open {
 
 .table-wrap {
     overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 .table-pagination {
@@ -875,6 +914,18 @@ th {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
+}
+
+.option-group-equal {
+    align-items: stretch;
+}
+
+.option-group-equal .option-pill {
+    flex: 1 1 0;
+}
+
+.option-group-equal .option-pill span {
+    width: 100%;
 }
 
 .option-pill {
@@ -1416,6 +1467,41 @@ th {
     }
 }
 
+@media (max-width: 840px) {
+    .main-area {
+        padding: 20px 18px 72px;
+        gap: 22px;
+    }
+
+    .content {
+        gap: 24px;
+    }
+
+    .stats-grid {
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    }
+
+    .page-hero {
+        padding: 18px;
+        border-radius: 18px;
+    }
+
+    .panel {
+        padding: 18px;
+        border-radius: 18px;
+    }
+
+    .panel-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .panel-actions {
+        width: 100%;
+        justify-content: flex-start;
+    }
+}
+
 @media (max-width: 600px) {
     .login-shell {
         padding: 40px 0;
@@ -1448,10 +1534,18 @@ th {
     .user-chip {
         width: 100%;
         justify-content: space-between;
+        flex-wrap: wrap;
+        row-gap: 8px;
     }
 
     .toolbar-title {
         display: none;
+    }
+
+    .app-toolbar {
+        top: 8px;
+        padding: 8px 12px;
+        border-radius: 14px;
     }
 
     .drawer-panel {

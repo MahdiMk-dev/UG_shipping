@@ -65,7 +65,7 @@ $isWarehouse = ($user['role'] ?? '') === 'Warehouse';
             </label>
             <label class="order-create-weight-type">
                 <span>Weight type</span>
-                <div class="option-group" data-weight-type-group>
+                <div class="option-group option-group-equal" data-weight-type-group>
                     <label class="option-pill">
                         <input type="radio" name="weight_type" value="actual" data-weight-type checked required>
                         <span>Actual (KG)</span>

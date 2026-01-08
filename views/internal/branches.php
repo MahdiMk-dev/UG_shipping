@@ -54,6 +54,7 @@ if (!$canEdit) {
                 <p>Manage locations, phone, and address details.</p>
             </div>
             <?php if ($canEdit): ?>
+                <button class="button ghost small" type="button" data-branch-payment-open>Record payment</button>
                 <button class="button ghost small" type="button" data-branch-add>Add branch</button>
             <?php endif; ?>
         </div>
@@ -66,6 +67,7 @@ if (!$canEdit) {
                         <th>Country</th>
                         <th>Parent</th>
                         <th>Contact</th>
+                        <th>Balance</th>
                         <?php if ($canEdit): ?>
                             <th>Actions</th>
                         <?php endif; ?>
@@ -73,7 +75,7 @@ if (!$canEdit) {
                 </thead>
                 <tbody data-branches-table>
                     <tr>
-                        <td colspan="<?= $canEdit ? 6 : 5 ?>" class="muted">Loading branches...</td>
+                        <td colspan="<?= $canEdit ? 7 : 6 ?>" class="muted">Loading branches...</td>
                     </tr>
                 </tbody>
             </table>
@@ -138,6 +140,48 @@ if (!$canEdit) {
                     <button class="button primary small" type="submit" data-branch-submit-label>Add branch</button>
                 </form>
                 <div class="notice-stack" data-branch-form-status></div>
+            </div>
+        </div>
+        <div class="drawer" data-branch-payment-drawer>
+            <div class="drawer-scrim" data-branch-payment-close></div>
+            <div class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="branch-payment-title">
+                <div class="drawer-header">
+                    <div>
+                        <h3 id="branch-payment-title">Record branch payment</h3>
+                        <p>Track payments from sub branches to main/head.</p>
+                    </div>
+                    <button class="icon-button" type="button" data-branch-payment-close aria-label="Close branch payment panel">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12"></path><path d="M18 6l-12 12"></path></svg>
+                    </button>
+                </div>
+                <form class="grid-form" data-branch-payment-form>
+                    <label>
+                        <span>From branch</span>
+                        <select name="from_branch_id" data-branch-payment-from required>
+                            <option value="">Select sub branch</option>
+                        </select>
+                    </label>
+                    <label>
+                        <span>To branch</span>
+                        <select name="to_branch_id" data-branch-payment-to required>
+                            <option value="">Select main/head branch</option>
+                        </select>
+                    </label>
+                    <label>
+                        <span>Amount</span>
+                        <input type="number" step="0.01" name="amount" required>
+                    </label>
+                    <label>
+                        <span>Payment date</span>
+                        <input type="date" name="transfer_date">
+                    </label>
+                    <label class="full">
+                        <span>Note</span>
+                        <input type="text" name="note" placeholder="Optional note">
+                    </label>
+                    <button class="button primary small" type="submit">Record payment</button>
+                </form>
+                <div class="notice-stack" data-branch-payment-status></div>
             </div>
         </div>
     <?php endif; ?>

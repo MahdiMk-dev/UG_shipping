@@ -356,6 +356,19 @@ function initPortalDashboard() {
         }
     };
 
+    const formatInvoiceStatus = (value) => {
+        if (!value) {
+            return '-';
+        }
+        if (value === 'partially_paid') {
+            return 'Partially paid';
+        }
+        if (value === 'void') {
+            return 'Canceled';
+        }
+        return value.charAt(0).toUpperCase() + value.slice(1);
+    };
+
     const renderOrders = (rows) => {
         if (!ordersTable) {
             return;
@@ -409,7 +422,7 @@ function initPortalDashboard() {
                     return `<tr>
                     <td>${escapeHtml(profileLabel)}</td>
                     <td>${inv.invoice_no || '-'}</td>
-                    <td>${inv.status || '-'}</td>
+                    <td>${formatInvoiceStatus(inv.status)}</td>
                     <td>${inv.total || '0.00'}</td>
                     <td>${inv.due_total || '0.00'}</td>
                     <td>${inv.issued_at || '-'}</td>
@@ -923,25 +936,6 @@ function initShipmentView() {
             });
         });
     };
-
-    // --- FIX: Move showPaymentNotice here so it's always defined before use ---
-
-// --- GLOBAL: showPaymentNotice for all modules/pages ---
-function showPaymentNotice(message, type = 'error') {
-    // Try to find a payment status stack in the DOM
-    var paymentStatus = document.querySelector('[data-customer-payment-status], [data-invoice-form-status], [data-payment-status]');
-    var statusStack = document.querySelector('[data-customer-view-status], [data-invoices-status], [data-status-stack]');
-    if (!paymentStatus && !statusStack) return;
-    var notice = document.createElement('div');
-    notice.className = 'notice ' + type;
-    notice.textContent = message;
-    if (paymentStatus) {
-        paymentStatus.appendChild(notice);
-    } else if (statusStack) {
-        statusStack.appendChild(notice);
-    }
-    setTimeout(function() { notice.remove(); }, 6000);
-}
 
     const openEditDrawer = () => {
         if (!editDrawer) {
@@ -1458,7 +1452,10 @@ function showPaymentNotice(message, type = 'error') {
         editForm.querySelector('[name="status"]').value = shipment.status || 'active';
         editForm.querySelector('[name="departure_date"]').value = shipment.departure_date || '';
         editForm.querySelector('[name="arrival_date"]').value = shipment.arrival_date || '';
-        editForm.querySelector('[name="default_rate"]').value = shipment.default_rate ?? '';
+        const defaultRateField = editForm.querySelector('[name="default_rate"]');
+        if (defaultRateField) {
+            defaultRateField.value = shipment.default_rate ?? '';
+        }
         pendingGoodsValue = shipment.type_of_goods || '';
         applyGoodsSelection();
         const rateUnitField = editForm.querySelector('[name="default_rate_unit"]');
@@ -2335,10 +2332,13 @@ function initReceivingPage() {
         } catch (error) {
             showScanNotice(statusEl, `Scan failed: ${error.message}`, 'error');
         } finally {
-            if (focusInput && typeof focusInput.focus === 'function') {
+            if (shipmentId) {
+                if (focusInput && typeof focusInput.focus === 'function' && document.contains(focusInput)) {
+                    focusInput.focus();
+                }
+                window.requestAnimationFrame(() => focusShipmentTracking(shipmentId));
+            } else if (focusInput && typeof focusInput.focus === 'function') {
                 focusInput.focus();
-            } else {
-                focusShipmentTracking(shipmentId);
             }
         }
     }
@@ -2537,6 +2537,7 @@ function initShipmentCustomerOrders() {
     const editOrderIdField = page.querySelector('[data-order-id-field]');
     const editDrawerCloseButtons = page.querySelectorAll('[data-order-edit-close]');
     const weightTypeSelect = page.querySelector('[data-order-weight-type]');
+    const weightTypeInputs = page.querySelectorAll('[data-order-weight-type-input]');
     const weightActualField = page.querySelector('[data-order-weight-actual]');
     const weightDimensionFields = page.querySelectorAll('[data-order-weight-dimension]');
     const adjustmentsList = page.querySelector('[data-adjustments-list]');
@@ -2614,6 +2615,17 @@ function initShipmentCustomerOrders() {
         });
     };
 
+    const setWeightTypeValue = (weightType) => {
+        if (weightTypeSelect) {
+            weightTypeSelect.value = weightType;
+        } else if (weightTypeInputs.length) {
+            weightTypeInputs.forEach((input) => {
+                input.checked = input.value === weightType;
+            });
+        }
+        setWeightFields(weightType);
+    };
+
     const addAdjustmentRow = (adjustment = {}) => {
         if (!adjustmentsList) {
             return;
@@ -2657,9 +2669,8 @@ function initShipmentCustomerOrders() {
                 return;
             }
             editOrderIdField.value = currentOrder.id || '';
-            if (weightTypeSelect) {
-                weightTypeSelect.value = currentOrder.weight_type || 'actual';
-                setWeightFields(weightTypeSelect.value);
+            if (weightTypeSelect || weightTypeInputs.length) {
+                setWeightTypeValue(currentOrder.weight_type || 'actual');
             }
             const actualInput = editForm.querySelector('[name="actual_weight"]');
             const wInput = editForm.querySelector('[name="w"]');
@@ -2846,6 +2857,14 @@ function initShipmentCustomerOrders() {
     if (weightTypeSelect) {
         weightTypeSelect.addEventListener('change', (event) => {
             setWeightFields(event.target.value);
+        });
+    } else if (weightTypeInputs.length) {
+        weightTypeInputs.forEach((input) => {
+            input.addEventListener('change', () => {
+                if (input.checked) {
+                    setWeightFields(input.value);
+                }
+            });
         });
     }
 
@@ -3627,13 +3646,21 @@ function initPartnerView() {
                 ];
                 if (canEdit && Number(row.paid_total ?? 0) === 0 && row.status !== 'void') {
                     actions.push(
-                        `<button class="text-link" type="button" data-partner-invoice-delete data-invoice-id="${row.id}">Delete</button>`
+                        `<button class="text-link" type="button" data-partner-invoice-cancel data-invoice-id="${row.id}">Cancel</button>`
                     );
+                }
+                let statusLabel = row.status || '-';
+                if (statusLabel === 'partially_paid') {
+                    statusLabel = 'Partially paid';
+                } else if (statusLabel === 'void') {
+                    statusLabel = 'Canceled';
+                } else if (statusLabel !== '-' && statusLabel.length > 0) {
+                    statusLabel = statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1);
                 }
                 return `<tr>
                     <td>${escapeHtml(row.invoice_no || '-')}</td>
                     <td>${escapeHtml(row.shipment_number || '-')}</td>
-                    <td>${escapeHtml(row.status || '-')}</td>
+                    <td>${escapeHtml(statusLabel)}</td>
                     <td>${formatAmount(row.total)}</td>
                     <td>${formatAmount(row.due_total)}</td>
                     <td>${escapeHtml(row.issued_at || '-')}</td>
@@ -3642,28 +3669,29 @@ function initPartnerView() {
             })
             .join('');
 
-        invoicesTable.querySelectorAll('[data-partner-invoice-delete]').forEach((button) => {
+        invoicesTable.querySelectorAll('[data-partner-invoice-cancel]').forEach((button) => {
             button.addEventListener('click', async () => {
                 const id = button.getAttribute('data-invoice-id');
                 if (!id) {
                     return;
                 }
-                if (!confirm('Delete this invoice?')) {
+                const reason = window.prompt('Cancel this invoice? Add a reason.');
+                if (!reason || !reason.trim()) {
                     return;
                 }
                 try {
                     await fetchJson(`${window.APP_BASE}/api/partner_invoices/delete.php`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ id }),
+                        body: JSON.stringify({ id, reason: reason.trim() }),
                     });
-                    showNotice(invoiceStatus || statusStack, 'Invoice deleted.', 'success');
+                    showNotice(invoiceStatus || statusStack, 'Invoice canceled.', 'success');
                     invoicesPage = 0;
                     loadPartner();
                     loadInvoices();
                     loadInvoiceOptions();
                 } catch (error) {
-                    showNotice(invoiceStatus || statusStack, `Delete failed: ${error.message}`, 'error');
+                    showNotice(invoiceStatus || statusStack, `Cancel failed: ${error.message}`, 'error');
                 }
             });
         });
@@ -3674,24 +3702,64 @@ function initPartnerView() {
             return;
         }
         if (!rows.length) {
-            transactionsTable.innerHTML = '<tr><td colspan="7" class="muted">No transactions found.</td></tr>';
+            transactionsTable.innerHTML = '<tr><td colspan="9" class="muted">No transactions found.</td></tr>';
             return;
         }
         transactionsTable.innerHTML = rows
             .map((row) => {
                 const typeLabel =
                     row.type === 'refund' ? 'Refund' : row.type === 'adjustment' ? 'Adjustment' : 'Receipt';
+                const statusLabel = row.status === 'canceled' ? 'Canceled' : 'Active';
+                let noteLabel = row.note || '-';
+                if (row.status === 'canceled') {
+                    noteLabel = row.canceled_reason ? `Canceled: ${row.canceled_reason}` : 'Canceled';
+                }
+                const actions = [];
+                if (canEdit && row.status === 'active') {
+                    actions.push(
+                        `<button class="text-link" type="button" data-partner-transaction-cancel data-transaction-id="${row.id}">Cancel</button>`
+                    );
+                }
                 return `<tr>
                     <td>${escapeHtml(row.payment_date || row.created_at || '-')}</td>
                     <td>${escapeHtml(typeLabel)}</td>
+                    <td>${escapeHtml(statusLabel)}</td>
                     <td>${escapeHtml(row.payment_method_name || '-')}</td>
                     <td>${formatAmount(row.amount)}</td>
                     <td>${escapeHtml(row.invoice_no || '-')}</td>
-                    <td>${escapeHtml(row.note || '-')}</td>
+                    <td>${escapeHtml(noteLabel)}</td>
                     <td><a class="text-link" href="${window.APP_BASE}/views/internal/partner_receipt_print?id=${row.id}" target="_blank" rel="noreferrer">Print</a></td>
+                    <td>${actions.length ? actions.join(' | ') : '-'}</td>
                 </tr>`;
             })
             .join('');
+
+        transactionsTable.querySelectorAll('[data-partner-transaction-cancel]').forEach((button) => {
+            button.addEventListener('click', async () => {
+                const id = button.getAttribute('data-transaction-id');
+                if (!id) {
+                    return;
+                }
+                const reason = window.prompt('Cancel this transaction? Add a reason.');
+                if (!reason || !reason.trim()) {
+                    return;
+                }
+                try {
+                    await fetchJson(`${window.APP_BASE}/api/partner_transactions/delete.php`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ id, reason: reason.trim() }),
+                    });
+                    showNotice(transactionStatus || statusStack, 'Transaction canceled.', 'success');
+                    transactionsPage = 0;
+                    loadPartner();
+                    loadTransactions();
+                    loadInvoiceOptions();
+                } catch (error) {
+                    showNotice(transactionStatus || statusStack, `Cancel failed: ${error.message}`, 'error');
+                }
+            });
+        });
     };
 
     const loadPartner = async () => {
@@ -4048,12 +4116,13 @@ function initAttachmentsPage() {
         } else {
             tableBody.innerHTML = rows
                 .map((attachment) => {
-                    const typeLabel = {
-                        shipment: 'Shipment',
-                        order: 'Order',
-                        shopping_order: 'Shopping order',
-                        invoice: 'Invoice',
-                    }[attachment.entity_type] || (attachment.entity_type || 'Attachment');
+                      const typeLabel = {
+                          shipment: 'Shipment',
+                          order: 'Order',
+                          shopping_order: 'Shopping order',
+                          invoice: 'Invoice',
+                          collection: 'Collection',
+                      }[attachment.entity_type] || (attachment.entity_type || 'Attachment');
                     const entityLabel = attachment.entity_id ? `${typeLabel} #${attachment.entity_id}` : typeLabel;
                     const downloadUrl =
                         attachment.download_url ||
@@ -4850,13 +4919,24 @@ function initCustomersPage() {
     const prevButton = page.querySelector('[data-customers-prev]');
     const nextButton = page.querySelector('[data-customers-next]');
     const pageLabel = page.querySelector('[data-customers-page]');
+    const profilesDrawer = page.querySelector('[data-customer-profiles-drawer]');
+    const profilesTable = page.querySelector('[data-customer-profiles-table]');
+    const profilesTitle = page.querySelector('[data-customer-profiles-title]');
+    const profilesSubtitle = page.querySelector('[data-customer-profiles-subtitle]');
+    const profilesCloseButtons = page.querySelectorAll('[data-customer-profiles-close]');
 
     const { role, branchId } = getUserContext();
     const fullAccess = hasFullCustomerAccess(role);
+    const canCreateProfile = ['Admin', 'Owner', 'Main Branch', 'Sub Branch'].includes(role || '');
+    const canOpenProfile = role !== 'Warehouse';
+    const canEditProfile = canCreateProfile;
+    const showBalance = role !== 'Warehouse';
     const limit = 5;
     let offset = 0;
     let lastFilters = {};
-    const groupState = new Map();
+    const columnCount =
+        tableBody?.closest('table')?.querySelectorAll('thead th').length || (showBalance ? 8 : 7);
+    const profileColumnCount = 5;
 
     const showNotice = (message, type = 'error') => {
         if (!statusStack) {
@@ -4903,129 +4983,195 @@ function initCustomersPage() {
         }
     };
 
+    const escapeHtml = (value) =>
+        String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/\"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+
+    const formatAmount = (value) => {
+        const num = Number(value ?? 0);
+        return Number.isFinite(num) ? num.toFixed(2) : '0.00';
+    };
+
+    const openProfilesDrawer = () => {
+        if (!profilesDrawer) {
+            return;
+        }
+        profilesDrawer.classList.add('is-open');
+        document.body.classList.add('drawer-open');
+    };
+
+    const closeProfilesDrawer = () => {
+        if (!profilesDrawer) {
+            return;
+        }
+        profilesDrawer.classList.remove('is-open');
+        document.body.classList.remove('drawer-open');
+        if (profilesTable) {
+            profilesTable.innerHTML = `<tr><td colspan="${profileColumnCount}" class="muted">Select a customer to view profiles.</td></tr>`;
+        }
+    };
+
+    if (profilesCloseButtons.length) {
+        profilesCloseButtons.forEach((button) => button.addEventListener('click', closeProfilesDrawer));
+    }
+
+    const renderProfiles = (rows) => {
+        if (!profilesTable) {
+            return;
+        }
+        if (!rows.length) {
+            profilesTable.innerHTML = `<tr><td colspan="${profileColumnCount}" class="muted">No profiles found.</td></tr>`;
+            return;
+        }
+        profilesTable.innerHTML = rows
+            .map((profile) => {
+                const createdLabel = profile.created_at ? String(profile.created_at).slice(0, 10) : '-';
+                const ordersCount = profile.orders_count ?? 0;
+                const actions = [];
+                if (canOpenProfile) {
+                    actions.push(
+                        `<a class="text-link" href="${window.APP_BASE}/views/internal/customer_view?id=${profile.id}">Open</a>`
+                    );
+                }
+                if (canEditProfile) {
+                    actions.push(
+                        `<a class="text-link" href="${window.APP_BASE}/views/internal/customer_edit?id=${profile.id}">Edit</a>`
+                    );
+                }
+                const actionsHtml = actions.length ? actions.join(' | ') : '-';
+                return `<tr>
+                    <td>${escapeHtml(profile.profile_country_name || '-')}</td>
+                    <td>${escapeHtml(String(ordersCount))}</td>
+                    <td>${escapeHtml(createdLabel)}</td>
+                    <td>${escapeHtml(profile.code || '-')}</td>
+                    <td>${actionsHtml}</td>
+                </tr>`;
+            })
+            .join('');
+    };
+
+    const loadProfiles = async (query) => {
+        if (!profilesTable) {
+            return;
+        }
+        profilesTable.innerHTML = `<tr><td colspan="${profileColumnCount}" class="muted">Loading profiles...</td></tr>`;
+        const params = new URLSearchParams(query);
+        try {
+            const data = await fetchJson(`${window.APP_BASE}/api/customers/profiles.php?${params.toString()}`);
+            renderProfiles(data.data || []);
+        } catch (error) {
+            profilesTable.innerHTML = `<tr><td colspan="${profileColumnCount}" class="muted">Unable to load profiles.</td></tr>`;
+            showNotice(`Profiles load failed: ${error.message}`, 'error');
+        }
+    };
+
+    const buildProfileLink = (row) => {
+        if (!canCreateProfile || !row.portal_username) {
+            return '';
+        }
+        const params = new URLSearchParams();
+        params.set('portal_username', row.portal_username);
+        const phoneValue = row.portal_phone || row.customer_phone || '';
+        if (phoneValue) {
+            params.set('portal_phone', phoneValue);
+        }
+        if (row.sub_branch_id) {
+            params.set('sub_branch_id', String(row.sub_branch_id));
+        }
+        return `${window.APP_BASE}/views/internal/customer_create?${params.toString()}`;
+    };
+
     const renderRows = (rows) => {
         if (!tableBody) {
             return;
         }
         if (!rows.length) {
-            tableBody.innerHTML = '<tr><td colspan="7" class="muted">No customers found.</td></tr>';
+            tableBody.innerHTML = `<tr><td colspan="${columnCount}" class="muted">No customers found.</td></tr>`;
             return;
         }
-        const groups = new Map();
-        rows.forEach((row) => {
-            const key = row.account_id ? `account:${row.account_id}` : `customer:${row.id}`;
-            if (!groups.has(key)) {
-                groups.set(key, {
-                    key,
-                    account_id: row.account_id,
-                    portal_username: row.portal_username,
-                    portal_phone: row.portal_phone,
-                    profiles: [],
-                });
-            }
-            groups.get(key).profiles.push(row);
-        });
-
-        const visibleGroups = new Set();
-        groups.forEach((group) => {
-            if (group.profiles.length > 1) {
-                visibleGroups.add(group.key);
-            }
-        });
-        groupState.forEach((_, key) => {
-            if (!visibleGroups.has(key)) {
-                groupState.delete(key);
-            }
-        });
-
-        const rowsHtml = [];
-        groups.forEach((group) => {
-            if (group.profiles.length === 1) {
-                const row = group.profiles[0];
-                rowsHtml.push(
-                    `<tr>
-                        <td>${row.name || '-'}</td>
-                        <td>${row.code || '-'}</td>
-                        <td>${row.profile_country_name || '-'}</td>
-                        <td>${row.sub_branch_name || '-'}</td>
-                        <td>${row.balance || '0.00'}</td>
-                        <td>${row.portal_username || '-'}</td>
-                        <td>
-                            <a class="text-link" href="${window.APP_BASE}/views/internal/customer_view?id=${row.id}">Open</a>
-                            |
-                            <a class="text-link" href="${window.APP_BASE}/views/internal/customer_edit?id=${row.id}">Edit</a>
-                        </td>
-                    </tr>`
-                );
-                return;
-            }
-
-            const isOpen = groupState.has(group.key) ? groupState.get(group.key) : false;
-            groupState.set(group.key, isOpen);
-            const toggleLabel = isOpen ? 'Hide profiles' : 'Show profiles';
-            const profileLabel = `${group.profiles.length} profiles`;
-            const accountLabel = group.portal_username
-                ? group.portal_username
-                : group.account_id
-                    ? `Account #${group.account_id}`
-                    : 'Account';
-            const metaParts = [];
-            if (group.portal_phone) {
-                metaParts.push(group.portal_phone);
-            }
-            metaParts.push(profileLabel);
-            const metaText = metaParts.join(' | ');
-            rowsHtml.push(
-                `<tr data-group-header data-group-key="${group.key}">
-                    <td colspan="7">
-                        <button class="button ghost small" type="button" data-group-toggle data-group-key="${group.key}" data-group-open="${isOpen ? 'true' : 'false'}">${toggleLabel}</button>
-                        <strong>Account: ${accountLabel}</strong>
-                        <span class="muted">${metaText}</span>
-                    </td>
-                </tr>`
-            );
-            group.profiles.forEach((row) => {
-                rowsHtml.push(
-                    `<tr data-group-item="${group.key}" class="${isOpen ? '' : 'is-hidden'}">
-                        <td>${row.name || '-'}</td>
-                        <td>${row.code || '-'}</td>
-                        <td>${row.profile_country_name || '-'}</td>
-                        <td>${row.sub_branch_name || '-'}</td>
-                        <td>${row.balance || '0.00'}</td>
-                        <td>${row.portal_username || '-'}</td>
-                        <td>
-                            <a class="text-link" href="${window.APP_BASE}/views/internal/customer_view?id=${row.id}">Open</a>
-                            |
-                            <a class="text-link" href="${window.APP_BASE}/views/internal/customer_edit?id=${row.id}">Edit</a>
-                        </td>
-                    </tr>`
-                );
-            });
-        });
-
-        tableBody.innerHTML = rowsHtml.join('');
-
-        tableBody.querySelectorAll('[data-group-toggle]').forEach((button) => {
-            button.addEventListener('click', () => {
-                const key = button.getAttribute('data-group-key');
-                if (!key) {
-                    return;
+        tableBody.innerHTML = rows
+            .map((row) => {
+                const nameLabel = row.customer_name
+                    ? row.customer_code
+                        ? `${row.customer_name} (${row.customer_code})`
+                        : row.customer_name
+                    : row.portal_username || '-';
+                const portalLabel = row.portal_username || '-';
+                const phoneLabel = row.portal_phone || row.customer_phone || '-';
+                const branchLabel = row.sub_branch_name || '-';
+                const profilesLabel = row.profile_count ? String(row.profile_count) : '0';
+                const countriesLabel = row.profile_countries || '-';
+                const balanceLabel = formatAmount(row.balance);
+                const subtitleParts = [];
+                if (row.portal_username) {
+                    subtitleParts.push(row.portal_username);
                 }
-                const currentlyOpen = button.getAttribute('data-group-open') === 'true';
-                const nextOpen = !currentlyOpen;
-                button.setAttribute('data-group-open', nextOpen ? 'true' : 'false');
-                button.textContent = nextOpen ? 'Hide profiles' : 'Show profiles';
-                groupState.set(key, nextOpen);
-                tableBody.querySelectorAll(`[data-group-item="${key}"]`).forEach((row) => {
-                    row.classList.toggle('is-hidden', !nextOpen);
-                });
+                if (phoneLabel && phoneLabel !== '-') {
+                    subtitleParts.push(phoneLabel);
+                }
+                subtitleParts.push(`${profilesLabel} profiles`);
+                if (countriesLabel && countriesLabel !== '-') {
+                    subtitleParts.push(countriesLabel);
+                }
+                const subtitle = subtitleParts.join(' | ');
+                const actionParts = [];
+                actionParts.push(
+                    `<button class="button ghost small" type="button" data-view-profiles data-account-id="${row.account_id ?? ''}" data-customer-id="${row.primary_customer_id ?? ''}" data-customer-label="${encodeURIComponent(nameLabel)}" data-profiles-subtitle="${encodeURIComponent(subtitle)}">View profiles</button>`
+                );
+                if (canOpenProfile && row.primary_customer_id) {
+                    actionParts.push(
+                        `<a class="text-link" href="${window.APP_BASE}/views/internal/customer_view?id=${row.primary_customer_id}">Open</a>`
+                    );
+                }
+                const addProfileLink = buildProfileLink(row);
+                if (addProfileLink) {
+                    actionParts.push(`<a class="text-link" href="${addProfileLink}">Add profile</a>`);
+                }
+                const balanceCell = showBalance ? `<td>${escapeHtml(balanceLabel)}</td>` : '';
+                return `<tr>
+                    <td>${escapeHtml(nameLabel)}</td>
+                    <td>${escapeHtml(portalLabel)}</td>
+                    <td>${escapeHtml(phoneLabel)}</td>
+                    <td>${escapeHtml(branchLabel)}</td>
+                    <td>${escapeHtml(profilesLabel)}</td>
+                    <td>${escapeHtml(countriesLabel)}</td>
+                    ${balanceCell}
+                    <td>${actionParts.join(' | ')}</td>
+                </tr>`;
+            })
+            .join('');
+
+        tableBody.querySelectorAll('[data-view-profiles]').forEach((button) => {
+            button.addEventListener('click', async () => {
+                const accountId = button.getAttribute('data-account-id') || '';
+                const customerId = button.getAttribute('data-customer-id') || '';
+                const label = decodeURIComponent(button.getAttribute('data-customer-label') || 'Customer profiles');
+                const subtitle = decodeURIComponent(button.getAttribute('data-profiles-subtitle') || '');
+                if (profilesTitle) {
+                    profilesTitle.textContent = label;
+                }
+                if (profilesSubtitle) {
+                    profilesSubtitle.textContent = subtitle || 'Profile details.';
+                }
+                if (accountId) {
+                    await loadProfiles({ account_id: accountId });
+                } else if (customerId) {
+                    await loadProfiles({ customer_id: customerId });
+                } else {
+                    renderProfiles([]);
+                }
+                openProfilesDrawer();
             });
         });
     };
 
     const loadCustomers = async (filters = {}) => {
         if (tableBody) {
-            tableBody.innerHTML = '<tr><td colspan="7" class="muted">Loading customers...</td></tr>';
+            tableBody.innerHTML = `<tr><td colspan="${columnCount}" class="muted">Loading customers...</td></tr>`;
         }
         const params = new URLSearchParams();
         Object.entries(filters).forEach(([key, value]) => {
@@ -5036,7 +5182,7 @@ function initCustomersPage() {
         params.append('limit', String(limit));
         params.append('offset', String(offset));
         try {
-            const data = await fetchJson(`${window.APP_BASE}/api/customers/list.php?${params.toString()}`);
+            const data = await fetchJson(`${window.APP_BASE}/api/customers/accounts.php?${params.toString()}`);
             renderRows(data.data || []);
             if (prevButton) {
                 prevButton.disabled = offset === 0;
@@ -5070,7 +5216,7 @@ function initCustomersPage() {
             event.preventDefault();
             const formData = new FormData(filterForm);
             const filters = Object.fromEntries(formData.entries());
-            if (!fullAccess && branchId) {
+            if (!fullAccess && role !== 'Warehouse' && branchId) {
                 filters.sub_branch_id = branchId;
             }
             offset = 0;
@@ -5084,7 +5230,7 @@ function initCustomersPage() {
             if (filterForm) {
                 const formData = new FormData(filterForm);
                 const filters = Object.fromEntries(formData.entries());
-                if (!fullAccess && branchId) {
+                if (!fullAccess && role !== 'Warehouse' && branchId) {
                     filters.sub_branch_id = branchId;
                 }
                 offset = 0;
@@ -5784,6 +5930,13 @@ function initBranchesPage() {
     const nextButton = page.querySelector('[data-branches-next]');
     const pageLabel = page.querySelector('[data-branches-page-label]');
     const addButton = page.querySelector('[data-branch-add]');
+    const paymentDrawer = page.querySelector('[data-branch-payment-drawer]');
+    const paymentOpenButton = page.querySelector('[data-branch-payment-open]');
+    const paymentForm = page.querySelector('[data-branch-payment-form]');
+    const paymentStatus = page.querySelector('[data-branch-payment-status]');
+    const paymentCloseButtons = page.querySelectorAll('[data-branch-payment-close]');
+    const paymentFromSelect = page.querySelector('[data-branch-payment-from]');
+    const paymentToSelect = page.querySelector('[data-branch-payment-to]');
     const drawer = page.querySelector('[data-branch-drawer]');
     const form = page.querySelector('[data-branch-form]');
     const formTitle = page.querySelector('[data-branch-form-title]');
@@ -5827,6 +5980,23 @@ function initBranchesPage() {
         setTimeout(() => notice.remove(), 7000);
     };
 
+    const showPaymentNotice = (message, type = 'error') => {
+        if (!paymentStatus) {
+            showNotice(message, type);
+            return;
+        }
+        const notice = document.createElement('div');
+        notice.className = `notice ${type}`;
+        notice.textContent = message;
+        paymentStatus.appendChild(notice);
+        setTimeout(() => notice.remove(), 7000);
+    };
+
+    const formatAmount = (value) => {
+        const num = Number(value ?? 0);
+        return Number.isFinite(num) ? num.toFixed(2) : '0.00';
+    };
+
     const openDrawer = () => {
         if (!drawer) {
             return;
@@ -5841,6 +6011,28 @@ function initBranchesPage() {
         }
         drawer.classList.remove('is-open');
         document.body.classList.remove('drawer-open');
+    };
+
+    const openPaymentDrawer = () => {
+        if (!paymentDrawer) {
+            return;
+        }
+        paymentDrawer.classList.add('is-open');
+        document.body.classList.add('drawer-open');
+    };
+
+    const closePaymentDrawer = () => {
+        if (!paymentDrawer) {
+            return;
+        }
+        paymentDrawer.classList.remove('is-open');
+        document.body.classList.remove('drawer-open');
+        if (paymentStatus) {
+            paymentStatus.innerHTML = '';
+        }
+        if (paymentForm) {
+            paymentForm.reset();
+        }
     };
 
     const updateCountryNote = () => {
@@ -5906,13 +6098,41 @@ function initBranchesPage() {
         }
     };
 
+    const loadPaymentBranches = async () => {
+        if (!paymentFromSelect || !paymentToSelect) {
+            return;
+        }
+        try {
+            const data = await fetchJson(`${window.APP_BASE}/api/branches/list.php?limit=200`);
+            const branches = data.data || [];
+            paymentFromSelect.innerHTML = '<option value="">Select sub branch</option>';
+            paymentToSelect.innerHTML = '<option value="">Select main/head branch</option>';
+            branches.forEach((branch) => {
+                if (branch.type === 'sub') {
+                    const option = document.createElement('option');
+                    option.value = branch.id;
+                    option.textContent = branch.name;
+                    paymentFromSelect.appendChild(option);
+                }
+                if (branch.type === 'main' || branch.type === 'head') {
+                    const option = document.createElement('option');
+                    option.value = branch.id;
+                    option.textContent = branch.name;
+                    paymentToSelect.appendChild(option);
+                }
+            });
+        } catch (error) {
+            showPaymentNotice(`Branches load failed: ${error.message}`, 'error');
+        }
+    };
+
     const renderRows = (rows) => {
         if (!tableBody) {
             return;
         }
         branchMap.clear();
         if (!rows.length) {
-            const colspan = canEdit ? 6 : 5;
+            const colspan = canEdit ? 7 : 6;
             tableBody.innerHTML = `<tr><td colspan="${colspan}" class="muted">No branches found.</td></tr>`;
             return;
         }
@@ -5921,6 +6141,7 @@ function initBranchesPage() {
                 branchMap.set(String(branch.id), branch);
                 const typeLabel = branch.type ? branch.type.charAt(0).toUpperCase() + branch.type.slice(1) : '-';
                 const contact = branch.phone || branch.address || '-';
+                const balanceLabel = formatAmount(branch.balance);
                 const actions = canEdit
                     ? `<td>
                             <button class="button ghost small" type="button" data-branch-edit data-branch-id="${branch.id}">Edit</button>
@@ -5933,6 +6154,7 @@ function initBranchesPage() {
                         <td>${branch.country_name || '-'}</td>
                         <td>${branch.parent_branch_name || '-'}</td>
                         <td>${contact}</td>
+                        <td>${balanceLabel}</td>
                         ${actions}
                     </tr>`;
             })
@@ -5941,7 +6163,7 @@ function initBranchesPage() {
 
     const loadBranches = async (filters = {}) => {
         if (tableBody) {
-            const colspan = canEdit ? 6 : 5;
+            const colspan = canEdit ? 7 : 6;
             tableBody.innerHTML = `<tr><td colspan="${colspan}" class="muted">Loading branches...</td></tr>`;
         }
         const params = new URLSearchParams();
@@ -6034,8 +6256,16 @@ function initBranchesPage() {
         addButton.addEventListener('click', () => openForm(null));
     }
 
+    if (paymentOpenButton) {
+        paymentOpenButton.addEventListener('click', () => openPaymentDrawer());
+    }
+
     if (drawerCloseButtons.length) {
         drawerCloseButtons.forEach((button) => button.addEventListener('click', closeDrawer));
+    }
+
+    if (paymentCloseButtons.length) {
+        paymentCloseButtons.forEach((button) => button.addEventListener('click', closePaymentDrawer));
     }
 
     if (form) {
@@ -6083,6 +6313,45 @@ function initBranchesPage() {
                 loadBranches(lastFilters);
             } catch (error) {
                 showFormNotice(`Save failed: ${error.message}`, 'error');
+            }
+        });
+    }
+
+    if (paymentForm) {
+        paymentForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const payload = Object.fromEntries(new FormData(paymentForm).entries());
+            const fromBranchId = payload.from_branch_id ? Number(payload.from_branch_id) : 0;
+            const toBranchId = payload.to_branch_id ? Number(payload.to_branch_id) : 0;
+            const amountValue = payload.amount ? Number(payload.amount) : 0;
+            if (!fromBranchId || !toBranchId || !Number.isFinite(amountValue) || amountValue <= 0) {
+                showPaymentNotice('Select branches and enter a valid amount.', 'error');
+                return;
+            }
+            try {
+                const data = await fetchJson(`${window.APP_BASE}/api/branch_transfers/create.php`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        from_branch_id: fromBranchId,
+                        to_branch_id: toBranchId,
+                        amount: amountValue,
+                        transfer_date: payload.transfer_date || null,
+                        note: payload.note || null,
+                    }),
+                });
+                showPaymentNotice('Branch payment recorded.', 'success');
+                if (data.id) {
+                    window.open(
+                        `${window.APP_BASE}/views/internal/branch_transfer_receipt?id=${encodeURIComponent(data.id)}`,
+                        '_blank',
+                        'noopener'
+                    );
+                }
+                closePaymentDrawer();
+                loadBranches(lastFilters);
+            } catch (error) {
+                showPaymentNotice(`Payment failed: ${error.message}`, 'error');
             }
         });
     }
@@ -6171,6 +6440,7 @@ function initBranchesPage() {
 
     loadCountries();
     loadParentBranches();
+    loadPaymentBranches();
     loadBranches();
 }
 
@@ -6625,6 +6895,10 @@ function initCustomerCreate() {
     const portalUsernameInput = form ? form.querySelector('[name="portal_username"]') : null;
     const portalPasswordInput = form ? form.querySelector('[name="portal_password"]') : null;
     const phoneInput = form ? form.querySelector('[name="phone"]') : null;
+    const queryParams = new URLSearchParams(window.location.search);
+    const prefillPortalUsername = queryParams.get('portal_username') || '';
+    const prefillPhone = queryParams.get('portal_phone') || queryParams.get('phone') || '';
+    const prefillBranchId = queryParams.get('sub_branch_id') || '';
 
     const showNotice = (message, type = 'error') => {
         if (!statusStack) {
@@ -6649,6 +6923,9 @@ function initCustomerCreate() {
                 option.textContent = branch.name;
                 branchSelect.appendChild(option);
             });
+            if (prefillBranchId) {
+                branchSelect.value = prefillBranchId;
+            }
         } catch (error) {
             showNotice(`Branches load failed: ${error.message}`, 'error');
         }
@@ -6673,6 +6950,14 @@ function initCustomerCreate() {
 
     if (!fullAccess && branchField) {
         branchField.classList.add('is-hidden');
+    }
+
+    if (prefillPortalUsername && portalUsernameInput) {
+        portalUsernameInput.value = prefillPortalUsername;
+        portalUsernameInput.dataset.manual = 'true';
+    }
+    if (prefillPhone && phoneInput) {
+        phoneInput.value = prefillPhone;
     }
 
     if (fullAccess) {
@@ -6932,6 +7217,7 @@ function initCustomerView() {
     const mediaPageLabel = page.querySelector('[data-order-media-page]');
     const noteSearchInput = page.querySelector('[data-order-note-search]');
     const noteSearchButton = page.querySelector('[data-order-note-submit]');
+    const addProfileLink = page.querySelector('[data-add-profile]');
     const { role } = getUserContext();
     const showMeta = hasAuditMetaAccess(role);
     const ordersColumnCount = 9;
@@ -6981,6 +7267,18 @@ function initCustomerView() {
         return;
     }
 
+    const showPaymentNotice = (message, type = 'error') => {
+        if (!paymentStatus) {
+            showNotice(message, type);
+            return;
+        }
+        const notice = document.createElement('div');
+        notice.className = `notice ${type}`;
+        notice.textContent = message;
+        paymentStatus.appendChild(notice);
+        setTimeout(() => notice.remove(), 6000);
+    };
+
     const showMediaNotice = (message, type = 'error') => {
         if (!mediaStatus) {
             showNotice(message, type);
@@ -7007,6 +7305,19 @@ function initCustomerView() {
         }
     };
 
+    const formatInvoiceStatus = (value) => {
+        if (!value) {
+            return '-';
+        }
+        if (value === 'partially_paid') {
+            return 'Partially paid';
+        }
+        if (value === 'void') {
+            return 'Canceled';
+        }
+        return value.charAt(0).toUpperCase() + value.slice(1);
+    };
+
     const renderInvoices = (rows) => {
         if (!invoicesTable) {
             return;
@@ -7021,7 +7332,7 @@ function initCustomerView() {
             .map(
                 (inv) => `<tr>
                     <td>${inv.invoice_no}</td>
-                    <td>${inv.status}</td>
+                    <td>${formatInvoiceStatus(inv.status)}</td>
                     <td>${inv.total}</td>
                     <td>${inv.due_total}</td>
                     <td>${inv.issued_at}</td>
@@ -7355,25 +7666,43 @@ function initCustomerView() {
         }
     };
 
-    const loadCustomerView = async () => {
-        try {
-            const params = new URLSearchParams({ customer_id: customerId });
-            const noteQuery = noteSearchInput ? noteSearchInput.value.trim() : '';
-            if (noteQuery) {
-                params.append('order_note', noteQuery);
-            }
-            const data = await fetchJson(`${window.APP_BASE}/api/customers/view.php?${params.toString()}`);
-            const customer = data.customer || {};
-            details.forEach((el) => {
-                const key = el.getAttribute('data-detail');
-                let value = customer[key];
-                if (key === 'is_system') {
-                    value = customer.is_system ? 'Yes' : 'No';
-                }
-                el.textContent = value !== null && value !== undefined && value !== '' ? value : '--';
-            });
-            currentCustomerBranchId = customer.sub_branch_id ? Number(customer.sub_branch_id) : null;
-            const accountIdValue = customer.account_id ? String(customer.account_id) : '';
+      const loadCustomerView = async () => {
+          try {
+              const params = new URLSearchParams({ customer_id: customerId });
+              const noteQuery = noteSearchInput ? noteSearchInput.value.trim() : '';
+              if (noteQuery) {
+                  params.append('order_note', noteQuery);
+              }
+              const data = await fetchJson(`${window.APP_BASE}/api/customers/view.php?${params.toString()}`);
+              const customer = data.customer || {};
+              details.forEach((el) => {
+                  const key = el.getAttribute('data-detail');
+                  let value = customer[key];
+                  if (key === 'is_system') {
+                      value = customer.is_system ? 'Yes' : 'No';
+                  }
+                  el.textContent = value !== null && value !== undefined && value !== '' ? value : '--';
+              });
+              if (addProfileLink) {
+                  if (customer.portal_username) {
+                      const profileParams = new URLSearchParams();
+                      profileParams.set('portal_username', customer.portal_username);
+                      const phoneValue = customer.portal_phone || customer.phone || '';
+                      if (phoneValue) {
+                          profileParams.set('portal_phone', phoneValue);
+                      }
+                      if (customer.sub_branch_id) {
+                          profileParams.set('sub_branch_id', String(customer.sub_branch_id));
+                      }
+                      addProfileLink.href = `${window.APP_BASE}/views/internal/customer_create?${profileParams.toString()}`;
+                      addProfileLink.classList.remove('is-hidden');
+                  } else {
+                      addProfileLink.classList.add('is-hidden');
+                      addProfileLink.removeAttribute('href');
+                  }
+              }
+              currentCustomerBranchId = customer.sub_branch_id ? Number(customer.sub_branch_id) : null;
+              const accountIdValue = customer.account_id ? String(customer.account_id) : '';
             if (accountIdValue !== currentAccountId) {
                 currentAccountId = accountIdValue;
                 loadProfilesForAccount(accountIdValue);
@@ -8252,7 +8581,7 @@ function initInvoicesPage() {
 
     const { role, branchId } = getUserContext();
     const fullAccess = ['Admin', 'Owner', 'Main Branch'].includes(role || '');
-    const canVoid = ['Admin', 'Owner'].includes(role || '');
+    const canCancel = ['Admin', 'Owner', 'Main Branch', 'Sub Branch'].includes(role || '');
     const limit = 5;
     let offset = 0;
     let lastFilters = {};
@@ -8507,15 +8836,17 @@ function initInvoicesPage() {
                 let statusLabel = row.status || '-';
                 if (statusLabel === 'partially_paid') {
                     statusLabel = 'Partially paid';
+                } else if (statusLabel === 'void') {
+                    statusLabel = 'Canceled';
                 } else if (statusLabel !== '-' && statusLabel.length > 0) {
                     statusLabel = statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1);
                 }
                 const actions = [
                     `<a class="text-link" href="${window.APP_BASE}/api/invoices/print.php?id=${row.id}" target="_blank" rel="noopener">Print</a>`,
                 ];
-                if (canVoid) {
+                if (canCancel && row.status !== 'void') {
                     actions.push(
-                        `<button class="text-link" type="button" data-invoice-void data-invoice-id="${row.id}">Void</button>`
+                        `<button class="text-link" type="button" data-invoice-cancel data-invoice-id="${row.id}">Cancel</button>`
                     );
                 }
                 return `<tr>
@@ -8533,29 +8864,30 @@ function initInvoicesPage() {
             .join('');
         updatePager(rows.length);
 
-        if (canVoid) {
-            tableBody.querySelectorAll('[data-invoice-void]').forEach((button) => {
+        if (canCancel) {
+            tableBody.querySelectorAll('[data-invoice-cancel]').forEach((button) => {
                 button.addEventListener('click', async () => {
                     const invoiceId = button.getAttribute('data-invoice-id');
                     if (!invoiceId) {
                         return;
                     }
-                    if (!window.confirm('Void this invoice?')) {
+                    const reason = window.prompt('Cancel this invoice? Add a reason.');
+                    if (!reason || !reason.trim()) {
                         return;
                     }
                     try {
                         await fetchJson(`${window.APP_BASE}/api/invoices/delete.php`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ invoice_id: invoiceId }),
+                            body: JSON.stringify({ invoice_id: invoiceId, reason: reason.trim() }),
                         });
-                        showNotice('Invoice voided.', 'success');
+                        showNotice('Invoice canceled.', 'success');
                         if (offset > 0 && invoicesData.length === 1) {
                             offset = Math.max(0, offset - limit);
                         }
                         loadInvoices(lastFilters);
                     } catch (error) {
-                        showNotice(`Void failed: ${error.message}`, 'error');
+                        showNotice(`Cancel failed: ${error.message}`, 'error');
                     }
                 });
             });
@@ -8916,6 +9248,9 @@ function initTransactionsPage() {
     const tableBody = page.querySelector('[data-transactions-table]');
     const statusStack = page.querySelector('[data-transactions-status]');
     const refreshButton = page.querySelector('[data-transactions-refresh]');
+    const branchBalancePanel = page.querySelector('[data-branch-balance-panel]');
+    const branchBalanceValue = page.querySelector('[data-branch-balance]');
+    const canCancel = page.getAttribute('data-can-cancel') === '1';
 
     const showNotice = (message, type = 'error') => {
         if (!statusStack) {
@@ -8941,6 +9276,25 @@ function initTransactionsPage() {
         return Number.isFinite(num) ? num.toFixed(2) : '0.00';
     };
 
+    const formatStatus = (value) => {
+        if (!value) {
+            return 'Active';
+        }
+        return value === 'canceled' ? 'Canceled' : 'Active';
+    };
+
+    const setBranchBalance = (value) => {
+        if (!branchBalancePanel || !branchBalanceValue) {
+            return;
+        }
+        if (value === null || value === undefined) {
+            branchBalancePanel.classList.add('is-hidden');
+            return;
+        }
+        branchBalanceValue.textContent = formatAmount(value);
+        branchBalancePanel.classList.remove('is-hidden');
+    };
+
     const setDefaultDates = () => {
         if (!fromInput || !toInput) {
             return;
@@ -8962,7 +9316,7 @@ function initTransactionsPage() {
             return;
         }
         if (!rows || rows.length === 0) {
-            tableBody.innerHTML = '<tr><td colspan="9" class="muted">No transactions found.</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="11" class="muted">No transactions found.</td></tr>';
             return;
         }
         tableBody.innerHTML = rows
@@ -8971,19 +9325,57 @@ function initTransactionsPage() {
                 const receiptLink = row.id
                     ? `<a class="text-link" target="_blank" rel="noopener" href="${window.APP_BASE}/views/internal/transaction_receipt_print?id=${row.id}">Print</a>`
                     : '-';
+                const noteLabel =
+                    row.status === 'canceled'
+                        ? row.canceled_reason
+                            ? `Canceled: ${row.canceled_reason}`
+                            : 'Canceled'
+                        : row.note || '-';
+                const actions =
+                    canCancel && row.status === 'active'
+                        ? `<button class="text-link" type="button" data-transaction-cancel data-transaction-id="${row.id}">Cancel</button>`
+                        : '-';
                 return `<tr>
                     <td>${escapeHtml(row.id)}</td>
                     <td>${escapeHtml(row.customer_name || '-')}</td>
                     <td>${escapeHtml(row.branch_name || '-')}</td>
                     <td>${escapeHtml(row.type || '-')}</td>
+                    <td>${escapeHtml(formatStatus(row.status))}</td>
                     <td>${escapeHtml(row.payment_method || '-')}</td>
                     <td>${formatAmount(row.amount)}</td>
                     <td>${escapeHtml(dateLabel)}</td>
-                    <td>${escapeHtml(row.note || '-')}</td>
+                    <td>${escapeHtml(noteLabel)}</td>
                     <td>${receiptLink}</td>
+                    <td>${actions}</td>
                 </tr>`;
             })
             .join('');
+
+        if (canCancel) {
+            tableBody.querySelectorAll('[data-transaction-cancel]').forEach((button) => {
+                button.addEventListener('click', async () => {
+                    const id = button.getAttribute('data-transaction-id');
+                    if (!id) {
+                        return;
+                    }
+                    const reason = window.prompt('Cancel this receipt? Add a reason.');
+                    if (!reason || !reason.trim()) {
+                        return;
+                    }
+                    try {
+                        await fetchJson(`${window.APP_BASE}/api/transactions/delete.php`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ transaction_id: id, reason: reason.trim() }),
+                        });
+                        showNotice('Transaction canceled.', 'success');
+                        loadTransactions();
+                    } catch (error) {
+                        showNotice(`Cancel failed: ${error.message}`, 'error');
+                    }
+                });
+            });
+        }
     };
 
     const loadTransactions = async () => {
@@ -8991,7 +9383,7 @@ function initTransactionsPage() {
             return;
         }
         if (tableBody) {
-            tableBody.innerHTML = '<tr><td colspan="9" class="muted">Loading transactions...</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="11" class="muted">Loading transactions...</td></tr>';
         }
         const params = new URLSearchParams({
             date_from: fromInput.value,
@@ -9000,8 +9392,10 @@ function initTransactionsPage() {
         });
         try {
             const data = await fetchJson(`${window.APP_BASE}/api/transactions/list.php?${params.toString()}`);
+            setBranchBalance(data.branch_balance);
             renderRows(data.data || []);
         } catch (error) {
+            setBranchBalance(null);
             renderRows([]);
             showNotice(`Transactions load failed: ${error.message}`, 'error');
         }

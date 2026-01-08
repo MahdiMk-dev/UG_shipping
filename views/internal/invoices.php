@@ -43,7 +43,7 @@ if (!$canView) {
                 <option value="open">Open</option>
                 <option value="partially_paid">Partially paid</option>
                 <option value="paid">Paid</option>
-                <option value="void">Void</option>
+                <option value="void">Canceled</option>
             </select>
             <select name="branch_id" data-branch-filter>
                 <option value="">All branches</option>

@@ -8,12 +8,16 @@ require_once __DIR__ . '/../../app/services/balance_service.php';
 require_once __DIR__ . '/../../app/audit.php';
 
 api_require_method('POST');
-$user = require_role(['Admin', 'Owner', 'Main Branch']);
+$user = require_role(['Admin', 'Owner', 'Main Branch', 'Sub Branch']);
 $input = api_read_input();
 
 $transactionId = api_int($input['transaction_id'] ?? ($input['id'] ?? null));
+$reason = api_string($input['reason'] ?? null);
 if (!$transactionId) {
     api_error('transaction_id is required', 422);
+}
+if (!$reason) {
+    api_error('Cancellation reason is required', 422);
 }
 
 $db = db();
@@ -21,13 +25,28 @@ $db->beginTransaction();
 
 try {
     $txStmt = $db->prepare(
-        'SELECT id, customer_id, branch_id, amount, type FROM transactions WHERE id = ? AND deleted_at IS NULL'
+        'SELECT id, customer_id, branch_id, amount, type, status '
+        . 'FROM transactions WHERE id = ? AND deleted_at IS NULL'
     );
     $txStmt->execute([$transactionId]);
     $transaction = $txStmt->fetch();
 
     if (!$transaction) {
         api_error('Transaction not found', 404);
+    }
+    if (($transaction['status'] ?? '') !== 'active') {
+        api_error('Transaction already canceled', 409);
+    }
+
+    $role = $user['role'] ?? '';
+    if ($role === 'Sub Branch') {
+        $userBranchId = api_int($user['branch_id'] ?? null);
+        if (!$userBranchId) {
+            api_error('Branch scope required', 403);
+        }
+        if ((int) $transaction['branch_id'] !== $userBranchId) {
+            api_error('Transaction does not belong to this branch', 403);
+        }
     }
 
     $branchTypeStmt = $db->prepare('SELECT type FROM branches WHERE id = ? AND deleted_at IS NULL');
@@ -37,21 +56,19 @@ try {
         api_error('Branch not found', 404);
     }
 
-    $allocStmt = $db->prepare(
-        'SELECT invoice_id, amount_allocated FROM transaction_allocations WHERE transaction_id = ?'
-    );
+    $allocStmt = $db->prepare('SELECT invoice_id FROM transaction_allocations WHERE transaction_id = ?');
     $allocStmt->execute([$transactionId]);
     $allocations = $allocStmt->fetchAll();
 
     if (!empty($allocations)) {
-        $db->prepare('DELETE FROM transaction_allocations WHERE transaction_id = ?')
-            ->execute([$transactionId]);
-
         $invoiceIds = array_unique(array_map(static fn ($row) => (int) $row['invoice_id'], $allocations));
         $sumStmt = $db->prepare(
-            'SELECT SUM(amount_allocated) AS total_allocated FROM transaction_allocations WHERE invoice_id = ?'
+            'SELECT SUM(ta.amount_allocated) AS total_allocated '
+            . 'FROM transaction_allocations ta '
+            . 'JOIN transactions t ON t.id = ta.transaction_id '
+            . 'WHERE ta.invoice_id = ? AND t.deleted_at IS NULL AND t.status = ?'
         );
-        $invStmt = $db->prepare('SELECT id, total FROM invoices WHERE id = ?');
+        $invStmt = $db->prepare('SELECT id, total, status FROM invoices WHERE id = ? AND deleted_at IS NULL');
         $updateInv = $db->prepare(
             'UPDATE invoices SET paid_total = ?, due_total = ?, status = ?, updated_at = NOW(), updated_by_user_id = ? '
             . 'WHERE id = ?'
@@ -63,7 +80,7 @@ try {
             if (!$invoice) {
                 continue;
             }
-            $sumStmt->execute([$invoiceId]);
+            $sumStmt->execute([$invoiceId, 'active']);
             $sumRow = $sumStmt->fetch();
             $paidTotal = (float) ($sumRow['total_allocated'] ?? 0);
             $dueTotal = (float) $invoice['total'] - $paidTotal;
@@ -73,8 +90,15 @@ try {
     }
 
     $db->prepare(
-        'UPDATE transactions SET deleted_at = NOW(), updated_at = NOW(), updated_by_user_id = ? WHERE id = ?'
-    )->execute([$user['id'] ?? null, $transactionId]);
+        'UPDATE transactions SET status = ?, canceled_at = NOW(), canceled_reason = ?, canceled_by_user_id = ?, '
+        . 'updated_at = NOW(), updated_by_user_id = ? WHERE id = ?'
+    )->execute([
+        'canceled',
+        $reason,
+        $user['id'] ?? null,
+        $user['id'] ?? null,
+        $transactionId,
+    ]);
 
     $normalizedAmount = abs((float) ($transaction['amount'] ?? 0));
     $balanceDelta = -$normalizedAmount;
@@ -91,12 +115,27 @@ try {
         'transaction',
         $transactionId,
         $user['id'] ?? null,
-        'Transaction voided'
+        'Transaction canceled: ' . $reason
     );
 
+    $hasBranchBalance = false;
     if ($branchType === 'sub'
         && in_array((string) ($transaction['type'] ?? ''), ['payment', 'deposit', 'admin_settlement'], true)
     ) {
+        $branchBalanceStmt = $db->prepare(
+            'SELECT 1 FROM branch_balance_entries '
+            . 'WHERE branch_id = ? AND entry_type = ? AND reference_type = ? AND reference_id = ? LIMIT 1'
+        );
+        $branchBalanceStmt->execute([
+            (int) $transaction['branch_id'],
+            'customer_payment',
+            'transaction',
+            $transactionId,
+        ]);
+        $hasBranchBalance = (bool) $branchBalanceStmt->fetchColumn();
+    }
+
+    if ($hasBranchBalance) {
         record_branch_balance(
             $db,
             (int) $transaction['branch_id'],
@@ -105,19 +144,21 @@ try {
             'transaction',
             $transactionId,
             $user['id'] ?? null,
-            'Transaction voided'
+            'Transaction canceled: ' . $reason
         );
     }
 
     $afterStmt = $db->prepare('SELECT * FROM transactions WHERE id = ?');
     $afterStmt->execute([$transactionId]);
     $after = $afterStmt->fetch();
-    audit_log($user, 'transactions.delete', 'transaction', $transactionId, $transaction, $after);
+    audit_log($user, 'transactions.cancel', 'transaction', $transactionId, $transaction, $after, [
+        'reason' => $reason,
+    ]);
 
     $db->commit();
 } catch (PDOException $e) {
     $db->rollBack();
-    api_error('Failed to delete transaction', 500);
+    api_error('Failed to cancel transaction', 500);
 }
 
 api_json(['ok' => true]);

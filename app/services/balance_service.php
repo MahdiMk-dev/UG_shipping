@@ -7,8 +7,14 @@ function adjust_customer_balance(PDO $db, int $customerId, float $delta): void
         return;
     }
 
-    $stmt = $db->prepare('UPDATE customers SET balance = balance + ? WHERE id = ?');
-    $stmt->execute([$delta, $customerId]);
+    $stmt = $db->prepare(
+        'UPDATE customers c '
+        . 'JOIN customers base ON base.id = ? '
+        . 'SET c.balance = c.balance + ? '
+        . 'WHERE (base.account_id IS NOT NULL AND c.account_id = base.account_id) '
+        . 'OR (base.account_id IS NULL AND c.id = base.id)'
+    );
+    $stmt->execute([$customerId, $delta]);
 }
 
 function record_branch_balance(

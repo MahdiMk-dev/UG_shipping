@@ -17,7 +17,7 @@ if (!$entityType || !$entityId) {
     api_error('entity_type and entity_id are required', 422);
 }
 
-$allowedTypes = ['shipment', 'order', 'shopping_order', 'invoice'];
+$allowedTypes = ['shipment', 'order', 'shopping_order', 'invoice', 'collection'];
 if (!in_array($entityType, $allowedTypes, true)) {
     api_error('Invalid entity_type', 422);
 }
@@ -67,10 +67,15 @@ $entityMap = [
     'order' => 'orders',
     'shopping_order' => 'shopping_orders',
     'invoice' => 'invoices',
+    'collection' => 'collections',
 ];
 
 $table = $entityMap[$entityType];
-$checkStmt = $db->prepare("SELECT id FROM {$table} WHERE id = ? AND deleted_at IS NULL");
+if ($entityType === 'collection') {
+    $checkStmt = $db->prepare("SELECT id FROM {$table} WHERE id = ?");
+} else {
+    $checkStmt = $db->prepare("SELECT id FROM {$table} WHERE id = ? AND deleted_at IS NULL");
+}
 $checkStmt->execute([$entityId]);
 if (!$checkStmt->fetch()) {
     api_error('Entity not found', 404);

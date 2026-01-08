@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../app/api.php';
 require_once __DIR__ . '/../../app/permissions.php';
 require_once __DIR__ . '/../../app/audit.php';
+require_once __DIR__ . '/../../app/services/shipment_service.php';
 
 api_require_method('POST');
 $user = require_role(['Admin', 'Owner', 'Main Branch', 'Warehouse']);
@@ -16,10 +17,17 @@ $status = api_string($input['status'] ?? 'active') ?? 'active';
 $shipperProfileId = api_int($input['shipper_profile_id'] ?? null);
 $consigneeProfileId = api_int($input['consignee_profile_id'] ?? null);
 $typeOfGoods = api_string($input['type_of_goods'] ?? null);
+$shipperName = api_string($input['shipper'] ?? null);
+$consigneeName = api_string($input['consignee'] ?? null);
+
+if (($user['role'] ?? '') === 'Warehouse' && ($shipperProfileId || $consigneeProfileId || $shipperName || $consigneeName)) {
+    api_error('Shipper/consignee fields are restricted for warehouse users', 403);
+}
 
 $db = db();
 $warehouseCountryId = null;
 if (($user['role'] ?? '') === 'Warehouse') {
+    $status = 'active';
     $warehouseCountryId = get_branch_country_id($user);
     if (!$warehouseCountryId) {
         api_error('Warehouse country scope required', 403);
@@ -123,10 +131,15 @@ $numericFields = [
     'weight',
     'gross_weight',
     'default_rate',
-    'cost_per_unit',
 ];
 foreach ($numericFields as $field) {
     $values[$field] = api_float($input[$field] ?? null);
+}
+if ($values['default_rate'] === null) {
+    $values['default_rate'] = 0.0;
+}
+if (!array_key_exists('cost_per_unit', $values)) {
+    $values['cost_per_unit'] = null;
 }
 
 $defaultRateUnit = api_string($input['default_rate_unit'] ?? null);
@@ -134,7 +147,7 @@ if ($defaultRateUnit !== null && !in_array($defaultRateUnit, ['kg', 'cbm'], true
     api_error('Invalid default_rate_unit', 422);
 }
 if (($user['role'] ?? '') === 'Warehouse') {
-    $values['default_rate'] = null;
+    $values['default_rate'] = 0.0;
     $values['cost_per_unit'] = null;
     $defaultRateUnit = null;
 }
@@ -189,5 +202,7 @@ try {
     }
     api_error('Failed to create shipment', 500);
 }
+
+update_shipment_cost_per_unit($shipmentId);
 
 api_json(['ok' => true, 'id' => $shipmentId]);

@@ -62,4 +62,53 @@ function update_shipment_totals(int $shipmentId): void
 
     $update = $db->prepare('UPDATE shipments SET weight = ?, size = ?, updated_at = NOW() WHERE id = ?');
     $update->execute([$weight, $volume, $shipmentId]);
+
+    update_shipment_cost_per_unit($shipmentId);
+}
+
+function update_shipment_cost_per_unit(int $shipmentId): void
+{
+    $db = db();
+    $shipmentStmt = $db->prepare(
+        'SELECT weight, size, default_rate_unit, cost_per_unit FROM shipments WHERE id = ? AND deleted_at IS NULL'
+    );
+    $shipmentStmt->execute([$shipmentId]);
+    $shipment = $shipmentStmt->fetch();
+    if (!$shipment) {
+        return;
+    }
+
+    $expenseStmt = $db->prepare(
+        'SELECT SUM(amount) AS total_expense FROM general_expenses WHERE shipment_id = ? AND deleted_at IS NULL'
+    );
+    $expenseStmt->execute([$shipmentId]);
+    $totalExpense = (float) ($expenseStmt->fetchColumn() ?? 0);
+
+    $unit = $shipment['default_rate_unit'] ?? null;
+    $weight = (float) ($shipment['weight'] ?? 0);
+    $size = (float) ($shipment['size'] ?? 0);
+    $denominator = 0.0;
+    if ($unit === 'cbm') {
+        $denominator = $size;
+    } elseif ($unit === 'kg') {
+        $denominator = $weight;
+    } elseif ($weight > 0) {
+        $denominator = $weight;
+    } elseif ($size > 0) {
+        $denominator = $size;
+    }
+
+    $nextCost = null;
+    if ($denominator > 0) {
+        $nextCost = round($totalExpense / $denominator, 2);
+    }
+
+    $currentCost = $shipment['cost_per_unit'];
+    $currentValue = $currentCost !== null ? (float) $currentCost : null;
+    if ($currentValue === $nextCost || ($currentValue !== null && $nextCost !== null && abs($currentValue - $nextCost) < 0.0001)) {
+        return;
+    }
+
+    $update = $db->prepare('UPDATE shipments SET cost_per_unit = ?, updated_at = NOW() WHERE id = ?');
+    $update->execute([$nextCost, $shipmentId]);
 }

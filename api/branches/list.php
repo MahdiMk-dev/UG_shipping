@@ -40,10 +40,13 @@ if ($search) {
 }
 
 $sql = 'SELECT b.id, b.name, b.type, b.country_id, c.name AS country_name, '
-    . 'b.parent_branch_id, p.name AS parent_branch_name, b.phone, b.address '
+    . 'b.parent_branch_id, p.name AS parent_branch_name, b.phone, b.address, '
+    . 'COALESCE(bb.balance, 0) AS balance '
     . 'FROM branches b '
     . 'LEFT JOIN countries c ON c.id = b.country_id '
     . 'LEFT JOIN branches p ON p.id = b.parent_branch_id '
+    . 'LEFT JOIN (SELECT branch_id, SUM(amount) AS balance FROM branch_balance_entries GROUP BY branch_id) bb '
+    . 'ON bb.branch_id = b.id '
     . 'WHERE ' . implode(' AND ', $where) . ' '
     . 'ORDER BY b.id DESC LIMIT ? OFFSET ?';
 

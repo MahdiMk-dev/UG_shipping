@@ -91,12 +91,18 @@ if ($branchId > 0) {
     $customerParams[] = $branchId;
 }
 $customerSummaryStmt = db()->prepare(
-    'SELECT c.sub_branch_id, '
-    . 'SUM(CASE WHEN c.balance < 0 THEN -c.balance ELSE 0 END) AS credit_total, '
-    . 'SUM(CASE WHEN c.balance > 0 THEN c.balance ELSE 0 END) AS due_total '
+    'SELECT agg.sub_branch_id, '
+    . 'SUM(CASE WHEN agg.balance < 0 THEN -agg.balance ELSE 0 END) AS credit_total, '
+    . 'SUM(CASE WHEN agg.balance > 0 THEN agg.balance ELSE 0 END) AS due_total '
+    . 'FROM ('
+    . 'SELECT '
+    . 'CASE WHEN c.account_id IS NULL THEN -c.id ELSE c.account_id END AS account_key, '
+    . 'c.sub_branch_id, MAX(c.balance) AS balance '
     . 'FROM customers c '
     . 'WHERE ' . implode(' AND ', $customerWhere) . ' '
-    . 'GROUP BY c.sub_branch_id'
+    . 'GROUP BY account_key, c.sub_branch_id'
+    . ') agg '
+    . 'GROUP BY agg.sub_branch_id'
 );
 $customerSummaryStmt->execute($customerParams);
 $customerSummary = $customerSummaryStmt->fetchAll();

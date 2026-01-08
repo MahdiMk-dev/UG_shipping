@@ -4,9 +4,20 @@ declare(strict_types=1);
 require_once __DIR__ . '/_layout.php';
 
 $user = internal_require_user();
+$role = $user['role'] ?? '';
+$canCancel = in_array($role, ['Admin', 'Owner', 'Main Branch', 'Sub Branch'], true);
 internal_page_start($user, 'transactions', 'Transactions', 'Review customer payments by date.');
 ?>
-<div data-transactions-page>
+<div data-transactions-page data-can-cancel="<?= $canCancel ? '1' : '0' ?>">
+    <section class="panel detail-grid is-hidden" data-branch-balance-panel>
+        <article class="detail-card">
+            <h3>Branch balance</h3>
+            <div class="detail-list">
+                <div><span>Current</span><strong data-branch-balance>--</strong></div>
+                <div><span>Meaning</span><strong>Due (+) / Credit (-)</strong></div>
+            </div>
+        </article>
+    </section>
     <section class="panel">
         <div class="panel-header">
             <div>
@@ -43,15 +54,17 @@ internal_page_start($user, 'transactions', 'Transactions', 'Review customer paym
                         <th>Customer</th>
                         <th>Branch</th>
                         <th>Type</th>
+                        <th>Status</th>
                         <th>Method</th>
                         <th>Amount</th>
                         <th>Date</th>
                         <th>Note</th>
                         <th>Receipt</th>
+                        <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody data-transactions-table>
-                    <tr><td colspan="9" class="muted">Select a date range to load transactions.</td></tr>
+                    <tr><td colspan="11" class="muted">Select a date range to load transactions.</td></tr>
                 </tbody>
             </table>
         </div>

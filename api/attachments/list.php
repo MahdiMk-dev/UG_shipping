@@ -26,7 +26,7 @@ $offset = api_int($_GET['offset'] ?? 0, 0);
 $limit = max(1, min(200, $limit ?? 50));
 $offset = max(0, $offset ?? 0);
 
-$allowedTypes = ['shipment', 'order', 'shopping_order', 'invoice'];
+$allowedTypes = ['shipment', 'order', 'shopping_order', 'invoice', 'collection'];
 
 $where = ['a.deleted_at IS NULL'];
 $params = [];
@@ -47,9 +47,12 @@ if ($entityId) {
 if ($search) {
     $where[] = '('
         . "(a.entity_type = 'shipment' AND s_att.shipment_number LIKE ?) "
-        . "OR (a.entity_type = 'order' AND (o.tracking_number LIKE ? OR s_order.shipment_number LIKE ?))"
+        . "OR (a.entity_type = 'order' AND (o.tracking_number LIKE ? OR s_order.shipment_number LIKE ?)) "
+        . "OR (a.entity_type = 'collection' AND (c_att.name LIKE ? OR s_col.shipment_number LIKE ?))"
         . ')';
     $like = '%' . $search . '%';
+    $params[] = $like;
+    $params[] = $like;
     $params[] = $like;
     $params[] = $like;
     $params[] = $like;
@@ -99,6 +102,10 @@ if ($customer) {
             api_error('Forbidden', 403);
         }
     }
+
+    if ($entityType === 'collection') {
+        api_error('Forbidden', 403);
+    }
 }
 
 $sql = 'SELECT a.id, a.entity_type, a.entity_id, a.title, a.description, a.original_name, '
@@ -108,6 +115,8 @@ $sql = 'SELECT a.id, a.entity_type, a.entity_id, a.title, a.description, a.origi
     . "AND s_att.deleted_at IS NULL "
     . "LEFT JOIN orders o ON o.id = a.entity_id AND a.entity_type = 'order' AND o.deleted_at IS NULL "
     . "LEFT JOIN shipments s_order ON s_order.id = o.shipment_id AND s_order.deleted_at IS NULL "
+    . "LEFT JOIN collections c_att ON c_att.id = a.entity_id AND a.entity_type = 'collection' "
+    . "LEFT JOIN shipments s_col ON s_col.id = c_att.shipment_id AND s_col.deleted_at IS NULL "
     . 'WHERE ' . implode(' AND ', $where) . ' '
     . 'ORDER BY a.id DESC LIMIT ? OFFSET ?';
 

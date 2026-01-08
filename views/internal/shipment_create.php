@@ -7,6 +7,7 @@ $user = internal_require_user();
 internal_page_start($user, 'shipments', 'Create Shipment', 'Add a new shipment and set its origin.');
 $role = $user['role'] ?? '';
 $canEdit = in_array($role, ['Admin', 'Owner', 'Main Branch', 'Warehouse'], true);
+$isWarehouse = $role === 'Warehouse';
 $showRates = $role !== 'Warehouse';
 ?>
 <div data-shipment-create class="shipment-create-shell">
@@ -54,29 +55,35 @@ $showRates = $role !== 'Warehouse';
                     <option value="">Select type</option>
                 </select>
             </label>
-            <label>
-                <span>Shipper profile</span>
-                <select name="shipper_profile_id" data-partner-select data-partner-type="shipper">
-                    <option value="">Select shipper (optional)</option>
-                </select>
-            </label>
-            <label>
-                <span>Consignee profile</span>
-                <select name="consignee_profile_id" data-partner-select data-partner-type="consignee">
-                    <option value="">Select consignee (optional)</option>
-                </select>
-            </label>
-            <label>
-                <span>Status</span>
-                <select name="status">
-                    <option value="active">Active</option>
-                    <option value="departed">Departed</option>
-                    <option value="airport">Airport</option>
-                    <option value="arrived">Arrived</option>
-                    <option value="partially_distributed">Partially distributed</option>
-                    <option value="distributed">Distributed</option>
-                </select>
-            </label>
+            <?php if (!$isWarehouse): ?>
+                <label>
+                    <span>Shipper profile</span>
+                    <select name="shipper_profile_id" data-partner-select data-partner-type="shipper">
+                        <option value="">Select shipper (optional)</option>
+                    </select>
+                </label>
+                <label>
+                    <span>Consignee profile</span>
+                    <select name="consignee_profile_id" data-partner-select data-partner-type="consignee">
+                        <option value="">Select consignee (optional)</option>
+                    </select>
+                </label>
+            <?php endif; ?>
+            <?php if ($isWarehouse): ?>
+                <input type="hidden" name="status" value="active">
+            <?php else: ?>
+                <label>
+                    <span>Status</span>
+                    <select name="status">
+                        <option value="active">Active</option>
+                        <option value="departed">Departed</option>
+                        <option value="airport">Airport</option>
+                        <option value="arrived">Arrived</option>
+                        <option value="partially_distributed">Partially distributed</option>
+                        <option value="distributed">Distributed</option>
+                    </select>
+                </label>
+            <?php endif; ?>
             <label>
                 <span>Departure date</span>
                 <input type="date" name="departure_date">
