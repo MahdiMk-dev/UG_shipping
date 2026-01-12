@@ -32,6 +32,8 @@ if (!$canEdit) {
                 <div><span>Phone</span><strong data-staff-detail="phone">--</strong></div>
                 <div><span>Position</span><strong data-staff-detail="position">--</strong></div>
                 <div><span>Branch</span><strong data-staff-detail="branch_name">--</strong></div>
+                <div><span>Username</span><strong data-staff-detail="user_username">--</strong></div>
+                <div><span>User role</span><strong data-staff-detail="user_role_name">--</strong></div>
                 <div><span>Status</span><strong data-staff-detail="status">--</strong></div>
                 <div><span>Hired at</span><strong data-staff-detail="hired_at">--</strong></div>
                 <div><span>Notes</span><strong data-staff-detail="note">--</strong></div>
@@ -91,6 +93,12 @@ if (!$canEdit) {
                     <input type="number" step="0.01" name="amount" required>
                 </label>
                 <label>
+                    <span>From admin account</span>
+                    <select name="from_account_id" data-staff-pay-from required>
+                        <option value="">Select admin account</option>
+                    </select>
+                </label>
+                <label>
                     <span>Payment date</span>
                     <input type="date" name="payment_date">
                 </label>
@@ -116,6 +124,12 @@ if (!$canEdit) {
                     <input type="number" step="0.01" name="amount" required>
                 </label>
                 <label>
+                    <span>From admin account</span>
+                    <select name="from_account_id" data-staff-advance-from required>
+                        <option value="">Select admin account</option>
+                    </select>
+                </label>
+                <label>
                     <span>Advance date</span>
                     <input type="date" name="expense_date">
                 </label>
@@ -139,6 +153,12 @@ if (!$canEdit) {
                 <label>
                     <span>Amount</span>
                     <input type="number" step="0.01" name="amount" required>
+                </label>
+                <label>
+                    <span>From admin account</span>
+                    <select name="from_account_id" data-staff-bonus-from required>
+                        <option value="">Select admin account</option>
+                    </select>
                 </label>
                 <label>
                     <span>Bonus date</span>

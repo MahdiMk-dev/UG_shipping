@@ -31,7 +31,7 @@ if ($status) {
     $params[] = $status;
 }
 
-$sql = 'SELECT i.id, i.partner_id, i.shipment_id, i.invoice_no, i.status, i.total, i.paid_total, i.due_total, '
+$sql = 'SELECT i.id, i.partner_id, i.shipment_id, i.invoice_no, i.status, i.currency, i.total, i.paid_total, i.due_total, '
     . 'i.issued_at, i.note, s.shipment_number '
     . 'FROM partner_invoices i '
     . 'LEFT JOIN shipments s ON s.id = i.shipment_id '

@@ -215,8 +215,11 @@ if ($download) {
         0,
         5,
         pdf_text(
-            'Type: ' . $shipment['shipping_type'] . ' | Departure: ' . ($shipment['departure_date'] ?? '-')
-            . ' | Arrival: ' . ($shipment['arrival_date'] ?? '-')
+            'Type: ' . $shipment['shipping_type']
+            . ' | Exp Depart: ' . ($shipment['departure_date'] ?? '-')
+            . ' | Act Depart: ' . ($shipment['actual_departure_date'] ?? '-')
+            . ' | Exp Arr: ' . ($shipment['arrival_date'] ?? '-')
+            . ' | Act Arr: ' . ($shipment['actual_arrival_date'] ?? '-')
         ),
         0,
         1,
@@ -454,8 +457,10 @@ function render_media_list(array $attachments): string
         <span>Origin: <?= $safe($shipment['origin_country'] ?? '-') ?></span>
         <span>Status: <?= $safe($shipment['status']) ?></span>
         <span>Type: <?= $safe($shipment['shipping_type']) ?></span>
-        <span>Departure: <?= $safe($shipment['departure_date'] ?? '-') ?></span>
-        <span>Arrival: <?= $safe($shipment['arrival_date'] ?? '-') ?></span>
+        <span>Exp depart: <?= $safe($shipment['departure_date'] ?? '-') ?></span>
+        <span>Act depart: <?= $safe($shipment['actual_departure_date'] ?? '-') ?></span>
+        <span>Exp arrival: <?= $safe($shipment['arrival_date'] ?? '-') ?></span>
+        <span>Act arrival: <?= $safe($shipment['actual_arrival_date'] ?? '-') ?></span>
         <span>Total orders: <?= $safe($orderCount) ?></span>
         <?php if ($customerMeta): ?>
             <span>Customer: <?= $safe($customerMeta) ?></span>

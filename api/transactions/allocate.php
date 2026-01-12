@@ -73,7 +73,7 @@ try {
     }
 
     $invoiceStmt = $db->prepare(
-        'SELECT id, customer_id, branch_id, total, paid_total, due_total, status '
+        'SELECT id, customer_id, branch_id, total, points_discount, paid_total, due_total, status '
         . 'FROM invoices WHERE id = ? AND deleted_at IS NULL'
     );
     $allocStmt = $db->prepare(
@@ -129,8 +129,15 @@ try {
         $sumStmt->execute([$invoiceId, 'active']);
         $sumRow = $sumStmt->fetch();
         $paidTotal = (float) ($sumRow['total_allocated'] ?? 0);
-        $dueTotal = (float) $invoice['total'] - $paidTotal;
-        $status = invoice_status_from_totals($paidTotal, (float) $invoice['total']);
+        $netTotal = (float) $invoice['total'] - (float) ($invoice['points_discount'] ?? 0);
+        if ($netTotal < 0) {
+            $netTotal = 0.0;
+        }
+        $dueTotal = $netTotal - $paidTotal;
+        if ($dueTotal < 0) {
+            $dueTotal = 0.0;
+        }
+        $status = invoice_status_from_totals($paidTotal, $netTotal);
         $updateInvoice->execute([$paidTotal, $dueTotal, $status, $user['id'] ?? null, $invoiceId]);
         $invoiceUpdates[] = [
             'invoice_id' => $invoiceId,

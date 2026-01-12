@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../app/api.php';
 require_once __DIR__ . '/../../app/permissions.php';
 require_once __DIR__ . '/../../app/services/finance_service.php';
+require_once __DIR__ . '/../../app/services/account_service.php';
 require_once __DIR__ . '/../../app/audit.php';
 
 api_require_method('POST');
@@ -24,7 +25,7 @@ $db->beginTransaction();
 
 try {
     $txStmt = $db->prepare(
-        'SELECT id, partner_id, invoice_id, type, amount, status '
+        'SELECT id, partner_id, invoice_id, type, amount, status, account_transfer_id '
         . 'FROM partner_transactions WHERE id = ? AND deleted_at IS NULL'
     );
     $txStmt->execute([$transactionId]);
@@ -48,10 +49,20 @@ try {
         $transactionId,
     ]);
 
-    $amount = (float) ($transaction['amount'] ?? 0);
-    if (!empty($transaction['partner_id']) && abs($amount) > 0.0001) {
+    $amount = abs((float) ($transaction['amount'] ?? 0));
+    if (!empty($transaction['partner_id']) && $amount > 0.0001) {
+        $balanceDelta = ($transaction['type'] ?? '') === 'receipt' ? -$amount : $amount;
         $db->prepare('UPDATE partner_profiles SET balance = balance - ? WHERE id = ?')
-            ->execute([$amount, $transaction['partner_id']]);
+            ->execute([$balanceDelta, $transaction['partner_id']]);
+    }
+
+    if (!empty($transaction['account_transfer_id'])) {
+        cancel_account_transfer(
+            $db,
+            (int) $transaction['account_transfer_id'],
+            $reason,
+            $user['id'] ?? null
+        );
     }
 
     if (!empty($transaction['invoice_id'])) {

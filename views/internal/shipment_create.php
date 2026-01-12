@@ -85,11 +85,11 @@ $showRates = $role !== 'Warehouse';
                 </label>
             <?php endif; ?>
             <label>
-                <span>Departure date</span>
+                <span>Expected departure date</span>
                 <input type="date" name="departure_date">
             </label>
             <label>
-                <span>Arrival date</span>
+                <span>Expected arrival date</span>
                 <input type="date" name="arrival_date">
             </label>
             <?php if ($showRates): ?>

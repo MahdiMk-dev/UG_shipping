@@ -61,6 +61,8 @@ $shipmentUrl = $shipmentId ? BASE_URL . '/views/internal/shipment_view?id=' . ur
                 <option value="main_branch">Main branch</option>
                 <option value="pending_receipt">Pending receipt</option>
                 <option value="received_subbranch">Received sub-branch</option>
+                <option value="with_delivery">With delivery</option>
+                <option value="picked_up">Picked up</option>
                 <option value="closed">Closed</option>
                 <option value="returned">Returned</option>
                 <option value="canceled">Canceled</option>

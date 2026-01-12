@@ -5,6 +5,7 @@ require_once __DIR__ . '/../../app/api.php';
 require_once __DIR__ . '/../../app/permissions.php';
 require_once __DIR__ . '/../../app/services/balance_service.php';
 require_once __DIR__ . '/../../app/audit.php';
+require_once __DIR__ . '/../../app/company.php';
 
 api_require_method('POST');
 $user = require_role(['Admin', 'Owner', 'Main Branch']);
@@ -49,9 +50,13 @@ try {
         )->execute(['in_shipment', $user['id'] ?? null, (int) $order['id']]);
     }
 
-    if ($previousStatus === 'received_subbranch' && $previousBranchId) {
+    $chargedStatuses = ['received_subbranch', 'with_delivery', 'picked_up'];
+    if (in_array($previousStatus, $chargedStatuses, true) && $previousBranchId) {
         if ($previousCustomerId) {
+            $pointsSettings = company_points_settings();
+            $pointsPrice = (float) ($pointsSettings['points_price'] ?? 0);
             adjust_customer_balance($db, $previousCustomerId, -$previousTotal);
+            adjust_customer_points_for_amount($db, $previousCustomerId, -$previousTotal, $pointsPrice);
             record_customer_balance(
                 $db,
                 $previousCustomerId,

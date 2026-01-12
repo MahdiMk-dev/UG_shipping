@@ -16,7 +16,7 @@ if (!$customerId) {
 
 $db = db();
 $stmt = $db->prepare(
-    'SELECT c.id, c.account_id, c.is_system, c.sub_branch_id, c.name, c.code, c.phone, c.address, '
+    'SELECT c.id, c.account_id, c.is_system, c.sub_branch_id, c.name, c.code, c.phone, c.address, c.note, '
     . 'c.profile_country_id, ca.username AS portal_username, ca.phone AS portal_phone, '
     . 'ca.sub_branch_id AS account_branch_id '
     . 'FROM customers c '
@@ -107,6 +107,11 @@ if (array_key_exists('profile_country_id', $input)) {
 if (array_key_exists('address', $input)) {
     $fields[] = 'address = ?';
     $params[] = api_string($input['address'] ?? null);
+}
+
+if (array_key_exists('note', $input)) {
+    $fields[] = 'note = ?';
+    $params[] = api_string($input['note'] ?? null);
 }
 
 if (array_key_exists('sub_branch_id', $input)) {
@@ -254,6 +259,7 @@ try {
         'code' => $code ?? $customer['code'],
         'phone' => array_key_exists('phone', $input) ? api_string($input['phone'] ?? null) : $customer['phone'],
         'address' => array_key_exists('address', $input) ? api_string($input['address'] ?? null) : $customer['address'],
+        'note' => array_key_exists('note', $input) ? api_string($input['note'] ?? null) : $customer['note'],
         'sub_branch_id' => $subBranchId ?? $customer['sub_branch_id'],
         'profile_country_id' => $profileCountryId ?? $customer['profile_country_id'],
         'portal_username' => $portalUsername ?? $customer['portal_username'],

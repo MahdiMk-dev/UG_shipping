@@ -14,6 +14,7 @@ $partnerId = api_int($input['partner_id'] ?? null);
 $shipmentId = api_int($input['shipment_id'] ?? null);
 $issuedAt = api_string($input['issued_at'] ?? null);
 $note = api_string($input['note'] ?? null);
+$currency = strtoupper(api_string($input['currency'] ?? 'USD') ?? 'USD');
 $items = $input['items'] ?? [];
 
 if (!$partnerId) {
@@ -24,6 +25,9 @@ if (!is_array($items) || empty($items)) {
 }
 if ($issuedAt !== null && strtotime($issuedAt) === false) {
     api_error('Invalid issued_at', 422);
+}
+if (!in_array($currency, ['USD', 'LBP'], true)) {
+    api_error('currency must be USD or LBP', 422);
 }
 
 $cleanItems = [];
@@ -85,8 +89,8 @@ $issuedAtValue = $issuedAt ?: date('Y-m-d H:i:s');
 
 $insertInvoice = $db->prepare(
     'INSERT INTO partner_invoices '
-    . '(partner_id, shipment_id, invoice_no, status, total, paid_total, due_total, issued_at, issued_by_user_id, note) '
-    . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    . '(partner_id, shipment_id, invoice_no, status, currency, total, paid_total, due_total, issued_at, issued_by_user_id, note) '
+    . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
 );
 
 $insertItem = $db->prepare(
@@ -112,6 +116,7 @@ try {
                 $shipmentId,
                 $candidate,
                 'open',
+                $currency,
                 $total,
                 0,
                 $total,
@@ -137,7 +142,7 @@ try {
         $insertItem->execute([$invoiceId, $item['description'], $item['amount']]);
     }
 
-    $db->prepare('UPDATE partner_profiles SET balance = balance - ? WHERE id = ?')
+    $db->prepare('UPDATE partner_profiles SET balance = balance + ? WHERE id = ?')
         ->execute([$total, $partnerId]);
 
     if ($shipmentId) {

@@ -88,7 +88,8 @@ if ($partnerId) {
 }
 
 $sql = 'SELECT s.id, s.shipment_number, s.status, s.shipping_type, s.origin_country_id, c.name AS origin_country, '
-    . 's.shipment_date, s.departure_date, s.arrival_date, s.default_rate, s.default_rate_unit, s.note, '
+    . 's.shipment_date, s.departure_date, s.arrival_date, s.actual_departure_date, s.actual_arrival_date, '
+    . 's.default_rate, s.default_rate_unit, s.note, '
     . 's.created_at, s.updated_at, cu.name AS created_by_name, uu.name AS updated_by_name '
     . 'FROM shipments s '
     . 'LEFT JOIN countries c ON c.id = s.origin_country_id '

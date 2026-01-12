@@ -33,10 +33,19 @@ if ($status) {
 
 $sql = 'SELECT t.id, t.partner_id, t.invoice_id, t.type, t.status, '
     . 't.payment_method_id, pm.name AS payment_method_name, t.amount, t.payment_date, '
-    . 't.note, t.canceled_reason, t.created_at, i.invoice_no '
+    . 't.reason, t.note, t.canceled_reason, t.created_at, i.invoice_no, '
+    . 'CASE '
+        . 'WHEN af.name IS NOT NULL AND aa.name IS NOT NULL THEN CONCAT(af.name, \' -> \', aa.name) '
+        . 'WHEN af.name IS NOT NULL THEN af.name '
+        . 'WHEN aa.name IS NOT NULL THEN aa.name '
+        . 'ELSE NULL '
+    . 'END AS account_label '
     . 'FROM partner_transactions t '
     . 'LEFT JOIN payment_methods pm ON pm.id = t.payment_method_id '
     . 'LEFT JOIN partner_invoices i ON i.id = t.invoice_id '
+    . 'LEFT JOIN account_transfers at ON at.id = t.account_transfer_id '
+    . 'LEFT JOIN accounts af ON af.id = at.from_account_id '
+    . 'LEFT JOIN accounts aa ON aa.id = at.to_account_id '
     . 'WHERE ' . implode(' AND ', $where) . ' '
     . 'ORDER BY t.id DESC LIMIT ? OFFSET ?';
 

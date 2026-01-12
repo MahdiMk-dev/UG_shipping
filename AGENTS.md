@@ -26,17 +26,21 @@ UG Shipping is an internal web app + API for managing shipments, orders, receivi
 - Session auth in `app/auth.php`.
 - `require_role()` in `app/permissions.php` gates restricted endpoints.
 - Read-only roles: `Sub Branch`, `Warehouse`, `Staff` (note: `Staff` is not seeded in schema).
+- Users can change their own password with the current password; Admin/Owner can reset other users without the current password.
 - Read-only scoping:
   - Sub-branch users are scoped to `branch_id` in list endpoints.
   - Warehouse users are scoped to `origin_country_id` in shipment/order workflows.
 - Portal login uses `customer_accounts` (shared username/password/phone) linked to multiple customer profiles.
-- Roles management screen/API is Owner-only.
+- Roles create/update/delete are Owner-only; role list is shared for selection in internal forms.
 - Warehouse constraints:
   - Shipments must match warehouse country.
   - Warehouse can only edit/create orders when shipment status is `active`.
   - Warehouse can view customer accounts filtered to their country (summary profiles); customer selection is search-only in order creation.
   - Warehouse can only view partner profiles that match their country.
   - Warehouse cannot view or edit shipment pricing (rates, costs) or shipment income totals.
+- Customer edits:
+  - Admin/Owner/Main Branch can edit any customer.
+  - Sub Branch can edit customers in their own branch only.
 - Main Branch access:
   - Can manage shipments, orders, customers, and receiving.
   - Cannot access branches, users, roles, or staff screens/APIs.
@@ -46,7 +50,8 @@ UG Shipping is an internal web app + API for managing shipments, orders, receivi
 
 ## Core Entities + Statuses
 - Shipments: `active`, `departed`, `airport`, `arrived`, `partially_distributed`, `distributed`.
-- Orders fulfillment: `in_shipment`, `main_branch`, `pending_receipt`, `received_subbranch`, `closed`, `returned`, `canceled`.
+- Orders fulfillment: `in_shipment`, `main_branch`, `pending_receipt`, `received_subbranch`, `with_delivery`, `picked_up`,
+  `closed`, `returned`, `canceled`.
 - Orders notification: `pending`, `notified`.
 - Shopping orders: `pending`, `distributed`, `received_subbranch`, `closed`, `canceled`.
 - Staff: `active`, `inactive`.
@@ -59,7 +64,8 @@ UG Shipping is an internal web app + API for managing shipments, orders, receivi
 ## Workflows
 Shipment lifecycle:
 - When shipment status changes to `arrived`, orders stay in `in_shipment` until main branch receiving scans them.
-- When shipment status changes to `active` or `airport`, orders in `main_branch`, `pending_receipt`, `received_subbranch`
+- When shipment status changes to `active` or `airport`, orders in `main_branch`, `pending_receipt`, `received_subbranch`,
+  `with_delivery`, `picked_up`
   move back to `in_shipment`.
 - Shipments require `type_of_goods` on create/update.
 - `type_of_goods` values come from `goods_types` and are managed in Company settings (Admin/Owner).
@@ -67,7 +73,7 @@ Shipment lifecycle:
 Distribution:
 - Distribution requires shipment status `arrived` or `partially_distributed`.
 - Only orders with `fulfillment_status = main_branch` and `sub_branch_id > 0` move to `pending_receipt`.
-- Orders already in `pending_receipt`/`received_subbranch` are not touched.
+- Orders already in `pending_receipt`/`received_subbranch`/`with_delivery`/`picked_up` are not touched.
 - Orders missing branch (`sub_branch_id` NULL/0) stay in `main_branch`.
 - Shipment status is set to `distributed` only when there are zero orders remaining in `in_shipment` or `main_branch`;
   otherwise it becomes `partially_distributed`.
@@ -79,7 +85,8 @@ Receiving:
 - Matched scans move orders to `received_subbranch`.
 - All scans are logged in `branch_receiving_scans` with `matched`/`unmatched`.
 - Unmatched scans are de-duplicated per branch/shipment/tracking; Admin/Owner/Main Branch can return them to `in_shipment`.
-- Returning to main branch reverses customer/branch balances for `received_subbranch` orders and resolves the scan.
+- Returning to main branch reverses customer/branch balances for `received_subbranch`/`with_delivery`/`picked_up` orders
+  and resolves the scan.
 - Main branch receiving uses orders in `in_shipment` for shipments with status `arrived` or `partially_distributed`.
 - Main branch scans move orders to `main_branch`.
 
@@ -89,32 +96,55 @@ Orders:
 - Order creation defaults `rate` from shipment `default_rate` when omitted.
 - Order unit type is derived from weight type (`actual` = `kg`, `volumetric` = `cbm`).
 - `update_shipment_totals()` recalculates shipment weight/volume from orders.
+- Invoiced orders are locked against rate/weight edits; shipment default-rate changes are blocked once any order is invoiced.
 
 Customer profiles:
 - Profiles are grouped under `customer_accounts` by shared phone/username.
 - Each account can only have one profile per `profile_country_id`.
 - Profiles in the same account share one balance and one sub-branch assignment; profile codes stay per profile.
+- Adding a profile for an existing account requires only code + country; name/phone/portal come from the account.
 
 Invoices + Transactions:
 - Invoices track totals and status; allocations link transactions to invoices.
 - Orders can be invoiced only when `fulfillment_status = received_subbranch` and all orders belong to the same sub branch.
+- Invoice creation requires a delivery method and updates orders to `with_delivery` or `picked_up`.
 - Invoiced orders are locked against price/identity changes and delete/reassign actions.
-- Sub Branch users can create invoices and payments for customers in their branch.
+- Customer invoices can be edited (currency + order selection) only when no payments are linked; edits can move orders
+  back to `received_subbranch`.
+- Sub Branch users can create invoices for customers in their branch; customer payments and refunds are recorded by Main/Sub Branch only.
+- Admin/Owner can refund branches or partners (not customers).
 - Invoice/receipt cancellations require a reason, keep records via status, and invoices cannot be canceled while active receipts exist.
+- Refund receipts for customers and partners require a reason; notes remain optional.
+- Transactions require from/to accounts; payment method is derived from the account type, and each transaction creates an
+  `account_transfer` entry.
+
+Accounts + Ledger:
+- `accounts` are the source of truth for cash/bank/whish balances (owner_type: `admin`, `branch`).
+- Each account is tied to a `payment_method_id`; transfers must use matching payment methods.
+- All money movements create `account_transfers` + `account_entries` and update account balances
+  (negative = outgoing, positive = incoming).
+- Accounts can be deleted only when the balance is zero; otherwise deactivate them.
+- Admin accounts capture company-level inflows/outflows (branch payments in, staff/partner/expenses out).
 
 Balances + Transfers:
-- Customer balance increases when orders reach `received_subbranch`, and decreases when payments are recorded.
-- Price updates adjust customer balance by the delta for `received_subbranch` orders; shipment default-rate sync skips invoiced orders.
+- Customer balance increases when orders reach `received_subbranch`/`with_delivery`/`picked_up`,
+  and decreases when payments are recorded.
+- Customer and partner balances treat positive values as unpaid amounts; payments reduce balance (negative entries).
+- Price updates adjust customer balance by the delta for `received_subbranch`/`with_delivery`/`picked_up` orders;
+  shipment default-rate sync skips invoiced orders and is blocked once any order is invoiced.
 - Customer balance activity is logged in `customer_balance_entries` (order charges/reversals and payments).
-- Sub-branch balance entries are recorded when orders reach `received_subbranch`, reversed when moved out or deleted.
-- Admin-recorded customer payments for sub branches reduce branch balances (`customer_payment` entries).
-- Internal branch transfers are tracked in `branch_transfers` and mirrored in `branch_balance_entries`.
+- Branch balances are derived from `branch_balance_entries` (orders received in sub branches and admin-recorded payments).
+- Branch payments to admin are recorded as account transfers from a branch account to an admin account.
+- Sub Branch customer payments post to branch accounts; admin records branch-to-admin transfers.
+- Refunds/adjustments flow from admin accounts back to branch accounts.
+- Sub Branch users can review their branch balance and customers with non-zero balances in Transactions.
 
 Attachments:
 - Stored under `public/uploads/YYYY/MM`, MIME whitelist + max size enforced by config.
 
 Staff + Expenses:
 - Staff records live in `staff_members`.
+- Staff members can optionally link to a `users` login; Admin/Owner can create/update logins from the staff screen.
 - Salary adjustments, advances, and bonuses are logged in `staff_expenses` and treated as expenses for reporting.
 - General operational expenses are stored in `general_expenses` with optional `branch_id`.
 - Shipment-linked expenses are stored in `general_expenses` with `shipment_id` and are Admin/Owner only.
@@ -122,10 +152,11 @@ Staff + Expenses:
 
 Company settings:
 - Company details for printable documents are stored in `company_settings` and managed by Admin/Owner.
+- Roles list management is available in Company settings (Owner-only).
 
 Shipper/Consignee profiles:
 - Shipments can optionally link to shipper and consignee profiles.
-- Partner invoices decrease profile balance; receipts increase balance.
+- Partner invoices increase profile balance; receipts decrease balance.
 - Partner invoices can optionally link to shipments.
 
 Audit:
@@ -142,6 +173,17 @@ Audit:
 - Endpoint filenames mirror actions (list/create/update/delete).
 
 ## Change Log (keep current)
+- 2026-01-20: Customer refunds are branch-only; add-profile flow now uses code + country without portal/phone inputs.
+- 2026-01-19: Clarified customer edit permissions for Admin/Owner/Main Branch and Sub Branch scoping.
+- 2026-01-18: Partner invoices support currency + line-item edits; customer invoices can be edited before payments to adjust currency/orders/points, refund reasons are required, customer view supports multi-order invoice create, and errors surface in a centered modal.
+- 2026-01-17: Sub Branch customer payments now post to branch accounts; admin records branch-to-admin transfers; points discounts reduce customer + branch balances.
+- 2026-01-16: Added shipment actual departure/arrival dates plus customer gift points with company settings and invoice discounts.
+- 2026-01-15: Staff can optionally link to user logins (managed from staff screen), users can change their own passwords,
+  and roles can be managed in Company settings (Owner-only).
+- 2026-01-14: Accounts limited to admin + sub-branch owners, sub-branch payments recorded by admin/main, invoicing
+  captures delivery mode and sets `with_delivery`/`picked_up`, and shipment default-rate updates are locked once invoiced.
+- 2026-01-13: Added Admin/Owner accounts screen for creating, editing, deactivating, and deleting payment accounts.
+- 2026-01-12: Moved money flows to account transfers with admin/branch/staff/partner accounts and account-linked payments.
 - 2026-01-11: Mobile responsiveness improved for toolbar, panels, and scrollable tables.
 - 2026-01-10: Dashboard now shows role-specific charts/insights for admin, main branch, sub branch, and warehouse.
 - 2026-01-09: Branch list shows balances, branch payments can be recorded with printable receipts, transactions page

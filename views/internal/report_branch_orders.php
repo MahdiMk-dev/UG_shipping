@@ -78,17 +78,23 @@ $statusLabels = [
     'in_shipment' => 'In shipment',
     'main_branch' => 'In main branch',
     'received_subbranch' => 'Received at sub branch',
+    'with_delivery' => 'With delivery',
+    'picked_up' => 'Picked up',
 ];
 
 $grouped = [
     'in_shipment' => [],
     'main_branch' => [],
     'received_subbranch' => [],
+    'with_delivery' => [],
+    'picked_up' => [],
 ];
 $totals = [
     'in_shipment' => 0.0,
     'main_branch' => 0.0,
     'received_subbranch' => 0.0,
+    'with_delivery' => 0.0,
+    'picked_up' => 0.0,
 ];
 
 foreach ($rows as $row) {

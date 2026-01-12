@@ -4,6 +4,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../app/api.php';
 require_once __DIR__ . '/../../app/permissions.php';
 require_once __DIR__ . '/../../app/audit.php';
+require_once __DIR__ . '/../../app/services/balance_service.php';
+require_once __DIR__ . '/../../app/company.php';
 
 api_require_method('POST');
 $user = require_role(['Admin', 'Owner', 'Main Branch', 'Sub Branch']);
@@ -15,6 +17,13 @@ $orderIds = $input['order_ids'] ?? null;
 $invoiceNo = api_string($input['invoice_no'] ?? null);
 $note = api_string($input['note'] ?? null);
 $issuedAt = api_string($input['issued_at'] ?? null);
+$deliveryType = api_string($input['delivery_type'] ?? ($input['delivery_mode'] ?? null));
+$currency = strtoupper(api_string($input['currency'] ?? 'USD') ?? 'USD');
+$rawPointsUsed = $input['points_used'] ?? null;
+if ($rawPointsUsed !== null && $rawPointsUsed !== '' && filter_var($rawPointsUsed, FILTER_VALIDATE_INT) === false) {
+    api_error('points_used must be a whole number', 422);
+}
+$pointsUsed = api_int($rawPointsUsed ?? 0, 0) ?? 0;
 
 $role = $user['role'] ?? '';
 if ($role === 'Sub Branch') {
@@ -33,6 +42,14 @@ if ($role === 'Sub Branch') {
 if (!$customerId || !$branchId || !is_array($orderIds) || empty($orderIds)) {
     api_error('customer_id, branch_id, and order_ids are required', 422);
 }
+if (!in_array($currency, ['USD', 'LBP'], true)) {
+    api_error('currency must be USD or LBP', 422);
+}
+$pointsUsed = max(0, (int) $pointsUsed);
+$allowedDelivery = ['delivery', 'pickup'];
+if (!$deliveryType || !in_array($deliveryType, $allowedDelivery, true)) {
+    api_error('delivery_type is required', 422);
+}
 
 $orderIds = array_values(array_unique(array_filter(array_map('intval', $orderIds))));
 if (empty($orderIds)) {
@@ -42,7 +59,7 @@ if (empty($orderIds)) {
 $db = db();
 
 $customerStmt = $db->prepare(
-    'SELECT id, is_system, sub_branch_id FROM customers WHERE id = ? AND deleted_at IS NULL'
+    'SELECT id, is_system, sub_branch_id, points_balance FROM customers WHERE id = ? AND deleted_at IS NULL'
 );
 $customerStmt->execute([$customerId]);
 $customer = $customerStmt->fetch();
@@ -54,6 +71,9 @@ if ((int) $customer['is_system'] === 1) {
 }
 if ($role === 'Sub Branch' && (int) ($customer['sub_branch_id'] ?? 0) !== (int) $branchId) {
     api_error('Customer does not belong to this branch', 403);
+}
+if ($pointsUsed < 0) {
+    api_error('points_used must be 0 or greater', 422);
 }
 
 $branchStmt = $db->prepare('SELECT id FROM branches WHERE id = ? AND deleted_at IS NULL');
@@ -146,17 +166,40 @@ foreach ($orders as $order) {
     $total += (float) $order['total_price'];
 }
 $total = round($total, 2);
+$pointsSettings = company_points_settings();
+$pointsValue = (float) ($pointsSettings['points_value'] ?? 0);
+$availablePoints = (float) ($customer['points_balance'] ?? 0);
+$maxPoints = (int) floor($availablePoints + 0.0001);
+if ($pointsUsed > 0) {
+    if ($pointsValue <= 0) {
+        api_error('Points value must be configured before using points', 422);
+    }
+    if ($pointsUsed > $maxPoints) {
+        api_error('points_used exceeds available points', 422);
+    }
+}
+$pointsDiscount = $pointsUsed > 0 ? round($pointsUsed * $pointsValue, 2) : 0.0;
+if ($pointsDiscount > $total + 0.0001) {
+    api_error('points_used exceeds invoice total', 422);
+}
+$dueTotal = max(0, $total - $pointsDiscount);
+$deliveryStatus = $deliveryType === 'delivery' ? 'with_delivery' : 'picked_up';
 
 $issuedAtValue = $issuedAt ?: date('Y-m-d H:i:s');
 
 $insertInvoice = $db->prepare(
     'INSERT INTO invoices '
-    . '(customer_id, branch_id, invoice_no, status, total, paid_total, due_total, issued_at, issued_by_user_id, note) '
-    . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    . '(customer_id, branch_id, invoice_no, status, total, points_used, points_discount, paid_total, due_total, '
+    . 'currency, issued_at, issued_by_user_id, note) '
+    . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
 );
 $insertItem = $db->prepare(
     'INSERT INTO invoice_items (invoice_id, order_id, order_snapshot_json, line_total) '
     . 'VALUES (?, ?, ?, ?)'
+);
+$updateOrder = $db->prepare(
+    'UPDATE orders SET delivery_type = ?, fulfillment_status = ?, updated_at = NOW(), updated_by_user_id = ? '
+    . 'WHERE id = ? AND deleted_at IS NULL'
 );
 
 $db->beginTransaction();
@@ -179,8 +222,11 @@ try {
                 $finalInvoiceNo,
                 'open',
                 $total,
+                $pointsUsed,
+                $pointsDiscount,
                 0,
-                $total,
+                $dueTotal,
+                $currency,
                 $issuedAtValue,
                 $user['id'] ?? null,
                 $note,
@@ -211,7 +257,7 @@ try {
             'tracking_number' => $order['tracking_number'],
             'shipment_id' => (int) $order['shipment_id'],
             'shipment_number' => $order['shipment_number'],
-            'delivery_type' => $order['delivery_type'],
+            'delivery_type' => $deliveryType,
             'unit_type' => $order['unit_type'],
             'qty' => (float) $order['qty'],
             'weight_type' => $order['weight_type'],
@@ -232,6 +278,40 @@ try {
             json_encode($snapshot),
             $order['total_price'],
         ]);
+        $updateOrder->execute([
+            $deliveryType,
+            $deliveryStatus,
+            $user['id'] ?? null,
+            $orderId,
+        ]);
+    }
+
+    if ($pointsUsed > 0) {
+        adjust_customer_points($db, $customerId, -$pointsUsed);
+    }
+    if ($pointsDiscount > 0.0001) {
+        adjust_customer_balance($db, $customerId, -$pointsDiscount);
+        record_customer_balance(
+            $db,
+            $customerId,
+            $branchId,
+            -$pointsDiscount,
+            'adjustment',
+            'invoice',
+            $invoiceId,
+            $user['id'] ?? null,
+            'Points discount applied'
+        );
+        record_branch_balance(
+            $db,
+            $branchId,
+            -$pointsDiscount,
+            'adjustment',
+            'invoice',
+            $invoiceId,
+            $user['id'] ?? null,
+            'Points discount applied'
+        );
     }
 
     $invRowStmt = $db->prepare('SELECT * FROM invoices WHERE id = ?');
@@ -240,6 +320,8 @@ try {
     audit_log($user, 'invoices.create', 'invoice', $invoiceId, null, $after, [
         'order_ids' => $orderIds,
         'total' => $total,
+        'points_used' => $pointsUsed,
+        'points_discount' => $pointsDiscount,
     ]);
 
     $db->commit();

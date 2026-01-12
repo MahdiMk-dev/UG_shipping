@@ -18,6 +18,30 @@ internal_page_start($user, 'transactions', 'Transactions', 'Review customer paym
             </div>
         </article>
     </section>
+    <section class="panel is-hidden" data-customer-balance-panel>
+        <div class="panel-header">
+            <div>
+                <h3>Customers with balances</h3>
+                <p>Customers in your branch with non-zero balances.</p>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Customer</th>
+                        <th>Code</th>
+                        <th>Phone</th>
+                        <th>Balance</th>
+                        <th>View</th>
+                    </tr>
+                </thead>
+                <tbody data-customer-balance-table>
+                    <tr><td colspan="5" class="muted">Loading customers...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
     <section class="panel">
         <div class="panel-header">
             <div>
@@ -55,16 +79,18 @@ internal_page_start($user, 'transactions', 'Transactions', 'Review customer paym
                         <th>Branch</th>
                         <th>Type</th>
                         <th>Status</th>
-                        <th>Method</th>
+                        <th>Account</th>
+                        <th>Currency</th>
                         <th>Amount</th>
                         <th>Date</th>
+                        <th>Reason</th>
                         <th>Note</th>
                         <th>Receipt</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody data-transactions-table>
-                    <tr><td colspan="11" class="muted">Select a date range to load transactions.</td></tr>
+                    <tr><td colspan="12" class="muted">Select a date range to load transactions.</td></tr>
                 </tbody>
             </table>
         </div>

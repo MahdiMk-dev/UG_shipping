@@ -5,6 +5,7 @@ require_once __DIR__ . '/../../app/api.php';
 require_once __DIR__ . '/../../app/permissions.php';
 require_once __DIR__ . '/../../app/audit.php';
 require_once __DIR__ . '/../../app/services/shipment_service.php';
+require_once __DIR__ . '/../../app/services/account_service.php';
 
 api_require_method('PATCH');
 $user = require_role(['Admin', 'Owner']);
@@ -23,6 +24,12 @@ if (!$before) {
     api_error('Expense not found', 404);
 }
 $beforeShipmentId = !empty($before['shipment_id']) ? (int) $before['shipment_id'] : null;
+$currentTransferId = !empty($before['account_transfer_id']) ? (int) $before['account_transfer_id'] : null;
+
+$fromAccountId = null;
+if (array_key_exists('from_account_id', $input)) {
+    $fromAccountId = api_int($input['from_account_id'] ?? null);
+}
 
 $fields = [];
 $params = [];
@@ -85,12 +92,35 @@ if (array_key_exists('expense_date', $input)) {
 }
 
 if (array_key_exists('note', $input)) {
+    $note = api_string($input['note'] ?? null);
     $fields[] = 'note = ?';
-    $params[] = api_string($input['note'] ?? null);
+    $params[] = $note;
 }
 
 if (empty($fields)) {
     api_error('No fields to update', 422);
+}
+
+$newAmount = array_key_exists('amount', $input) ? (float) $amount : (float) ($before['amount'] ?? 0);
+$newExpenseDate = array_key_exists('expense_date', $input) ? $expenseDate : ($before['expense_date'] ?? null);
+$newShipmentId = array_key_exists('shipment_id', $input)
+    ? ($shipmentId ?? null)
+    : ($before['shipment_id'] ?? null);
+$newEntryType = $newShipmentId ? 'shipment_expense' : 'general_expense';
+$transferNote = array_key_exists('note', $input) ? ($note ?? null) : ($before['note'] ?? null);
+$needsTransferUpdate = array_key_exists('amount', $input)
+    || array_key_exists('expense_date', $input)
+    || $fromAccountId !== null;
+
+if ($needsTransferUpdate) {
+    if (!$fromAccountId && $currentTransferId) {
+        $transferStmt = $db->prepare('SELECT from_account_id FROM account_transfers WHERE id = ?');
+        $transferStmt->execute([$currentTransferId]);
+        $fromAccountId = (int) $transferStmt->fetchColumn();
+    }
+    if (!$fromAccountId) {
+        api_error('from_account_id is required to update the expense payment', 422);
+    }
 }
 
 $fields[] = 'updated_at = NOW()';
@@ -104,6 +134,25 @@ $db->beginTransaction();
 try {
     $stmt = $db->prepare($sql);
     $stmt->execute($params);
+    if ($needsTransferUpdate) {
+        if ($currentTransferId) {
+            cancel_account_transfer($db, $currentTransferId, 'Expense updated', $user['id'] ?? null);
+        }
+        $transferId = create_account_transfer(
+            $db,
+            $fromAccountId,
+            null,
+            $newAmount,
+            $newEntryType,
+            $newExpenseDate,
+            $transferNote,
+            'general_expense',
+            $expenseId,
+            $user['id'] ?? null
+        );
+        $db->prepare('UPDATE general_expenses SET account_transfer_id = ? WHERE id = ?')
+            ->execute([$transferId, $expenseId]);
+    }
     $afterStmt = $db->prepare('SELECT * FROM general_expenses WHERE id = ?');
     $afterStmt->execute([$expenseId]);
     $after = $afterStmt->fetch();

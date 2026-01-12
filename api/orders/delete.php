@@ -7,6 +7,7 @@ require_once __DIR__ . '/../../app/services/shipment_service.php';
 require_once __DIR__ . '/../../app/services/balance_service.php';
 require_once __DIR__ . '/../../app/services/invoice_service.php';
 require_once __DIR__ . '/../../app/audit.php';
+require_once __DIR__ . '/../../app/company.php';
 
 api_require_method('POST');
 $user = require_role(['Admin', 'Owner', 'Main Branch']);
@@ -43,9 +44,13 @@ try {
     $after = $afterStmt->fetch();
     audit_log($user, 'orders.delete', 'order', $orderId, $order, $after);
 
-    if (($order['fulfillment_status'] ?? '') === 'received_subbranch') {
+    $chargedStatuses = ['received_subbranch', 'with_delivery', 'picked_up'];
+    if (in_array(($order['fulfillment_status'] ?? ''), $chargedStatuses, true)) {
         $totalPrice = (float) $order['total_price'];
+        $pointsSettings = company_points_settings();
+        $pointsPrice = (float) ($pointsSettings['points_price'] ?? 0);
         adjust_customer_balance($db, (int) $order['customer_id'], -$totalPrice);
+        adjust_customer_points_for_amount($db, (int) $order['customer_id'], -$totalPrice, $pointsPrice);
         record_customer_balance(
             $db,
             (int) $order['customer_id'],

@@ -53,6 +53,11 @@ if (array_key_exists('address', $input)) {
     $params[] = api_string($input['address'] ?? null);
 }
 
+if (array_key_exists('note', $input)) {
+    $fields[] = 'note = ?';
+    $params[] = api_string($input['note'] ?? null);
+}
+
 if (empty($fields)) {
     api_error('No fields to update', 422);
 }

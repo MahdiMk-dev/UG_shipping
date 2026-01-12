@@ -58,7 +58,17 @@ if ($subBranchId && !$readOnly) {
 }
 
 if ($fulfillmentStatus) {
-    $allowed = ['in_shipment', 'main_branch', 'pending_receipt', 'received_subbranch', 'closed', 'returned', 'canceled'];
+    $allowed = [
+        'in_shipment',
+        'main_branch',
+        'pending_receipt',
+        'received_subbranch',
+        'with_delivery',
+        'picked_up',
+        'closed',
+        'returned',
+        'canceled',
+    ];
     if (!in_array($fulfillmentStatus, $allowed, true)) {
         api_error('Invalid fulfillment_status', 422);
     }

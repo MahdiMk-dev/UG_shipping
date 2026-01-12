@@ -4,8 +4,13 @@ declare(strict_types=1);
 require_once __DIR__ . '/_layout.php';
 
 $user = internal_require_user();
-internal_page_start($user, 'users', 'Users', 'Control internal access and branch assignments.');
 $canEdit = in_array($user['role'] ?? '', ['Admin', 'Owner'], true);
+$createMode = isset($_GET['create']);
+$pageTitle = $createMode ? 'Create User' : 'Users';
+$pageSubtitle = $createMode
+    ? 'Add a new internal user.'
+    : 'Control internal access and branch assignments.';
+internal_page_start($user, 'users', $pageTitle, $pageSubtitle);
 if (!$canEdit) {
     http_response_code(403);
     ?>
@@ -22,7 +27,7 @@ if (!$canEdit) {
     exit;
 }
 ?>
-<div data-users-page data-can-edit="<?= $canEdit ? '1' : '0' ?>">
+<div data-users-page data-can-edit="<?= $canEdit ? '1' : '0' ?>" data-create-mode="<?= $createMode ? '1' : '0' ?>">
     <section class="panel">
         <div class="panel-header">
             <div>

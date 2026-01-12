@@ -5,7 +5,12 @@ require_once __DIR__ . '/_layout.php';
 
 $user = internal_require_user();
 $canEdit = in_array($user['role'] ?? '', ['Admin', 'Owner', 'Sub Branch'], true);
-internal_page_start($user, 'staff', 'Staff', 'Manage staff profiles, salaries, and expenses.');
+$createMode = isset($_GET['create']);
+$pageTitle = $createMode ? 'Create Staff' : 'Staff';
+$pageSubtitle = $createMode
+    ? 'Add a new staff member.'
+    : 'Manage staff profiles, salaries, and expenses.';
+internal_page_start($user, 'staff', $pageTitle, $pageSubtitle);
 if (!$canEdit) {
     http_response_code(403);
     ?>
@@ -22,7 +27,7 @@ if (!$canEdit) {
     exit;
 }
 ?>
-<div data-staff-page data-can-edit="<?= $canEdit ? '1' : '0' ?>">
+<div data-staff-page data-can-edit="<?= $canEdit ? '1' : '0' ?>" data-create-mode="<?= $createMode ? '1' : '0' ?>">
     <section class="panel">
         <div class="panel-header">
             <div>
@@ -134,6 +139,31 @@ if (!$canEdit) {
                         <span>Notes</span>
                         <input type="text" name="note" placeholder="Optional notes">
                     </label>
+                    <label class="full" data-staff-user-toggle-field>
+                        <span>Login access</span>
+                        <div class="inline-check">
+                            <input type="checkbox" name="create_user" value="1" data-staff-user-toggle>
+                            <span>Create login for this staff member</span>
+                        </div>
+                        <small class="muted" data-staff-user-note>Optional: create a linked user account for staff access.</small>
+                    </label>
+                    <label data-staff-user-field class="is-hidden">
+                        <span>Username</span>
+                        <input type="text" name="user_username" autocomplete="username">
+                    </label>
+                    <label data-staff-user-field class="is-hidden">
+                        <span>Password</span>
+                        <input type="password" name="user_password" autocomplete="new-password">
+                    </label>
+                    <label data-staff-user-field class="is-hidden">
+                        <span>Role</span>
+                        <select name="user_role_id" data-staff-user-role>
+                            <option value="">Select role</option>
+                        </select>
+                    </label>
+                    <div class="login-note full is-hidden" data-staff-user-field>
+                        Leave blank to keep the current password.
+                    </div>
                     <button class="button primary small" type="submit" data-staff-submit-label>Add staff</button>
                 </form>
                 <div class="notice-stack" data-staff-form-status></div>

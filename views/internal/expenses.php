@@ -5,7 +5,12 @@ require_once __DIR__ . '/_layout.php';
 
 $user = internal_require_user();
 $canEdit = in_array($user['role'] ?? '', ['Admin', 'Owner'], true);
-internal_page_start($user, 'expenses', 'Expenses', 'Track operational expenses such as rent and utilities.');
+$createMode = isset($_GET['create']);
+$pageTitle = $createMode ? 'Create Expense' : 'Expenses';
+$pageSubtitle = $createMode
+    ? 'Record a new operational expense.'
+    : 'Track operational expenses such as rent and utilities.';
+internal_page_start($user, 'expenses', $pageTitle, $pageSubtitle);
 if (!$canEdit) {
     http_response_code(403);
     ?>
@@ -22,7 +27,7 @@ if (!$canEdit) {
     exit;
 }
 ?>
-<div data-expenses-page data-can-edit="<?= $canEdit ? '1' : '0' ?>">
+<div data-expenses-page data-can-edit="<?= $canEdit ? '1' : '0' ?>" data-create-mode="<?= $createMode ? '1' : '0' ?>">
     <section class="panel">
         <div class="panel-header">
             <div>
@@ -106,6 +111,12 @@ if (!$canEdit) {
                     <label>
                         <span>Amount</span>
                         <input type="number" step="0.01" name="amount" placeholder="0.00" required>
+                    </label>
+                    <label>
+                        <span>From admin account</span>
+                        <select name="from_account_id" data-expenses-account required>
+                            <option value="">Select admin account</option>
+                        </select>
                     </label>
                     <label>
                         <span>Expense date</span>

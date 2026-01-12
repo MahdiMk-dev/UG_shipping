@@ -14,9 +14,12 @@ if (!$staffId) {
 
 $db = db();
 $stmt = $db->prepare(
-    'SELECT s.*, b.name AS branch_name '
+    'SELECT s.*, b.name AS branch_name, u.id AS user_id, u.username AS user_username, '
+    . 'u.role_id AS user_role_id, r.name AS user_role_name '
     . 'FROM staff_members s '
     . 'LEFT JOIN branches b ON b.id = s.branch_id '
+    . 'LEFT JOIN users u ON u.id = s.user_id AND u.deleted_at IS NULL '
+    . 'LEFT JOIN roles r ON r.id = u.role_id '
     . 'WHERE s.id = ? AND s.deleted_at IS NULL'
 );
 $stmt->execute([$staffId]);

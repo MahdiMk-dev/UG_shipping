@@ -21,10 +21,14 @@ if ($transferId <= 0) {
 $stmt = db()->prepare(
     'SELECT t.id, t.amount, t.transfer_date, t.note, t.created_at, '
     . 'bf.name AS from_branch_name, bt.name AS to_branch_name, '
+    . 'af.name AS from_account_name, aa.name AS to_account_name, '
     . 'u.name AS created_by_name '
     . 'FROM branch_transfers t '
     . 'LEFT JOIN branches bf ON bf.id = t.from_branch_id '
     . 'LEFT JOIN branches bt ON bt.id = t.to_branch_id '
+    . 'LEFT JOIN account_transfers at ON at.id = t.account_transfer_id '
+    . 'LEFT JOIN accounts af ON af.id = at.from_account_id '
+    . 'LEFT JOIN accounts aa ON aa.id = at.to_account_id '
     . 'LEFT JOIN users u ON u.id = t.created_by_user_id '
     . 'WHERE t.id = ? AND t.deleted_at IS NULL'
 );
@@ -40,6 +44,8 @@ $company = company_settings();
 $escape = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 $dateValue = $transfer['transfer_date'] ?: ($transfer['created_at'] ? date('Y-m-d', strtotime($transfer['created_at'])) : '');
 $printedAt = date('Y-m-d H:i');
+$fromLabel = $transfer['from_branch_name'] ?? $transfer['from_account_name'] ?? '-';
+$toLabel = $transfer['to_branch_name'] ?? $transfer['to_account_name'] ?? '-';
 ?>
 <!doctype html>
 <html lang="en">
@@ -100,12 +106,12 @@ $printedAt = date('Y-m-d H:i');
 
     <section class="section">
         <div class="block">
-            <h3>From Branch</h3>
-            <p><strong><?= $escape($transfer['from_branch_name'] ?? '-') ?></strong></p>
+            <h3>From</h3>
+            <p><strong><?= $escape($fromLabel) ?></strong></p>
         </div>
         <div class="block">
-            <h3>To Branch</h3>
-            <p><strong><?= $escape($transfer['to_branch_name'] ?? '-') ?></strong></p>
+            <h3>To</h3>
+            <p><strong><?= $escape($toLabel) ?></strong></p>
             <?php if (!empty($transfer['created_by_name'])): ?><p>Recorded by: <?= $escape($transfer['created_by_name']) ?></p><?php endif; ?>
             <p>Printed by: <?= $escape($user['name'] ?? '-') ?></p>
             <p>Printed at: <?= $escape($printedAt) ?></p>

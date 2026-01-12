@@ -6,6 +6,7 @@ require_once __DIR__ . '/../../app/permissions.php';
 require_once __DIR__ . '/../../app/services/shipment_service.php';
 require_once __DIR__ . '/../../app/services/balance_service.php';
 require_once __DIR__ . '/../../app/audit.php';
+require_once __DIR__ . '/../../app/company.php';
 
 api_require_method('PATCH');
 $user = require_role(['Admin', 'Owner', 'Main Branch', 'Warehouse']);
@@ -52,6 +53,22 @@ if ($role === 'Warehouse') {
     }
 }
 
+$rateFieldsRequested = array_key_exists('default_rate', $input) || array_key_exists('default_rate_unit', $input);
+if ($rateFieldsRequested) {
+    $rateLockStmt = $db->prepare(
+        'SELECT 1 FROM invoice_items ii '
+        . 'JOIN invoices i ON i.id = ii.invoice_id '
+        . 'JOIN orders o ON o.id = ii.order_id '
+        . 'WHERE o.shipment_id = ? AND o.deleted_at IS NULL '
+        . 'AND i.deleted_at IS NULL AND i.status <> \'void\' '
+        . 'LIMIT 1'
+    );
+    $rateLockStmt->execute([$shipmentId]);
+    if ($rateLockStmt->fetchColumn()) {
+        api_error('Shipment has invoiced orders. Rate updates are locked.', 409);
+    }
+}
+
 $newDepartureDate = array_key_exists('departure_date', $input)
     ? api_string($input['departure_date'] ?? null)
     : ($before['departure_date'] ?? null);
@@ -81,6 +98,7 @@ if ($newArrivalDate !== null) {
 
 $allowedStatus = ['active', 'departed', 'airport', 'arrived', 'partially_distributed', 'distributed'];
 $allowedTypes = ['air', 'sea', 'land'];
+$receivedStatuses = ['received_subbranch', 'with_delivery', 'picked_up'];
 
 $fields = [];
 $params = [];
@@ -125,6 +143,12 @@ if (array_key_exists('status', $input)) {
     $params[] = $status;
     $statusChangedToInShipment = in_array($status, ['active', 'airport'], true)
         && ($before['status'] ?? '') !== $status;
+    if ($status === 'departed' && empty($before['actual_departure_date'])) {
+        $fields[] = 'actual_departure_date = CURDATE()';
+    }
+    if ($status === 'arrived' && empty($before['actual_arrival_date'])) {
+        $fields[] = 'actual_arrival_date = CURDATE()';
+    }
 }
 
 if (array_key_exists('shipping_type', $input)) {
@@ -255,6 +279,8 @@ $sql = 'UPDATE shipments SET ' . implode(', ', $fields) . ' WHERE id = ? AND del
 
 try {
     $db->beginTransaction();
+    $pointsSettings = company_points_settings();
+    $pointsPrice = (float) ($pointsSettings['points_price'] ?? 0);
     $stmt = $db->prepare($sql);
     $stmt->execute($params);
 
@@ -325,11 +351,13 @@ try {
                 ]);
 
                 $previousTotal = (float) ($order['total_price'] ?? 0);
-                if (($order['fulfillment_status'] ?? '') === 'received_subbranch' && abs($totalPrice - $previousTotal) > 0.0001) {
+                if (in_array(($order['fulfillment_status'] ?? ''), $receivedStatuses, true)
+                    && abs($totalPrice - $previousTotal) > 0.0001) {
                     $customerId = (int) ($order['customer_id'] ?? 0);
                     $orderBranchId = (int) ($order['sub_branch_id'] ?? 0);
                     $delta = $totalPrice - $previousTotal;
                     adjust_customer_balance($db, $customerId, $delta);
+                    adjust_customer_points_for_amount($db, $customerId, $delta, $pointsPrice);
                     record_customer_balance(
                         $db,
                         $customerId,
@@ -373,16 +401,19 @@ try {
         || array_key_exists('default_rate_unit', $input);
 
     if ($statusChangedToInShipment) {
+        $placeholders = implode(',', array_fill(0, count($receivedStatuses), '?'));
         $receivedStmt = $db->prepare(
             'SELECT id, customer_id, sub_branch_id, total_price FROM orders '
-            . 'WHERE shipment_id = ? AND deleted_at IS NULL AND fulfillment_status = \'received_subbranch\''
+            . 'WHERE shipment_id = ? AND deleted_at IS NULL '
+            . "AND fulfillment_status IN ($placeholders)"
         );
-        $receivedStmt->execute([$shipmentId]);
+        $receivedStmt->execute(array_merge([$shipmentId], $receivedStatuses));
         $receivedOrders = $receivedStmt->fetchAll() ?: [];
         foreach ($receivedOrders as $order) {
             $totalPrice = (float) ($order['total_price'] ?? 0);
             $customerId = (int) ($order['customer_id'] ?? 0);
             adjust_customer_balance($db, $customerId, -$totalPrice);
+            adjust_customer_points_for_amount($db, $customerId, -$totalPrice, $pointsPrice);
             record_customer_balance(
                 $db,
                 $customerId,
@@ -409,7 +440,7 @@ try {
         $ordersStmt = $db->prepare(
             'UPDATE orders SET fulfillment_status = ?, updated_at = NOW(), updated_by_user_id = ? '
             . 'WHERE shipment_id = ? AND deleted_at IS NULL '
-            . "AND fulfillment_status IN ('main_branch', 'pending_receipt', 'received_subbranch')"
+            . "AND fulfillment_status IN ('main_branch', 'pending_receipt', 'received_subbranch', 'with_delivery', 'picked_up')"
         );
         $ordersStmt->execute(['in_shipment', $user['id'] ?? null, $shipmentId]);
     }

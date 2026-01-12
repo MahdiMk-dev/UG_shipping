@@ -7,6 +7,7 @@ require_once __DIR__ . '/../../app/services/shipment_service.php';
 require_once __DIR__ . '/../../app/services/balance_service.php';
 require_once __DIR__ . '/../../app/services/invoice_service.php';
 require_once __DIR__ . '/../../app/audit.php';
+require_once __DIR__ . '/../../app/company.php';
 
 api_require_method('PATCH');
 $user = require_role(['Admin', 'Owner', 'Main Branch', 'Warehouse']);
@@ -86,11 +87,14 @@ $allowedFulfillment = [
     'main_branch',
     'pending_receipt',
     'received_subbranch',
+    'with_delivery',
+    'picked_up',
     'closed',
     'returned',
     'canceled',
 ];
 $allowedNotification = ['pending', 'notified'];
+$receivedStatuses = ['received_subbranch', 'with_delivery', 'picked_up'];
 
 $mapFields = [
     'shipment_id' => 'shipment_id',
@@ -365,12 +369,16 @@ try {
     $newBranchId = (int) $newValues['sub_branch_id'];
     $newStatus = (string) $newValues['fulfillment_status'];
 
-    $chargedBefore = $previousStatus === 'received_subbranch';
-    $chargedAfter = $newStatus === 'received_subbranch';
+    $chargedBefore = in_array($previousStatus, $receivedStatuses, true);
+    $chargedAfter = in_array($newStatus, $receivedStatuses, true);
+
+    $pointsSettings = company_points_settings();
+    $pointsPrice = (float) ($pointsSettings['points_price'] ?? 0);
 
     if ($newCustomerId === $previousCustomerId) {
         if ($chargedBefore && !$chargedAfter) {
             adjust_customer_balance($db, $previousCustomerId, -$previousTotal);
+            adjust_customer_points_for_amount($db, $previousCustomerId, -$previousTotal, $pointsPrice);
             record_customer_balance(
                 $db,
                 $previousCustomerId,
@@ -384,6 +392,7 @@ try {
             );
         } elseif (!$chargedBefore && $chargedAfter) {
             adjust_customer_balance($db, $newCustomerId, $totalPrice);
+            adjust_customer_points_for_amount($db, $newCustomerId, $totalPrice, $pointsPrice);
             record_customer_balance(
                 $db,
                 $newCustomerId,
@@ -398,6 +407,7 @@ try {
         } elseif ($chargedBefore && $chargedAfter && abs($totalPrice - $previousTotal) > 0.0001) {
             $delta = $totalPrice - $previousTotal;
             adjust_customer_balance($db, $newCustomerId, $delta);
+            adjust_customer_points_for_amount($db, $newCustomerId, $delta, $pointsPrice);
             record_customer_balance(
                 $db,
                 $newCustomerId,
@@ -424,6 +434,7 @@ try {
     } else {
         if ($chargedBefore) {
             adjust_customer_balance($db, $previousCustomerId, -$previousTotal);
+            adjust_customer_points_for_amount($db, $previousCustomerId, -$previousTotal, $pointsPrice);
             record_customer_balance(
                 $db,
                 $previousCustomerId,
@@ -438,6 +449,7 @@ try {
         }
         if ($chargedAfter) {
             adjust_customer_balance($db, $newCustomerId, $totalPrice);
+            adjust_customer_points_for_amount($db, $newCustomerId, $totalPrice, $pointsPrice);
             record_customer_balance(
                 $db,
                 $newCustomerId,
@@ -452,7 +464,7 @@ try {
         }
     }
 
-    if ($previousStatus !== 'received_subbranch' && $newStatus === 'received_subbranch') {
+    if (!$chargedBefore && $chargedAfter) {
         record_branch_balance(
             $db,
             $newBranchId,
@@ -463,7 +475,7 @@ try {
             $user['id'] ?? null,
             'Order received'
         );
-    } elseif ($previousStatus === 'received_subbranch' && $newStatus !== 'received_subbranch') {
+    } elseif ($chargedBefore && !$chargedAfter) {
         record_branch_balance(
             $db,
             $previousBranchId,
@@ -474,7 +486,7 @@ try {
             $user['id'] ?? null,
             'Order status reversed'
         );
-    } elseif ($previousStatus === 'received_subbranch' && $newStatus === 'received_subbranch') {
+    } elseif ($chargedBefore && $chargedAfter) {
         if ($previousBranchId !== $newBranchId) {
             record_branch_balance(
                 $db,

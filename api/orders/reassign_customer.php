@@ -6,6 +6,7 @@ require_once __DIR__ . '/../../app/permissions.php';
 require_once __DIR__ . '/../../app/services/balance_service.php';
 require_once __DIR__ . '/../../app/services/invoice_service.php';
 require_once __DIR__ . '/../../app/audit.php';
+require_once __DIR__ . '/../../app/company.php';
 
 api_require_method('POST');
 $user = require_role(['Admin', 'Owner', 'Main Branch']);
@@ -70,10 +71,15 @@ try {
         'new_customer_id' => $customerId,
     ]);
 
-    if (($before['fulfillment_status'] ?? '') === 'received_subbranch') {
+    $chargedStatuses = ['received_subbranch', 'with_delivery', 'picked_up'];
+    if (in_array(($before['fulfillment_status'] ?? ''), $chargedStatuses, true)) {
         $orderTotal = (float) ($before['total_price'] ?? 0);
+        $pointsSettings = company_points_settings();
+        $pointsPrice = (float) ($pointsSettings['points_price'] ?? 0);
         adjust_customer_balance($db, (int) $before['customer_id'], -$orderTotal);
         adjust_customer_balance($db, $customerId, $orderTotal);
+        adjust_customer_points_for_amount($db, (int) $before['customer_id'], -$orderTotal, $pointsPrice);
+        adjust_customer_points_for_amount($db, $customerId, $orderTotal, $pointsPrice);
         record_customer_balance(
             $db,
             (int) $before['customer_id'],

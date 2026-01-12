@@ -11,6 +11,7 @@ $filters = $_GET ?? [];
 
 $customerId = api_int($filters['customer_id'] ?? null);
 $includeAll = api_bool($filters['include_all'] ?? null, false);
+$includeInvoiceId = api_int($filters['include_invoice_id'] ?? null);
 $limit = api_int($filters['limit'] ?? 50, 50);
 $offset = api_int($filters['offset'] ?? 0, 0);
 
@@ -37,14 +38,31 @@ if ($customerId) {
 }
 
 if (!$includeAll) {
-    $where[] = "o.fulfillment_status = 'received_subbranch'";
+    if ($includeInvoiceId) {
+        $where[] = "(o.fulfillment_status = 'received_subbranch' OR EXISTS ("
+            . 'SELECT 1 FROM invoice_items ii WHERE ii.order_id = o.id AND ii.invoice_id = ?'
+            . '))';
+        $params[] = $includeInvoiceId;
+    } else {
+        $where[] = "o.fulfillment_status = 'received_subbranch'";
+    }
 }
 
-$where[] = 'NOT EXISTS ('
-    . 'SELECT 1 FROM invoice_items ii '
-    . 'JOIN invoices i ON i.id = ii.invoice_id '
-    . 'WHERE ii.order_id = o.id AND i.deleted_at IS NULL AND i.status <> \'void\''
-    . ')';
+if ($includeInvoiceId) {
+    $where[] = 'NOT EXISTS ('
+        . 'SELECT 1 FROM invoice_items ii '
+        . 'JOIN invoices i ON i.id = ii.invoice_id '
+        . 'WHERE ii.order_id = o.id AND i.deleted_at IS NULL AND i.status <> \'void\' '
+        . 'AND ii.invoice_id <> ?'
+        . ')';
+    $params[] = $includeInvoiceId;
+} else {
+    $where[] = 'NOT EXISTS ('
+        . 'SELECT 1 FROM invoice_items ii '
+        . 'JOIN invoices i ON i.id = ii.invoice_id '
+        . 'WHERE ii.order_id = o.id AND i.deleted_at IS NULL AND i.status <> \'void\''
+        . ')';
+}
 
 $sql = 'SELECT o.id, o.shipment_id, s.shipment_number, o.customer_id, c.name AS customer_name, '
     . 'o.sub_branch_id, b.name AS sub_branch_name, o.tracking_number, o.delivery_type, '

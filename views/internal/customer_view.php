@@ -5,7 +5,7 @@ require_once __DIR__ . '/_layout.php';
 
 $user = internal_require_user();
 $role = $user['role'] ?? '';
-$canCreatePayment = in_array($role, ['Admin', 'Owner', 'Main Branch', 'Sub Branch'], true);
+$canCreatePayment = in_array($role, ['Main Branch', 'Sub Branch'], true);
 $canCreateCustomer = in_array($role, ['Admin', 'Owner', 'Main Branch', 'Sub Branch'], true);
 $canReassign = in_array($role, ['Admin', 'Owner', 'Main Branch'], true);
 internal_page_start($user, 'customers', 'Customer Details', 'Profile, balance, and activity.');
@@ -36,9 +36,10 @@ $customerId = $_GET['id'] ?? null;
                 <div><span>Name</span><strong data-detail="name">--</strong></div>
                 <div><span>Code</span><strong data-detail="code">--</strong></div>
                 <div><span>Profile country</span><strong data-detail="profile_country_name">--</strong></div>
-                <div><span>Phone</span><strong data-detail="phone">--</strong></div>
-                <div><span>Address</span><strong data-detail="address">--</strong></div>
-                <div><span>Portal username</span><strong data-detail="portal_username">--</strong></div>
+                    <div><span>Phone</span><strong data-detail="phone">--</strong></div>
+                    <div><span>Address</span><strong data-detail="address">--</strong></div>
+                    <div><span>Notes</span><strong data-detail="note">--</strong></div>
+                    <div><span>Portal username</span><strong data-detail="portal_username">--</strong></div>
                 <div><span>Portal phone</span><strong data-detail="portal_phone">--</strong></div>
                 <div><span>Branch</span><strong data-detail="sub_branch_name">--</strong></div>
             </div>
@@ -47,6 +48,7 @@ $customerId = $_GET['id'] ?? null;
             <h3>Balance</h3>
             <div class="detail-list">
                 <div><span>Current</span><strong data-detail="balance">--</strong></div>
+                <div><span>Points</span><strong data-detail="points_balance">--</strong></div>
                 <div><span>System</span><strong data-detail="is_system">--</strong></div>
             </div>
         </article>
@@ -118,20 +120,27 @@ $customerId = $_GET['id'] ?? null;
                 <h3>Un-invoiced orders</h3>
                 <p>Orders received at the sub branch that are ready to invoice.</p>
             </div>
+            <div class="panel-actions">
+                <button class="button primary small" type="button" data-customer-invoice-selected disabled>
+                    Create invoice for selected
+                </button>
+            </div>
         </div>
         <div class="table-wrap">
             <table>
                 <thead>
                     <tr>
+                        <th class="checkbox-col"><input type="checkbox" data-customer-uninvoiced-select-all></th>
                         <th>Tracking</th>
                         <th>Shipment</th>
                         <th>Status</th>
                         <th>Total</th>
                         <th>Created</th>
+                        <th>Action</th>
                     </tr>
                 </thead>
                 <tbody data-customer-uninvoiced>
-                    <tr><td colspan="5" class="muted">Loading orders...</td></tr>
+                    <tr><td colspan="7" class="muted">Loading orders...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -151,14 +160,39 @@ $customerId = $_GET['id'] ?? null;
         </div>
         <?php if ($canCreatePayment): ?>
             <form class="grid-form" data-customer-payment-form>
-                <label>
+                <label data-payment-from-field>
                     <span>Amount</span>
                     <input type="number" step="0.01" name="amount" data-customer-payment-amount required>
                 </label>
+                <label data-payment-type-field>
+                    <span>Type</span>
+                    <select name="type" data-customer-payment-type>
+                        <option value="payment">Payment</option>
+                        <option value="refund">Refund</option>
+                    </select>
+                </label>
+                <label class="is-hidden" data-payment-reason-field>
+                    <span>Reason</span>
+                    <select name="reason" data-customer-payment-reason>
+                        <option value="">Select reason</option>
+                        <option value="Damaged item">Damaged item</option>
+                        <option value="Duplicate payment">Duplicate payment</option>
+                        <option value="Order canceled">Order canceled</option>
+                        <option value="Overcharge correction">Overcharge correction</option>
+                        <option value="Service issue">Service issue</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </label>
                 <label>
-                    <span>Payment method</span>
-                    <select name="payment_method_id" data-customer-payment-method required>
-                        <option value="">Select method</option>
+                    <span data-payment-from-label>From account</span>
+                    <select name="from_account_id" data-customer-payment-from required>
+                        <option value="">Select branch account</option>
+                    </select>
+                </label>
+                <label data-payment-to-field>
+                    <span data-payment-to-label>To admin account</span>
+                    <select name="to_account_id" data-customer-payment-to required>
+                        <option value="">Select admin account</option>
                     </select>
                 </label>
                 <label>
@@ -189,14 +223,15 @@ $customerId = $_GET['id'] ?? null;
                     <tr>
                         <th>Type</th>
                         <th>Amount</th>
-                        <th>Method</th>
+                        <th>Account</th>
                         <th>Date</th>
+                        <th>Reason</th>
                         <th>Reference</th>
                         <th>Receipt</th>
                     </tr>
                 </thead>
                 <tbody data-customer-transactions>
-                    <tr><td colspan="6" class="muted">Loading transactions...</td></tr>
+                    <tr><td colspan="7" class="muted">Loading transactions...</td></tr>
                 </tbody>
             </table>
         </div>

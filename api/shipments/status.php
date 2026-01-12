@@ -5,6 +5,7 @@ require_once __DIR__ . '/../../app/api.php';
 require_once __DIR__ . '/../../app/permissions.php';
 require_once __DIR__ . '/../../app/services/balance_service.php';
 require_once __DIR__ . '/../../app/audit.php';
+require_once __DIR__ . '/../../app/company.php';
 
 api_require_method('POST');
 $user = require_role(['Admin', 'Owner', 'Main Branch']);
@@ -21,6 +22,7 @@ $allowedStatus = ['active', 'departed', 'airport', 'arrived', 'partially_distrib
 if (!in_array($status, $allowedStatus, true)) {
     api_error('Invalid status', 422);
 }
+$receivedStatuses = ['received_subbranch', 'with_delivery', 'picked_up'];
 
 $db = db();
 $beforeStmt = $db->prepare('SELECT * FROM shipments WHERE id = ? AND deleted_at IS NULL');
@@ -35,23 +37,36 @@ if (($before['status'] ?? '') === 'distributed' && !in_array($status, ['distribu
 
 $db->beginTransaction();
 try {
+    $fields = ['status = ?', 'updated_at = NOW()', 'updated_by_user_id = ?'];
+    $params = [$status, $user['id'] ?? null];
+    if ($status === 'departed' && empty($before['actual_departure_date'])) {
+        $fields[] = 'actual_departure_date = CURDATE()';
+    }
+    if ($status === 'arrived' && empty($before['actual_arrival_date'])) {
+        $fields[] = 'actual_arrival_date = CURDATE()';
+    }
+    $params[] = $shipmentId;
     $stmt = $db->prepare(
-        'UPDATE shipments SET status = ?, updated_at = NOW(), updated_by_user_id = ? '
-        . 'WHERE id = ? AND deleted_at IS NULL'
+        'UPDATE shipments SET ' . implode(', ', $fields) . ' WHERE id = ? AND deleted_at IS NULL'
     );
-    $stmt->execute([$status, $user['id'] ?? null, $shipmentId]);
+    $stmt->execute($params);
 
     if (in_array($status, ['active', 'airport'], true) && ($before['status'] ?? '') !== $status) {
+        $pointsSettings = company_points_settings();
+        $pointsPrice = (float) ($pointsSettings['points_price'] ?? 0);
+        $placeholders = implode(',', array_fill(0, count($receivedStatuses), '?'));
         $receivedStmt = $db->prepare(
             'SELECT id, customer_id, sub_branch_id, total_price FROM orders '
-            . 'WHERE shipment_id = ? AND deleted_at IS NULL AND fulfillment_status = \'received_subbranch\''
+            . 'WHERE shipment_id = ? AND deleted_at IS NULL '
+            . "AND fulfillment_status IN ($placeholders)"
         );
-        $receivedStmt->execute([$shipmentId]);
+        $receivedStmt->execute(array_merge([$shipmentId], $receivedStatuses));
         $receivedOrders = $receivedStmt->fetchAll() ?: [];
         foreach ($receivedOrders as $order) {
             $totalPrice = (float) ($order['total_price'] ?? 0);
             $customerId = (int) ($order['customer_id'] ?? 0);
             adjust_customer_balance($db, $customerId, -$totalPrice);
+            adjust_customer_points_for_amount($db, $customerId, -$totalPrice, $pointsPrice);
             record_customer_balance(
                 $db,
                 $customerId,
@@ -78,7 +93,7 @@ try {
         $ordersStmt = $db->prepare(
             'UPDATE orders SET fulfillment_status = ?, updated_at = NOW(), updated_by_user_id = ? '
             . 'WHERE shipment_id = ? AND deleted_at IS NULL '
-            . "AND fulfillment_status IN ('main_branch', 'pending_receipt', 'received_subbranch')"
+            . "AND fulfillment_status IN ('main_branch', 'pending_receipt', 'received_subbranch', 'with_delivery', 'picked_up')"
         );
         $ordersStmt->execute(['in_shipment', $user['id'] ?? null, $shipmentId]);
     }

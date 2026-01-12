@@ -64,8 +64,10 @@ if ($shipmentId) {
                         <div><span>Type</span><strong data-detail="shipping_type">--</strong></div>
                         <div><span>Origin</span><strong data-detail="origin_country">--</strong></div>
                         <div><span>Type of goods</span><strong data-detail="type_of_goods">--</strong></div>
-                        <div><span>Departure</span><strong data-detail="departure_date">--</strong></div>
-                        <div><span>Arrival</span><strong data-detail="arrival_date">--</strong></div>
+                        <div><span>Expected departure</span><strong data-detail="departure_date">--</strong></div>
+                        <div><span>Actual departure</span><strong data-detail="actual_departure_date">--</strong></div>
+                        <div><span>Expected arrival</span><strong data-detail="arrival_date">--</strong></div>
+                        <div><span>Actual arrival</span><strong data-detail="actual_arrival_date">--</strong></div>
                         <div><span>Total weight</span><strong data-detail="total_weight">--</strong></div>
                         <div><span>Total volume</span><strong data-detail="total_volume">--</strong></div>
                     </div>
@@ -164,11 +166,11 @@ if ($shipmentId) {
                         </select>
                     </label>
                     <label>
-                        <span>Departure date</span>
+                        <span>Expected departure date</span>
                         <input type="date" name="departure_date">
                     </label>
                     <label>
-                        <span>Arrival date</span>
+                        <span>Expected arrival date</span>
                         <input type="date" name="arrival_date">
                     </label>
                     <?php if ($showRates): ?>
@@ -394,11 +396,12 @@ if ($shipmentId) {
                             <?php if ($showIncome): ?>
                                 <th>Total</th>
                             <?php endif; ?>
+                            <th>WhatsApp</th>
                             <th>View</th>
                         </tr>
                     </thead>
                     <tbody data-orders-table>
-                        <tr><td colspan="<?= $showIncome ? 5 : 4 ?>" class="muted">Loading orders...</td></tr>
+                        <tr><td colspan="<?= $showIncome ? 6 : 5 ?>" class="muted">Loading orders...</td></tr>
                     </tbody>
                 </table>
             </div>

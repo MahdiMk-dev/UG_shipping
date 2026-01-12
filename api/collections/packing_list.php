@@ -19,7 +19,8 @@ if (!$collectionId) {
 $db = db();
 $collectionStmt = $db->prepare(
     'SELECT c.id, c.name, c.shipment_id, s.shipment_number, s.status, s.shipping_type, s.departure_date, '
-    . 's.arrival_date, s.origin_country_id, co.name AS origin_country '
+    . 's.arrival_date, s.actual_departure_date, s.actual_arrival_date, '
+    . 's.origin_country_id, co.name AS origin_country '
     . 'FROM collections c '
     . 'LEFT JOIN shipments s ON s.id = c.shipment_id '
     . 'LEFT JOIN countries co ON co.id = s.origin_country_id '
@@ -149,7 +150,10 @@ if ($download) {
         5,
         pdf_text(
             'Status: ' . ($collection['status'] ?? '-') . ' | Type: ' . ($collection['shipping_type'] ?? '-')
-            . ' | Departure: ' . ($collection['departure_date'] ?? '-') . ' | Arrival: ' . ($collection['arrival_date'] ?? '-')
+            . ' | Exp Depart: ' . ($collection['departure_date'] ?? '-')
+            . ' | Act Depart: ' . ($collection['actual_departure_date'] ?? '-')
+            . ' | Exp Arr: ' . ($collection['arrival_date'] ?? '-')
+            . ' | Act Arr: ' . ($collection['actual_arrival_date'] ?? '-')
         ),
         0,
         1,
@@ -337,8 +341,10 @@ function render_media_list(array $attachments): string
         <span>Origin: <?= $safe($collection['origin_country'] ?? '-') ?></span>
         <span>Status: <?= $safe($collection['status'] ?? '-') ?></span>
         <span>Type: <?= $safe($collection['shipping_type'] ?? '-') ?></span>
-        <span>Departure: <?= $safe($collection['departure_date'] ?? '-') ?></span>
-        <span>Arrival: <?= $safe($collection['arrival_date'] ?? '-') ?></span>
+        <span>Exp depart: <?= $safe($collection['departure_date'] ?? '-') ?></span>
+        <span>Act depart: <?= $safe($collection['actual_departure_date'] ?? '-') ?></span>
+        <span>Exp arrival: <?= $safe($collection['arrival_date'] ?? '-') ?></span>
+        <span>Act arrival: <?= $safe($collection['actual_arrival_date'] ?? '-') ?></span>
         <span>Total orders: <?= $safe($orderCount) ?></span>
     </div>
 

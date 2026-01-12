@@ -20,14 +20,18 @@ if ($receiptId <= 0) {
 }
 
 $stmt = db()->prepare(
-    'SELECT t.id, t.type, t.amount, t.payment_date, t.note, t.created_at, t.branch_id, '
+    'SELECT t.id, t.type, t.amount, t.payment_date, t.reason, t.note, t.created_at, t.branch_id, '
     . 'b.name AS branch_name, pm.name AS payment_method, '
+    . 'af.name AS from_account_name, aa.name AS to_account_name, '
     . 'c.name AS customer_name, c.code AS customer_code, c.phone AS customer_phone, c.address AS customer_address, '
     . 'cu.name AS created_by_name '
     . 'FROM transactions t '
     . 'JOIN customers c ON c.id = t.customer_id '
     . 'LEFT JOIN branches b ON b.id = t.branch_id '
     . 'LEFT JOIN payment_methods pm ON pm.id = t.payment_method_id '
+    . 'LEFT JOIN account_transfers at ON at.id = t.account_transfer_id '
+    . 'LEFT JOIN accounts af ON af.id = at.from_account_id '
+    . 'LEFT JOIN accounts aa ON aa.id = at.to_account_id '
     . 'LEFT JOIN users cu ON cu.id = t.created_by_user_id '
     . 'WHERE t.id = ? AND t.deleted_at IS NULL'
 );
@@ -63,6 +67,17 @@ $dateValue = $receipt['payment_date'] ?: $receipt['created_at'];
 $dateLabel = $dateValue ? date('Y-m-d H:i', strtotime($dateValue)) : '';
 $printedAt = date('Y-m-d H:i');
 $title = strtoupper((string) ($receipt['type'] ?? 'payment'));
+$fromAccountName = (string) ($receipt['from_account_name'] ?? '');
+$toAccountName = (string) ($receipt['to_account_name'] ?? '');
+$accountLabel = '-';
+if ($fromAccountName !== '' || $toAccountName !== '') {
+    $accountLabel = ($fromAccountName !== '' ? $fromAccountName : '-')
+        . ' -> '
+        . ($toAccountName !== '' ? $toAccountName : '-');
+}
+$lineDescription = !empty($receipt['payment_method'])
+    ? $receipt['payment_method'] . ' payment'
+    : 'Customer payment';
 ?>
 <!doctype html>
 <html lang="en">
@@ -88,6 +103,11 @@ $title = strtoupper((string) ($receipt['type'] ?? 'payment'));
         .block p { margin: 4px 0; font-size: 14px; }
         .allocations { margin-top: 10px; font-size: 13px; }
         .allocations div { margin: 4px 0; }
+        .line-items { margin-top: 24px; border: 1px solid #e1e1e1; }
+        .line-items table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        .line-items th, .line-items td { padding: 10px 12px; border-bottom: 1px solid #e1e1e1; text-align: left; }
+        .line-items th { background: #f6f6f6; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
+        .line-items td.amount-cell { text-align: right; font-weight: 600; }
         .amount { margin-top: 24px; border-top: 2px solid #222; padding-top: 16px; text-align: right; font-size: 20px; }
         .notes { margin-top: 20px; border-top: 1px dashed #999; padding-top: 12px; font-size: 13px; }
         .actions { margin-top: 24px; text-align: right; }
@@ -133,8 +153,10 @@ $title = strtoupper((string) ($receipt['type'] ?? 'payment'));
         </div>
         <div class="block">
             <h3>Payment Details</h3>
+            <p>Account: <?= $escape($accountLabel) ?></p>
             <p>Method: <?= $escape($receipt['payment_method'] ?? '-') ?></p>
             <p>Branch: <?= $escape($receipt['branch_name'] ?? '-') ?></p>
+            <?php if (!empty($receipt['reason'])): ?><p>Reason: <?= $escape($receipt['reason']) ?></p><?php endif; ?>
             <?php if (!empty($receipt['created_by_name'])): ?><p>Recorded by: <?= $escape($receipt['created_by_name']) ?></p><?php endif; ?>
             <p>Printed by: <?= $escape($user['name'] ?? '-') ?></p>
             <p>Printed at: <?= $escape($printedAt) ?></p>
@@ -150,6 +172,25 @@ $title = strtoupper((string) ($receipt['type'] ?? 'payment'));
             <?php endif; ?>
         </div>
     </section>
+
+    <div class="line-items">
+        <table>
+            <thead>
+                <tr>
+                    <th>Description</th>
+                    <th>Reference</th>
+                    <th class="amount-cell">Amount</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><?= $escape($lineDescription) ?></td>
+                    <td><?= $escape($receipt['customer_code'] ?? '-') ?></td>
+                    <td class="amount-cell"><?= number_format((float) $receipt['amount'], 2) ?></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
 
     <div class="amount">
         Amount: <?= number_format((float) $receipt['amount'], 2) ?>

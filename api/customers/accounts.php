@@ -13,6 +13,7 @@ $search = api_string($filters['q'] ?? null);
 $subBranchId = api_int($filters['sub_branch_id'] ?? null);
 $profileCountryId = api_int($filters['profile_country_id'] ?? null);
 $isSystem = api_int($filters['is_system'] ?? null);
+$nonZero = api_int($filters['non_zero'] ?? null);
 $limit = api_int($filters['limit'] ?? 50, 50);
 $offset = api_int($filters['offset'] ?? 0, 0);
 
@@ -42,6 +43,7 @@ if ($isWarehouse) {
 
 $where = ['c.deleted_at IS NULL', '(c.account_id IS NULL OR ca.id IS NOT NULL)'];
 $params = [];
+$having = [];
 
 if ($search) {
     $where[] = '(c.name LIKE ? OR c.code LIKE ? OR c.phone LIKE ? OR ca.phone LIKE ? OR ca.username LIKE ?)';
@@ -67,6 +69,10 @@ if ($isSystem !== null) {
     $params[] = $isSystem;
 }
 
+if ($nonZero) {
+    $having[] = 'MAX(c.balance) <> 0';
+}
+
 $baseSql = 'SELECT '
     . 'CASE WHEN c.account_id IS NULL THEN -c.id ELSE c.account_id END AS account_key, '
     . 'c.account_id, '
@@ -83,6 +89,10 @@ $baseSql = 'SELECT '
     . 'LEFT JOIN customer_accounts ca ON ca.id = c.account_id AND ca.deleted_at IS NULL '
     . 'WHERE ' . implode(' AND ', $where) . ' '
     . 'GROUP BY account_key, c.account_id';
+
+if ($having) {
+    $baseSql .= ' HAVING ' . implode(' AND ', $having);
+}
 
 $sql = 'SELECT agg.account_id, agg.primary_customer_id, agg.customer_name, agg.customer_code, agg.customer_phone, '
     . 'agg.sub_branch_id, b.name AS sub_branch_name, agg.profile_count, agg.profile_countries, agg.balance, '

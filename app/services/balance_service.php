@@ -78,3 +78,34 @@ function record_customer_balance(
         $userId,
     ]);
 }
+
+function adjust_customer_points(PDO $db, int $customerId, float $delta): void
+{
+    if ($customerId <= 0 || abs($delta) < 0.0001) {
+        return;
+    }
+
+    $stmt = $db->prepare(
+        'UPDATE customers c '
+        . 'JOIN customers base ON base.id = ? '
+        . 'SET c.points_balance = c.points_balance + ? '
+        . 'WHERE (base.account_id IS NOT NULL AND c.account_id = base.account_id) '
+        . 'OR (base.account_id IS NULL AND c.id = base.id)'
+    );
+    $stmt->execute([$customerId, $delta]);
+}
+
+function compute_points_delta(float $amount, float $pointsPrice): float
+{
+    if ($pointsPrice <= 0 || abs($amount) < 0.0001) {
+        return 0.0;
+    }
+
+    return round($amount / $pointsPrice, 2);
+}
+
+function adjust_customer_points_for_amount(PDO $db, int $customerId, float $amount, float $pointsPrice): void
+{
+    $delta = compute_points_delta($amount, $pointsPrice);
+    adjust_customer_points($db, $customerId, $delta);
+}

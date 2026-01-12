@@ -49,6 +49,9 @@ $invoice = $stmt->fetch();
 if (!$invoice) {
     api_error('Invoice not found', 404);
 }
+$currency = strtoupper((string) ($invoice['currency'] ?? 'USD'));
+$pointsUsed = (int) ($invoice['points_used'] ?? 0);
+$pointsDiscount = (float) ($invoice['points_discount'] ?? 0);
 
 if ($customer) {
     $accountId = $customer['account_id'] ?? null;
@@ -103,9 +106,9 @@ foreach ($items as $item) {
         . '<td>' . h((string) ($snapshot['shipment_number'] ?? '')) . '</td>'
         . '<td>' . h((string) ($snapshot['unit_type'] ?? '')) . '</td>'
         . '<td class="right">' . h(number_format((float) ($snapshot['qty'] ?? 0), 2)) . '</td>'
-        . '<td class="right">' . h(number_format((float) ($snapshot['rate'] ?? 0), 2)) . '</td>'
+        . '<td class="right">' . h(number_format((float) ($snapshot['rate'] ?? 0), 2) . ' ' . $currency) . '</td>'
         . '<td>' . h($adjustmentLabel) . '</td>'
-        . '<td class="right">' . h(number_format((float) ($item['line_total'] ?? 0), 2)) . '</td>'
+        . '<td class="right">' . h(number_format((float) ($item['line_total'] ?? 0), 2) . ' ' . $currency) . '</td>'
         . '</tr>';
 }
 
@@ -222,6 +225,7 @@ header('Content-Type: text/html; charset=utf-8');
                 <div><strong>Date:</strong> <?= h($invoice['issued_at']) ?></div>
                 <div><strong>Branch:</strong> <?= h($invoice['branch_name']) ?></div>
                 <div><strong>Status:</strong> <?= h($invoice['status']) ?></div>
+                <div><strong>Currency:</strong> <?= h($currency) ?></div>
             </div>
         </header>
 
@@ -257,9 +261,13 @@ header('Content-Type: text/html; charset=utf-8');
 
         <div class="totals">
             <div>
-                <div class="totals-row"><span>Total</span><span><?= h(number_format((float) $invoice['total'], 2)) ?></span></div>
-                <div class="totals-row"><span>Paid</span><span><?= h(number_format((float) $invoice['paid_total'], 2)) ?></span></div>
-                <div class="totals-row"><span>Due</span><span><?= h(number_format((float) $invoice['due_total'], 2)) ?></span></div>
+                <div class="totals-row"><span>Total</span><span><?= h(number_format((float) $invoice['total'], 2) . ' ' . $currency) ?></span></div>
+                <?php if ($pointsUsed > 0 || $pointsDiscount > 0): ?>
+                    <div class="totals-row"><span>Points used</span><span><?= h((string) $pointsUsed) ?></span></div>
+                    <div class="totals-row"><span>Points discount</span><span>-<?= h(number_format($pointsDiscount, 2) . ' ' . $currency) ?></span></div>
+                <?php endif; ?>
+                <div class="totals-row"><span>Paid</span><span><?= h(number_format((float) $invoice['paid_total'], 2) . ' ' . $currency) ?></span></div>
+                <div class="totals-row"><span>Due</span><span><?= h(number_format((float) $invoice['due_total'], 2) . ' ' . $currency) ?></span></div>
             </div>
         </div>
     </div>

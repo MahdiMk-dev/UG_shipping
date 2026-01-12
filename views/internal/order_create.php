@@ -3,6 +3,13 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/_layout.php';
 
+$GLOBALS['internal_styles'] = array_merge($GLOBALS['internal_styles'] ?? [], [
+    'https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.css',
+]);
+$GLOBALS['internal_scripts'] = array_merge($GLOBALS['internal_scripts'] ?? [], [
+    'https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js',
+]);
+
 $user = internal_require_user();
 internal_page_start($user, 'orders', 'Create Order', 'Orders must be created within a shipment.');
 ?>
@@ -42,16 +49,9 @@ $isWarehouse = ($user['role'] ?? '') === 'Warehouse';
             </label>
             <label>
                 <span>Customer</span>
-                <div class="selectize" data-customer-select>
-                    <div class="selectize-control">
-                        <input type="text" data-customer-input placeholder="Type to search (2+ chars)" autocomplete="off" required>
-                        <button class="selectize-toggle" type="button" data-customer-toggle aria-label="Toggle customer list">
-                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
-                        </button>
-                    </div>
-                    <input type="hidden" name="customer_id" data-customer-id>
-                    <div class="selectize-menu" data-customer-menu></div>
-                </div>
+                <select name="customer_id" data-customer-select data-placeholder="Type to search (2+ chars)" required>
+                    <option value="">Type to search (2+ chars)</option>
+                </select>
             </label>
             <label>
                 <span>Assigned sub branch</span>

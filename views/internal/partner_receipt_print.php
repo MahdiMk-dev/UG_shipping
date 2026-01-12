@@ -19,13 +19,17 @@ if ($receiptId <= 0) {
 }
 
 $stmt = db()->prepare(
-    'SELECT t.id, t.type, t.amount, t.payment_date, t.note, t.created_at, '
+    'SELECT t.id, t.type, t.amount, t.payment_date, t.reason, t.note, t.created_at, '
     . 'pm.name AS payment_method, i.invoice_no, '
+    . 'af.name AS from_account_name, aa.name AS to_account_name, '
     . 'p.name AS partner_name, p.phone AS partner_phone, p.address AS partner_address, p.type AS partner_type '
     . 'FROM partner_transactions t '
     . 'JOIN partner_profiles p ON p.id = t.partner_id '
     . 'LEFT JOIN payment_methods pm ON pm.id = t.payment_method_id '
     . 'LEFT JOIN partner_invoices i ON i.id = t.invoice_id '
+    . 'LEFT JOIN account_transfers at ON at.id = t.account_transfer_id '
+    . 'LEFT JOIN accounts af ON af.id = at.from_account_id '
+    . 'LEFT JOIN accounts aa ON aa.id = at.to_account_id '
     . 'WHERE t.id = ? AND t.deleted_at IS NULL'
 );
 $stmt->execute([$receiptId]);
@@ -49,6 +53,14 @@ $dateValue = $receipt['payment_date'] ?: $receipt['created_at'];
 $dateLabel = $dateValue ? date('Y-m-d H:i', strtotime($dateValue)) : '';
 $partnerType = $receipt['partner_type'] === 'consignee' ? 'Consignee' : 'Shipper';
 $title = strtoupper((string) ($receipt['type'] ?? 'receipt'));
+$fromAccountName = (string) ($receipt['from_account_name'] ?? '');
+$toAccountName = (string) ($receipt['to_account_name'] ?? '');
+$accountLabel = '-';
+if ($fromAccountName !== '' || $toAccountName !== '') {
+    $accountLabel = ($fromAccountName !== '' ? $fromAccountName : '-')
+        . ' -> '
+        . ($toAccountName !== '' ? $toAccountName : '-');
+}
 ?>
 <!doctype html>
 <html lang="en">
@@ -122,8 +134,10 @@ $title = strtoupper((string) ($receipt['type'] ?? 'receipt'));
         </div>
         <div class="block">
             <h3>Payment Details</h3>
+            <p>Account: <?= $escape($accountLabel) ?></p>
             <p>Method: <?= $escape($receipt['payment_method'] ?? '-') ?></p>
             <?php if (!empty($receipt['invoice_no'])): ?><p>Invoice: <?= $escape($receipt['invoice_no']) ?></p><?php endif; ?>
+            <?php if (!empty($receipt['reason'])): ?><p>Reason: <?= $escape($receipt['reason']) ?></p><?php endif; ?>
         </div>
     </section>
 

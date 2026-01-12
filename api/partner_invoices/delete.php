@@ -57,7 +57,7 @@ try {
 
     $total = (float) ($before['total'] ?? 0);
     if ($total !== 0.0 && !empty($before['partner_id'])) {
-        $db->prepare('UPDATE partner_profiles SET balance = balance + ? WHERE id = ?')
+        $db->prepare('UPDATE partner_profiles SET balance = balance - ? WHERE id = ?')
             ->execute([$total, $before['partner_id']]);
     }
 

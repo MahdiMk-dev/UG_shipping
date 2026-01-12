@@ -4,7 +4,14 @@ declare(strict_types=1);
 require_once __DIR__ . '/_layout.php';
 
 $user = internal_require_user();
-internal_page_start($user, 'customers', 'Create Customer', 'Add a new customer with a unique code.');
+$accountId = $_GET['account_id'] ?? null;
+$isProfileMode = $accountId !== null && $accountId !== '';
+internal_page_start(
+    $user,
+    'customers',
+    $isProfileMode ? 'Add Customer Profile' : 'Create Customer',
+    $isProfileMode ? 'Add a profile for an existing customer account.' : 'Add a new customer with a unique code.'
+);
 if (($user['role'] ?? '') === 'Warehouse') {
     http_response_code(403);
     ?>
@@ -21,15 +28,22 @@ if (($user['role'] ?? '') === 'Warehouse') {
     exit;
 }
 ?>
-<div data-customer-create>
+<div data-customer-create data-profile-mode="<?= $isProfileMode ? '1' : '0' ?>">
     <section class="panel">
         <div class="panel-header">
             <div>
-                <h3>Customer details</h3>
-                <p>Branch assignment controls where the customer is managed.</p>
+                <h3><?= $isProfileMode ? 'Profile details' : 'Customer details' ?></h3>
+                <p>
+                    <?= $isProfileMode
+                        ? 'Profiles are grouped under the same portal account.'
+                        : 'Branch assignment controls where the customer is managed.' ?>
+                </p>
             </div>
         </div>
         <form class="grid-form" data-customer-create-form>
+            <?php if ($isProfileMode): ?>
+                <input type="hidden" name="account_id" value="<?= htmlspecialchars((string) $accountId, ENT_QUOTES) ?>">
+            <?php endif; ?>
             <label>
                 <span>Name</span>
                 <input type="text" name="name" required>
@@ -45,6 +59,10 @@ if (($user['role'] ?? '') === 'Warehouse') {
             <label>
                 <span>Address</span>
                 <input type="text" name="address">
+            </label>
+            <label class="full">
+                <span>Notes</span>
+                <input type="text" name="note" placeholder="Optional notes">
             </label>
             <label>
                 <span>Profile country</span>
@@ -67,7 +85,9 @@ if (($user['role'] ?? '') === 'Warehouse') {
                     <option value="">Select sub-branch</option>
                 </select>
             </label>
-            <button class="button primary" type="submit">Create customer</button>
+            <button class="button primary" type="submit">
+                <?= $isProfileMode ? 'Add profile' : 'Create customer' ?>
+            </button>
             <a class="button ghost" href="<?= BASE_URL ?>/views/internal/customers">Back to list</a>
         </form>
         <div class="notice-stack" data-customer-create-status></div>

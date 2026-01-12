@@ -59,10 +59,13 @@ if ($dateTo) {
 
 $sql = 'SELECT e.id, e.branch_id, b.name AS branch_name, e.shipment_id, '
     . 's.shipment_number, e.title, e.amount, e.expense_date, '
-    . 'e.note, e.created_at, e.updated_at '
+    . 'e.note, e.created_at, e.updated_at, '
+    . 'at.from_account_id, af.name AS from_account_name '
     . 'FROM general_expenses e '
     . 'LEFT JOIN branches b ON b.id = e.branch_id '
     . 'LEFT JOIN shipments s ON s.id = e.shipment_id '
+    . 'LEFT JOIN account_transfers at ON at.id = e.account_transfer_id '
+    . 'LEFT JOIN accounts af ON af.id = at.from_account_id '
     . 'WHERE ' . implode(' AND ', $where) . ' '
     . 'ORDER BY COALESCE(e.expense_date, DATE(e.created_at)) DESC, e.id DESC '
     . 'LIMIT ? OFFSET ?';

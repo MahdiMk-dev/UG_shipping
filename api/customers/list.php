@@ -14,6 +14,7 @@ $subBranchId = api_int($filters['sub_branch_id'] ?? null);
 $profileCountryId = api_int($filters['profile_country_id'] ?? null);
 $accountId = api_int($filters['account_id'] ?? null);
 $isSystem = api_int($filters['is_system'] ?? null);
+$nonZero = api_int($filters['non_zero'] ?? null);
 $limit = api_int($filters['limit'] ?? 50, 50);
 $offset = api_int($filters['offset'] ?? 0, 0);
 
@@ -50,7 +51,8 @@ if ($isWarehouse) {
 }
 
 if ($search) {
-    $where[] = '(c.name LIKE ? OR c.code LIKE ? OR c.phone LIKE ? OR ca.phone LIKE ? OR ca.username LIKE ?)';
+    $where[] = '(c.name LIKE ? OR c.code LIKE ? OR c.phone LIKE ? OR ca.phone LIKE ? OR ca.username LIKE ? OR c.note LIKE ?)';
+    $params[] = '%' . $search . '%';
     $params[] = '%' . $search . '%';
     $params[] = '%' . $search . '%';
     $params[] = '%' . $search . '%';
@@ -76,6 +78,10 @@ if ($accountId) {
 if ($isSystem !== null) {
     $where[] = 'c.is_system = ?';
     $params[] = $isSystem;
+}
+
+if ($nonZero) {
+    $where[] = 'ABS(c.balance) > 0.0001';
 }
 
 $sql = 'SELECT c.id, c.account_id, c.name, c.code, c.phone, c.address, c.sub_branch_id, '

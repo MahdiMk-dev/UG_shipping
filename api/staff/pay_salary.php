@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../app/api.php';
 require_once __DIR__ . '/../../app/permissions.php';
+require_once __DIR__ . '/../../app/services/account_service.php';
 require_once __DIR__ . '/../../app/audit.php';
 
 api_require_method('POST');
@@ -14,9 +15,10 @@ $salaryMonthInput = api_string($input['salary_month'] ?? null);
 $amount = api_float($input['amount'] ?? null);
 $paymentDate = api_string($input['payment_date'] ?? null);
 $note = api_string($input['note'] ?? null);
+$fromAccountId = api_int($input['from_account_id'] ?? null);
 
-if (!$staffId || !$salaryMonthInput || $amount === null) {
-    api_error('staff_id, salary_month, and amount are required', 422);
+if (!$staffId || !$salaryMonthInput || $amount === null || !$fromAccountId) {
+    api_error('staff_id, salary_month, amount, and from_account_id are required', 422);
 }
 if ($amount <= 0) {
     api_error('amount must be greater than zero', 422);
@@ -150,6 +152,11 @@ if (($advanceTotal + $amount) > $baseSalary) {
 
 $paymentDateValue = $paymentDate ?: date('Y-m-d');
 
+$fromAccount = fetch_account($db, $fromAccountId);
+if ($fromAccount['owner_type'] !== 'admin') {
+    api_error('Salary payments must be paid from an admin account', 422);
+}
+
 $db->beginTransaction();
 try {
     $insertStmt = $db->prepare(
@@ -170,6 +177,20 @@ try {
     ]);
 
     $expenseId = (int) $db->lastInsertId();
+    $transferId = create_account_transfer(
+        $db,
+        $fromAccountId,
+        null,
+        (float) $amount,
+        'staff_expense',
+        $paymentDateValue,
+        $note,
+        'staff_expense',
+        $expenseId,
+        $user['id'] ?? null
+    );
+    $db->prepare('UPDATE staff_expenses SET account_transfer_id = ? WHERE id = ?')
+        ->execute([$transferId, $expenseId]);
     audit_log($user, 'staff.salary_payment', 'staff_expense', $expenseId, null, [
         'staff_id' => $staffId,
         'salary_month' => $salaryMonthStart,

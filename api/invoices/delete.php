@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../app/api.php';
 require_once __DIR__ . '/../../app/permissions.php';
 require_once __DIR__ . '/../../app/audit.php';
+require_once __DIR__ . '/../../app/services/balance_service.php';
 
 api_require_method('POST');
 $user = require_role(['Admin', 'Owner', 'Main Branch', 'Sub Branch']);
@@ -23,7 +24,8 @@ $db->beginTransaction();
 
 try {
     $stmt = $db->prepare(
-        'SELECT id, customer_id, branch_id, total, status FROM invoices WHERE id = ? AND deleted_at IS NULL'
+        'SELECT id, customer_id, branch_id, total, status, points_used, points_discount '
+        . 'FROM invoices WHERE id = ? AND deleted_at IS NULL'
     );
     $stmt->execute([$invoiceId]);
     $invoice = $stmt->fetch();
@@ -54,6 +56,38 @@ try {
     $receiptStmt->execute([$invoiceId, 'active']);
     if ($receiptStmt->fetchColumn()) {
         api_error('Cannot cancel an invoice with active receipts', 409);
+    }
+
+    $pointsUsed = (int) ($invoice['points_used'] ?? 0);
+    if ($pointsUsed > 0) {
+        adjust_customer_points($db, (int) ($invoice['customer_id'] ?? 0), $pointsUsed);
+    }
+    $pointsDiscount = (float) ($invoice['points_discount'] ?? 0);
+    if ($pointsDiscount > 0.0001) {
+        $customerId = (int) ($invoice['customer_id'] ?? 0);
+        $branchId = (int) ($invoice['branch_id'] ?? 0);
+        adjust_customer_balance($db, $customerId, $pointsDiscount);
+        record_customer_balance(
+            $db,
+            $customerId,
+            $branchId,
+            $pointsDiscount,
+            'adjustment',
+            'invoice',
+            $invoiceId,
+            $user['id'] ?? null,
+            'Points discount reversed'
+        );
+        record_branch_balance(
+            $db,
+            $branchId,
+            $pointsDiscount,
+            'adjustment',
+            'invoice',
+            $invoiceId,
+            $user['id'] ?? null,
+            'Points discount reversed'
+        );
     }
 
     $db->prepare(

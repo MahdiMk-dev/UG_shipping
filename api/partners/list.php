@@ -29,14 +29,15 @@ if ($type) {
 }
 
 if ($search) {
-    $where[] = '(p.name LIKE ? OR p.phone LIKE ? OR p.address LIKE ?)';
+    $where[] = '(p.name LIKE ? OR p.phone LIKE ? OR p.address LIKE ? OR p.note LIKE ?)';
     $like = '%' . $search . '%';
+    $params[] = $like;
     $params[] = $like;
     $params[] = $like;
     $params[] = $like;
 }
 
-$sql = 'SELECT p.id, p.type, p.name, p.phone, p.address, '
+$sql = 'SELECT p.id, p.type, p.name, p.phone, p.address, p.note, '
     . 'p.balance, p.created_at, p.updated_at '
     . 'FROM partner_profiles p '
     . 'WHERE ' . implode(' AND ', $where) . ' '

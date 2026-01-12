@@ -81,7 +81,7 @@ if ($search) {
 }
 
 $sql = 'SELECT i.id, i.invoice_no, i.customer_id, c.name AS customer_name, i.branch_id, '
-    . 'b.name AS branch_name, i.status, i.total, i.paid_total, i.due_total, i.issued_at, '
+    . 'b.name AS branch_name, i.status, i.total, i.paid_total, i.due_total, i.currency, i.issued_at, '
     . 'i.updated_at, iu.name AS issued_by_name, uu.name AS updated_by_name '
     . 'FROM invoices i '
     . 'LEFT JOIN customers c ON c.id = i.customer_id '

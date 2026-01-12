@@ -5,6 +5,7 @@ require_once __DIR__ . '/../../app/api.php';
 require_once __DIR__ . '/../../app/auth.php';
 require_once __DIR__ . '/../../app/permissions.php';
 require_once __DIR__ . '/../../app/services/balance_service.php';
+require_once __DIR__ . '/../../app/company.php';
 
 api_require_method('POST');
 $user = auth_require_user();
@@ -90,7 +91,10 @@ try {
         if (!$isMainBranch && $matchedBranchId) {
             $customerId = (int) ($order['customer_id'] ?? 0);
             $totalPrice = (float) ($order['total_price'] ?? 0);
+            $pointsSettings = company_points_settings();
+            $pointsPrice = (float) ($pointsSettings['points_price'] ?? 0);
             adjust_customer_balance($db, $customerId, $totalPrice);
+            adjust_customer_points_for_amount($db, $customerId, $totalPrice, $pointsPrice);
             record_customer_balance(
                 $db,
                 $customerId,

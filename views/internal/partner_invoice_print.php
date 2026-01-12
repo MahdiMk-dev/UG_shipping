@@ -19,7 +19,7 @@ if ($invoiceId <= 0) {
 }
 
 $stmt = db()->prepare(
-    'SELECT i.id, i.invoice_no, i.status, i.total, i.paid_total, i.due_total, i.issued_at, i.note, '
+    'SELECT i.id, i.invoice_no, i.status, i.currency, i.total, i.paid_total, i.due_total, i.issued_at, i.note, '
     . 'i.shipment_id, s.shipment_number, c.name AS origin_country, '
     . 'p.name AS partner_name, p.phone AS partner_phone, p.address AS partner_address, p.type AS partner_type '
     . 'FROM partner_invoices i '
@@ -47,6 +47,7 @@ $company = company_settings();
 $escape = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 $issuedAt = $invoice['issued_at'] ? date('Y-m-d H:i', strtotime($invoice['issued_at'])) : '';
 $partnerType = $invoice['partner_type'] === 'consignee' ? 'Consignee' : 'Shipper';
+$currencyLabel = $invoice['currency'] ?: 'USD';
 ?>
 <!doctype html>
 <html lang="en">
@@ -138,7 +139,7 @@ $partnerType = $invoice['partner_type'] === 'consignee' ? 'Consignee' : 'Shipper
             <thead>
                 <tr>
                     <th>Description</th>
-                    <th class="amount">Amount</th>
+                    <th class="amount">Amount (<?= $escape($currencyLabel) ?>)</th>
                 </tr>
             </thead>
             <tbody>
@@ -159,15 +160,15 @@ $partnerType = $invoice['partner_type'] === 'consignee' ? 'Consignee' : 'Shipper
         <div class="totals">
             <table>
                 <tr>
-                    <td>Total</td>
+                    <td>Total (<?= $escape($currencyLabel) ?>)</td>
                     <td style="text-align:right;"><?= number_format((float) $invoice['total'], 2) ?></td>
                 </tr>
                 <tr>
-                    <td>Paid</td>
+                    <td>Paid (<?= $escape($currencyLabel) ?>)</td>
                     <td style="text-align:right;"><?= number_format((float) $invoice['paid_total'], 2) ?></td>
                 </tr>
                 <tr>
-                    <td>Due</td>
+                    <td>Due (<?= $escape($currencyLabel) ?>)</td>
                     <td style="text-align:right;"><?= number_format((float) $invoice['due_total'], 2) ?></td>
                 </tr>
             </table>

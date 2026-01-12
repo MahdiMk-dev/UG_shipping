@@ -17,6 +17,10 @@ $baseSalary = api_float($input['base_salary'] ?? null) ?? 0.0;
 $status = api_string($input['status'] ?? 'active') ?? 'active';
 $hiredAt = api_string($input['hired_at'] ?? null);
 $note = api_string($input['note'] ?? null);
+$createUser = api_bool($input['create_user'] ?? false);
+$userUsername = api_string($input['user_username'] ?? null);
+$userPassword = api_string($input['user_password'] ?? null);
+$userRoleId = api_int($input['user_role_id'] ?? null);
 
 if (!$name) {
     api_error('name is required', 422);
@@ -47,34 +51,98 @@ if (!$branchId) {
     api_error('branch_id is required', 422);
 }
 
+$canManageUser = $fullAccess;
+if ($createUser) {
+    if (!$canManageUser) {
+        api_error('User login creation is restricted to Admin and Owner roles.', 403);
+    }
+    if (!$userUsername || !$userPassword || !$userRoleId) {
+        api_error('user_username, user_password, and user_role_id are required to create a login', 422);
+    }
+}
+
 $db = db();
-$stmt = $db->prepare(
-    'INSERT INTO staff_members (name, phone, position, branch_id, base_salary, status, hired_at, note, created_by_user_id) '
-    . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-);
-$stmt->execute([
-    $name,
-    $phone,
-    $position,
-    $branchId,
-    $baseSalary,
-    $status,
-    $hiredAt,
-    $note,
-    $user['id'] ?? null,
-]);
+if ($createUser) {
+    $roleCheck = $db->prepare('SELECT id FROM roles WHERE id = ?');
+    $roleCheck->execute([$userRoleId]);
+    if (!$roleCheck->fetchColumn()) {
+        api_error('user_role_id is invalid', 422);
+    }
+    $dupStmt = $db->prepare('SELECT id FROM users WHERE username = ? AND deleted_at IS NULL LIMIT 1');
+    $dupStmt->execute([$userUsername]);
+    if ($dupStmt->fetch()) {
+        api_error('Username already exists', 409);
+    }
+}
 
-$staffId = (int) $db->lastInsertId();
+$db->beginTransaction();
+try {
+    $stmt = $db->prepare(
+        'INSERT INTO staff_members (name, phone, position, branch_id, base_salary, status, hired_at, note, created_by_user_id) '
+        . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    $stmt->execute([
+        $name,
+        $phone,
+        $position,
+        $branchId,
+        $baseSalary,
+        $status,
+        $hiredAt,
+        $note,
+        $user['id'] ?? null,
+    ]);
 
-audit_log($user, 'staff.create', 'staff', $staffId, null, [
-    'name' => $name,
-    'phone' => $phone,
-    'position' => $position,
-    'branch_id' => $branchId,
-    'base_salary' => $baseSalary,
-    'status' => $status,
-    'hired_at' => $hiredAt,
-    'note' => $note,
-]);
+    $staffId = (int) $db->lastInsertId();
+    $accountStmt = $db->prepare(
+        'INSERT INTO accounts (owner_type, owner_id, name, account_type, payment_method_id, created_by_user_id) '
+        . 'SELECT ?, ?, CONCAT(?, \' \', pm.name), pm.name, pm.id, ? FROM payment_methods pm'
+    );
+    $accountStmt->execute([
+        'staff',
+        $staffId,
+        $name,
+        $user['id'] ?? null,
+    ]);
 
-api_json(['ok' => true, 'id' => $staffId]);
+    $userId = null;
+    if ($createUser) {
+        $userStmt = $db->prepare(
+            'INSERT INTO users (name, username, password_hash, role_id, branch_id, phone, address, created_by_user_id) '
+            . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        );
+        $userStmt->execute([
+            $name,
+            $userUsername,
+            password_hash($userPassword, PASSWORD_DEFAULT),
+            $userRoleId,
+            $branchId,
+            $phone,
+            null,
+            $user['id'] ?? null,
+        ]);
+        $userId = (int) $db->lastInsertId();
+        $db->prepare('UPDATE staff_members SET user_id = ?, updated_at = NOW(), updated_by_user_id = ? WHERE id = ?')
+            ->execute([$userId, $user['id'] ?? null, $staffId]);
+    }
+
+    audit_log($user, 'staff.create', 'staff', $staffId, null, [
+        'name' => $name,
+        'phone' => $phone,
+        'position' => $position,
+        'branch_id' => $branchId,
+        'base_salary' => $baseSalary,
+        'status' => $status,
+        'hired_at' => $hiredAt,
+        'note' => $note,
+        'user_id' => $userId,
+    ]);
+
+    $db->commit();
+    api_json(['ok' => true, 'id' => $staffId]);
+} catch (PDOException $e) {
+    if ($db->inTransaction()) {
+        $db->rollBack();
+    }
+    api_error('Failed to create staff member', 500);
+}

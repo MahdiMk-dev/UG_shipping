@@ -49,6 +49,18 @@ if (!in_array($user['role'] ?? '', ['Admin', 'Owner'], true)) {
             <span>Website</span>
             <input type="text" name="website">
         </label>
+        <label>
+            <span>Point price (amount per point)</span>
+            <input type="number" name="points_price" step="0.01" min="0" placeholder="0.00">
+        </label>
+        <label>
+            <span>Point value (discount per point)</span>
+            <input type="number" name="points_value" step="0.01" min="0" placeholder="0.00">
+        </label>
+        <label>
+            <span>USD to LBP rate (1 USD = ? LBP)</span>
+            <input type="number" name="usd_to_lbp" step="0.01" min="0" placeholder="0.00">
+        </label>
         <label class="full">
             <span>Company logo</span>
             <input type="hidden" name="logo_url">
@@ -99,6 +111,46 @@ if (!in_array($user['role'] ?? '', ['Admin', 'Owner'], true)) {
     </div>
     <div class="notice-stack" data-goods-types-status></div>
 </section>
+<?php if (($user['role'] ?? '') === 'Owner'): ?>
+    <section class="panel" data-roles-panel>
+        <div class="panel-header">
+            <div>
+                <h3>Roles</h3>
+                <p>Manage internal roles available for staff logins.</p>
+            </div>
+        </div>
+        <form class="grid-form" data-roles-form>
+            <label>
+                <span>Role name</span>
+                <input type="text" name="name" data-roles-input required>
+            </label>
+            <button class="button primary small" type="submit">Add role</button>
+        </form>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Role</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody data-roles-table>
+                    <tr><td colspan="2" class="muted">Loading roles...</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="notice-stack" data-roles-status></div>
+    </section>
+<?php else: ?>
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <h3>Roles</h3>
+                <p>Only Owner role can manage roles.</p>
+            </div>
+        </div>
+    </section>
+<?php endif; ?>
 <?php
 internal_page_end();
 ?>

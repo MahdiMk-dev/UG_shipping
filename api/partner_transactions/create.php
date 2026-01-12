@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../app/api.php';
 require_once __DIR__ . '/../../app/permissions.php';
 require_once __DIR__ . '/../../app/services/finance_service.php';
+require_once __DIR__ . '/../../app/services/account_service.php';
 require_once __DIR__ . '/../../app/audit.php';
 
 api_require_method('POST');
@@ -13,13 +14,15 @@ $input = api_read_input();
 $partnerId = api_int($input['partner_id'] ?? null);
 $invoiceId = api_int($input['invoice_id'] ?? null);
 $paymentMethodId = api_int($input['payment_method_id'] ?? null);
+$adminAccountId = api_int($input['admin_account_id'] ?? ($input['account_id'] ?? null));
 $type = api_string($input['type'] ?? 'receipt') ?? 'receipt';
 $paymentDate = api_string($input['payment_date'] ?? null);
+$reason = api_string($input['reason'] ?? null);
 $note = api_string($input['note'] ?? null);
 $items = $input['items'] ?? [];
 
-if (!$partnerId || !$paymentMethodId) {
-    api_error('partner_id and payment_method_id are required', 422);
+if (!$partnerId || !$adminAccountId) {
+    api_error('partner_id and admin_account_id are required', 422);
 }
 if ($paymentDate !== null && strtotime($paymentDate) === false) {
     api_error('Invalid payment_date', 422);
@@ -28,6 +31,23 @@ if ($paymentDate !== null && strtotime($paymentDate) === false) {
 $allowedTypes = ['receipt', 'refund', 'adjustment'];
 if (!in_array($type, $allowedTypes, true)) {
     api_error('Invalid transaction type', 422);
+}
+if ($reason !== null) {
+    $reason = trim($reason);
+}
+$allowedReasons = [
+    'Damaged item',
+    'Duplicate payment',
+    'Order canceled',
+    'Overcharge correction',
+    'Service issue',
+    'Other',
+];
+if ($reason !== null && $reason !== '' && !in_array($reason, $allowedReasons, true)) {
+    api_error('Invalid refund reason', 422);
+}
+if ($type === 'refund' && (!$reason || $reason === '')) {
+    api_error('Refund reason is required', 422);
 }
 
 if (!is_array($items) || empty($items)) {
@@ -72,8 +92,20 @@ if (!$partnerStmt->fetch()) {
 
 $methodStmt = $db->prepare('SELECT id FROM payment_methods WHERE id = ?');
 $methodStmt->execute([$paymentMethodId]);
-if (!$methodStmt->fetch()) {
+if ($paymentMethodId && !$methodStmt->fetch()) {
     api_error('Payment method not found', 404);
+}
+
+$adminAccount = fetch_account($db, $adminAccountId);
+if ($adminAccount['owner_type'] !== 'admin') {
+    api_error('Partner transactions must use an admin account', 422);
+}
+$accountMethodId = (int) ($adminAccount['payment_method_id'] ?? 0);
+if ($accountMethodId <= 0) {
+    api_error('Payment accounts must have a payment method', 422);
+}
+if ($paymentMethodId && $paymentMethodId !== $accountMethodId) {
+    api_error('Payment method must match the selected accounts', 422);
 }
 
 $invoice = null;
@@ -104,8 +136,8 @@ if ($invoiceId) {
 
 $insertTransaction = $db->prepare(
     'INSERT INTO partner_transactions '
-    . '(partner_id, invoice_id, branch_id, type, payment_method_id, amount, payment_date, note, created_by_user_id) '
-    . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    . '(partner_id, invoice_id, branch_id, type, payment_method_id, amount, payment_date, reason, note, created_by_user_id) '
+    . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
 );
 
 $insertItem = $db->prepare(
@@ -119,9 +151,10 @@ try {
         $invoiceId ?: null,
         null,
         $type,
-        $paymentMethodId,
+        $accountMethodId,
         $amount,
         $paymentDate,
+        $reason ?: null,
         $note,
         $user['id'] ?? null,
     ]);
@@ -131,8 +164,10 @@ try {
         $insertItem->execute([$transactionId, $item['description'], $item['amount']]);
     }
 
+    $normalizedAmount = abs((float) $amount);
+    $balanceDelta = $type === 'receipt' ? -$normalizedAmount : $normalizedAmount;
     $db->prepare('UPDATE partner_profiles SET balance = balance + ? WHERE id = ?')
-        ->execute([$amount, $partnerId]);
+        ->execute([$balanceDelta, $partnerId]);
 
     if ($invoice) {
         $paidTotal = (float) $invoice['paid_total'] + $amount;
@@ -147,6 +182,22 @@ try {
         $updateInvoice->execute([$paidTotal, $dueTotal, $status, $user['id'] ?? null, $invoiceId]);
     }
 
+    $fromAccountId = $type === 'receipt' ? null : $adminAccountId;
+    $toAccountId = $type === 'receipt' ? $adminAccountId : null;
+    $transferId = create_account_transfer(
+        $db,
+        $fromAccountId,
+        $toAccountId,
+        $normalizedAmount,
+        'partner_transaction',
+        $paymentDate,
+        $note,
+        'partner_transaction',
+        $transactionId,
+        $user['id'] ?? null
+    );
+    $db->prepare('UPDATE partner_transactions SET account_transfer_id = ? WHERE id = ?')
+        ->execute([$transferId, $transactionId]);
     $rowStmt = $db->prepare('SELECT * FROM partner_transactions WHERE id = ?');
     $rowStmt->execute([$transactionId]);
     $after = $rowStmt->fetch();

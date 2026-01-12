@@ -14,10 +14,16 @@ function company_settings(): array
         'email' => config_get('company.email', ''),
         'website' => config_get('company.website', ''),
         'logo_url' => $fallbackLogo,
+        'points_price' => 0.0,
+        'points_value' => 0.0,
+        'usd_to_lbp' => 0.0,
     ];
 
     try {
-        $stmt = db()->query('SELECT name, address, phone, email, website, logo_url FROM company_settings WHERE id = 1');
+        $stmt = db()->query(
+            'SELECT name, address, phone, email, website, logo_url, points_price, points_value, usd_to_lbp '
+            . 'FROM company_settings WHERE id = 1'
+        );
         $row = $stmt->fetch();
         if (!$row) {
             return $fallback;
@@ -43,9 +49,29 @@ function company_settings(): array
             'email' => $row['email'] ?? $fallback['email'],
             'website' => $row['website'] ?? $fallback['website'],
             'logo_url' => $logoUrl,
+            'points_price' => $row['points_price'] !== null ? (float) $row['points_price'] : $fallback['points_price'],
+            'points_value' => $row['points_value'] !== null ? (float) $row['points_value'] : $fallback['points_value'],
+            'usd_to_lbp' => $row['usd_to_lbp'] !== null ? (float) $row['usd_to_lbp'] : $fallback['usd_to_lbp'],
         ];
     } catch (Throwable $e) {
         return $fallback;
+    }
+}
+
+function company_points_settings(): array
+{
+    try {
+        $stmt = db()->query('SELECT points_price, points_value FROM company_settings WHERE id = 1');
+        $row = $stmt->fetch();
+        if (!$row) {
+            return ['points_price' => 0.0, 'points_value' => 0.0];
+        }
+        return [
+            'points_price' => $row['points_price'] !== null ? (float) $row['points_price'] : 0.0,
+            'points_value' => $row['points_value'] !== null ? (float) $row['points_value'] : 0.0,
+        ];
+    } catch (Throwable $e) {
+        return ['points_price' => 0.0, 'points_value' => 0.0];
     }
 }
 

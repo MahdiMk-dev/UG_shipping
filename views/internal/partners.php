@@ -5,7 +5,12 @@ require_once __DIR__ . '/_layout.php';
 
 $user = internal_require_user();
 $canEdit = in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch'], true);
-internal_page_start($user, 'partners', 'Partners', 'Manage shipper and consignee profiles.');
+$createMode = isset($_GET['create']);
+$pageTitle = $createMode ? 'Create Partner' : 'Partners';
+$pageSubtitle = $createMode
+    ? 'Add a new shipper or consignee profile.'
+    : 'Manage shipper and consignee profiles.';
+internal_page_start($user, 'partners', $pageTitle, $pageSubtitle);
 if (!in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch', 'Warehouse'], true)) {
     http_response_code(403);
     ?>
@@ -22,7 +27,7 @@ if (!in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch', 'Warehouse'
     exit;
 }
 ?>
-<div data-partners-page data-can-edit="<?= $canEdit ? '1' : '0' ?>">
+<div data-partners-page data-can-edit="<?= $canEdit ? '1' : '0' ?>" data-create-mode="<?= $createMode ? '1' : '0' ?>">
     <section class="panel">
         <div class="panel-header">
             <div>
@@ -140,6 +145,10 @@ if (!in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch', 'Warehouse'
                     <label class="full">
                         <span>Address</span>
                         <input type="text" name="address" placeholder="Optional address">
+                    </label>
+                    <label class="full">
+                        <span>Notes</span>
+                        <input type="text" name="note" placeholder="Optional notes">
                     </label>
                     <button class="button primary small" type="submit" data-partners-submit-label>Add partner</button>
                 </form>

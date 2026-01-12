@@ -72,6 +72,7 @@ if (!$canView) {
                         <th>Customer</th>
                         <th>Branch</th>
                         <th>Status</th>
+                        <th>Currency</th>
                         <th>Total</th>
                         <th>Paid</th>
                         <th>Due</th>
@@ -81,7 +82,7 @@ if (!$canView) {
                 </thead>
                 <tbody data-invoices-table>
                     <tr>
-                        <td colspan="9" class="muted">Loading invoices...</td>
+                        <td colspan="10" class="muted">Loading invoices...</td>
                     </tr>
                 </tbody>
             </table>
@@ -100,7 +101,7 @@ if (!$canView) {
             <div class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="invoice-form-title">
                 <div class="drawer-header">
                     <div>
-                        <h3 id="invoice-form-title">Create invoice</h3>
+                        <h3 id="invoice-form-title" data-invoice-form-title>Create invoice</h3>
                         <p>Select un-invoiced orders and issue a statement.</p>
                     </div>
                     <button class="icon-button" type="button" data-invoices-drawer-close aria-label="Close invoice panel">
@@ -108,6 +109,7 @@ if (!$canView) {
                     </button>
                 </div>
                 <form class="grid-form" data-invoices-form>
+                    <input type="hidden" name="invoice_id" data-invoice-id>
                     <input type="hidden" name="customer_id" data-invoice-customer-id>
                     <input type="hidden" name="branch_id" data-invoice-branch-id>
                     <label>
@@ -119,9 +121,44 @@ if (!$canView) {
                         <span>Branch</span>
                         <input type="text" data-invoice-branch-label placeholder="Auto from orders" readonly>
                     </label>
+                    <label class="full">
+                        <span>Delivery method</span>
+                        <div class="option-group option-group-equal invoice-delivery-toggle">
+                            <label class="option-pill">
+                                <input type="radio" name="delivery_type" value="delivery" required>
+                                <span>
+                                    <svg class="pill-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="M3 7h11v7H3z"></path>
+                                        <path d="M14 10h4l3 3v1h-7z"></path>
+                                        <path d="M6.5 17.5a1.5 1.5 0 1 1-3 0"></path>
+                                        <path d="M17.5 17.5a1.5 1.5 0 1 1-3 0"></path>
+                                    </svg>
+                                    Delivery
+                                </span>
+                            </label>
+                            <label class="option-pill">
+                                <input type="radio" name="delivery_type" value="pickup" required>
+                                <span>
+                                    <svg class="pill-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="M3 7l9-4 9 4-9 4-9-4z"></path>
+                                        <path d="M3 7v10l9 4 9-4V7"></path>
+                                        <path d="M12 11v10"></path>
+                                    </svg>
+                                    Pickup
+                                </span>
+                            </label>
+                        </div>
+                    </label>
                     <label>
                         <span>Invoice number (optional)</span>
                         <input type="text" name="invoice_no" placeholder="Auto-generated if empty">
+                    </label>
+                    <label>
+                        <span>Currency</span>
+                        <select name="currency" data-invoice-currency>
+                            <option value="USD">USD</option>
+                            <option value="LBP">LBP</option>
+                        </select>
                     </label>
                     <label>
                         <span>Issued at</span>
@@ -131,6 +168,17 @@ if (!$canView) {
                         <span>Note</span>
                         <input type="text" name="note" placeholder="Optional note">
                     </label>
+                    <label>
+                        <span>Use points</span>
+                        <input type="number" name="points_used" min="0" step="1" placeholder="0" data-invoice-points-input>
+                    </label>
+                    <label>
+                        <span>Available points</span>
+                        <input type="text" value="0" readonly data-invoice-points-available>
+                    </label>
+                    <div class="full muted" data-invoice-points-summary>
+                        Points discount: 0.00 | Due after points: 0.00 | Point value: 0.00
+                    </div>
                     <div class="full">
                         <div class="table-wrap">
                             <table>
@@ -153,7 +201,12 @@ if (!$canView) {
                         </div>
                         <div class="muted" data-invoice-orders-total>Selected total: 0.00</div>
                     </div>
-                    <button class="button primary small" type="submit">Create invoice</button>
+                    <div class="full">
+                        <button class="button primary small" type="submit" data-invoice-submit>Create invoice</button>
+                        <button class="button ghost small is-hidden" type="button" data-invoice-edit-cancel>
+                            Cancel edit
+                        </button>
+                    </div>
                 </form>
                 <datalist id="invoice-create-customer-options"></datalist>
                 <div class="notice-stack" data-invoice-form-status></div>

@@ -57,10 +57,19 @@ $invoices = $invoicesStmt->fetchAll();
 
 $transactionsStmt = $db->prepare(
     'SELECT t.id, t.customer_id, c.name AS customer_name, c.code AS customer_code, '
-    . 't.type, t.amount, t.payment_date, t.created_at, pm.name AS payment_method '
+    . 't.type, t.amount, t.payment_date, t.created_at, pm.name AS payment_method, '
+    . 'CASE '
+        . 'WHEN af.name IS NOT NULL AND aa.name IS NOT NULL THEN CONCAT(af.name, \' -> \', aa.name) '
+        . 'WHEN af.name IS NOT NULL THEN af.name '
+        . 'WHEN aa.name IS NOT NULL THEN aa.name '
+        . 'ELSE NULL '
+    . 'END AS account_label '
     . 'FROM transactions t '
     . 'LEFT JOIN customers c ON c.id = t.customer_id '
     . 'LEFT JOIN payment_methods pm ON pm.id = t.payment_method_id '
+    . 'LEFT JOIN account_transfers at ON at.id = t.account_transfer_id '
+    . 'LEFT JOIN accounts af ON af.id = at.from_account_id '
+    . 'LEFT JOIN accounts aa ON aa.id = at.to_account_id '
     . 'WHERE t.customer_id IN (' . $placeholders . ') AND t.deleted_at IS NULL '
     . 'ORDER BY t.id DESC LIMIT 50'
 );

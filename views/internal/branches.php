@@ -4,8 +4,13 @@ declare(strict_types=1);
 require_once __DIR__ . '/_layout.php';
 
 $user = internal_require_user();
-internal_page_start($user, 'branches', 'Branches', 'Maintain main, head, sub, and warehouse locations.');
 $canEdit = in_array($user['role'] ?? '', ['Admin', 'Owner'], true);
+$createMode = isset($_GET['create']);
+$pageTitle = $createMode ? 'Create Branch' : 'Branches';
+$pageSubtitle = $createMode
+    ? 'Add a new branch location.'
+    : 'Maintain main, head, sub, and warehouse locations.';
+internal_page_start($user, 'branches', $pageTitle, $pageSubtitle);
 if (!$canEdit) {
     http_response_code(403);
     ?>
@@ -22,7 +27,7 @@ if (!$canEdit) {
     exit;
 }
 ?>
-<div data-branches-page data-can-edit="<?= $canEdit ? '1' : '0' ?>">
+<div data-branches-page data-can-edit="<?= $canEdit ? '1' : '0' ?>" data-create-mode="<?= $createMode ? '1' : '0' ?>">
     <section class="panel">
         <div class="panel-header">
             <div>
@@ -148,7 +153,7 @@ if (!$canEdit) {
                 <div class="drawer-header">
                     <div>
                         <h3 id="branch-payment-title">Record branch payment</h3>
-                        <p>Track payments from sub branches to main/head.</p>
+                        <p>Track payments from sub branches to admin accounts.</p>
                     </div>
                     <button class="icon-button" type="button" data-branch-payment-close aria-label="Close branch payment panel">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12"></path><path d="M18 6l-12 12"></path></svg>
@@ -162,9 +167,15 @@ if (!$canEdit) {
                         </select>
                     </label>
                     <label>
-                        <span>To branch</span>
-                        <select name="to_branch_id" data-branch-payment-to required>
-                            <option value="">Select main/head branch</option>
+                        <span>From account</span>
+                        <select name="from_account_id" data-branch-payment-from-account required>
+                            <option value="">Select branch account</option>
+                        </select>
+                    </label>
+                    <label>
+                        <span>To admin account</span>
+                        <select name="to_account_id" data-branch-payment-to-account required>
+                            <option value="">Select admin account</option>
                         </select>
                     </label>
                     <label>
@@ -174,6 +185,16 @@ if (!$canEdit) {
                     <label>
                         <span>Payment date</span>
                         <input type="date" name="transfer_date">
+                    </label>
+                    <label>
+                        <span>Description</span>
+                        <select name="description" data-branch-payment-description>
+                            <option value="">Select description</option>
+                            <option value="Daily closing">Daily closing</option>
+                            <option value="Advance payment">Advance payment</option>
+                            <option value="Customer settlements">Customer settlements</option>
+                            <option value="Other">Other</option>
+                        </select>
                     </label>
                     <label class="full">
                         <span>Note</span>

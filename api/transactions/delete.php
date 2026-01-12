@@ -5,6 +5,7 @@ require_once __DIR__ . '/../../app/api.php';
 require_once __DIR__ . '/../../app/permissions.php';
 require_once __DIR__ . '/../../app/services/finance_service.php';
 require_once __DIR__ . '/../../app/services/balance_service.php';
+require_once __DIR__ . '/../../app/services/account_service.php';
 require_once __DIR__ . '/../../app/audit.php';
 
 api_require_method('POST');
@@ -25,7 +26,7 @@ $db->beginTransaction();
 
 try {
     $txStmt = $db->prepare(
-        'SELECT id, customer_id, branch_id, amount, type, status '
+        'SELECT id, customer_id, branch_id, amount, type, status, account_transfer_id '
         . 'FROM transactions WHERE id = ? AND deleted_at IS NULL'
     );
     $txStmt->execute([$transactionId]);
@@ -49,10 +50,9 @@ try {
         }
     }
 
-    $branchTypeStmt = $db->prepare('SELECT type FROM branches WHERE id = ? AND deleted_at IS NULL');
+    $branchTypeStmt = $db->prepare('SELECT 1 FROM branches WHERE id = ? AND deleted_at IS NULL');
     $branchTypeStmt->execute([(int) $transaction['branch_id']]);
-    $branchType = $branchTypeStmt->fetchColumn();
-    if (!$branchType) {
+    if (!$branchTypeStmt->fetchColumn()) {
         api_error('Branch not found', 404);
     }
 
@@ -68,7 +68,9 @@ try {
             . 'JOIN transactions t ON t.id = ta.transaction_id '
             . 'WHERE ta.invoice_id = ? AND t.deleted_at IS NULL AND t.status = ?'
         );
-        $invStmt = $db->prepare('SELECT id, total, status FROM invoices WHERE id = ? AND deleted_at IS NULL');
+        $invStmt = $db->prepare(
+            'SELECT id, total, points_discount, status FROM invoices WHERE id = ? AND deleted_at IS NULL'
+        );
         $updateInv = $db->prepare(
             'UPDATE invoices SET paid_total = ?, due_total = ?, status = ?, updated_at = NOW(), updated_by_user_id = ? '
             . 'WHERE id = ?'
@@ -83,8 +85,15 @@ try {
             $sumStmt->execute([$invoiceId, 'active']);
             $sumRow = $sumStmt->fetch();
             $paidTotal = (float) ($sumRow['total_allocated'] ?? 0);
-            $dueTotal = (float) $invoice['total'] - $paidTotal;
-            $status = invoice_status_from_totals($paidTotal, (float) $invoice['total']);
+            $netTotal = (float) $invoice['total'] - (float) ($invoice['points_discount'] ?? 0);
+            if ($netTotal < 0) {
+                $netTotal = 0.0;
+            }
+            $dueTotal = $netTotal - $paidTotal;
+            if ($dueTotal < 0) {
+                $dueTotal = 0.0;
+            }
+            $status = invoice_status_from_totals($paidTotal, $netTotal);
             $updateInv->execute([$paidTotal, $dueTotal, $status, $user['id'] ?? null, $invoiceId]);
         }
     }
@@ -118,33 +127,27 @@ try {
         'Transaction canceled: ' . $reason
     );
 
-    $hasBranchBalance = false;
-    if ($branchType === 'sub'
-        && in_array((string) ($transaction['type'] ?? ''), ['payment', 'deposit', 'admin_settlement'], true)
-    ) {
-        $branchBalanceStmt = $db->prepare(
-            'SELECT 1 FROM branch_balance_entries '
-            . 'WHERE branch_id = ? AND entry_type = ? AND reference_type = ? AND reference_id = ? LIMIT 1'
-        );
-        $branchBalanceStmt->execute([
-            (int) $transaction['branch_id'],
-            'customer_payment',
-            'transaction',
-            $transactionId,
-        ]);
-        $hasBranchBalance = (bool) $branchBalanceStmt->fetchColumn();
+    $branchBalanceDelta = -$normalizedAmount;
+    if (in_array($transaction['type'] ?? '', ['refund', 'adjustment'], true)) {
+        $branchBalanceDelta = $normalizedAmount;
     }
+    record_branch_balance(
+        $db,
+        (int) ($transaction['branch_id'] ?? 0),
+        -$branchBalanceDelta,
+        'customer_payment',
+        'transaction',
+        $transactionId,
+        $user['id'] ?? null,
+        'Transaction canceled: ' . $reason
+    );
 
-    if ($hasBranchBalance) {
-        record_branch_balance(
+    if (!empty($transaction['account_transfer_id'])) {
+        cancel_account_transfer(
             $db,
-            (int) $transaction['branch_id'],
-            $normalizedAmount,
-            'customer_payment',
-            'transaction',
-            $transactionId,
-            $user['id'] ?? null,
-            'Transaction canceled: ' . $reason
+            (int) $transaction['account_transfer_id'],
+            $reason,
+            $user['id'] ?? null
         );
     }
 

@@ -14,7 +14,7 @@ $customerId = $_GET['id'] ?? null;
         <div class="panel-header">
             <div>
                 <h3>Customer details</h3>
-                <p>Only assigned branches can modify this customer.</p>
+                <p>Admins and assigned branches can modify this customer.</p>
             </div>
         </div>
         <form class="grid-form" data-customer-edit-form>
@@ -33,6 +33,10 @@ $customerId = $_GET['id'] ?? null;
             <label>
                 <span>Address</span>
                 <input type="text" name="address">
+            </label>
+            <label class="full">
+                <span>Notes</span>
+                <input type="text" name="note" placeholder="Optional notes">
             </label>
             <label>
                 <span>Profile country</span>

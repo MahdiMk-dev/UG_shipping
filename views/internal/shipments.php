@@ -70,8 +70,8 @@ $canEdit = in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch', 'Ware
                         <th>Origin</th>
                         <th>Status</th>
                         <th>Type</th>
-                        <th>Departure</th>
-                        <th>Arrival</th>
+                        <th>Expected departure</th>
+                        <th>Expected arrival</th>
                         <th class="meta-col">Created</th>
                         <th class="meta-col">Updated</th>
                         <th>View</th>

@@ -55,30 +55,31 @@ if ($dateTo !== '' && strtotime($dateTo) === false) {
     exit;
 }
 
-$where = ['1=1'];
+$where = ['e.status = \'active\'', 'a.owner_type = \'branch\'', 'a.deleted_at IS NULL'];
 $params = [];
 if ($branchId > 0) {
-    $where[] = 'e.branch_id = ?';
+    $where[] = 'a.owner_id = ?';
     $params[] = $branchId;
 }
 if ($dateFrom !== '') {
-    $where[] = 'DATE(e.created_at) >= ?';
+    $where[] = 'DATE(COALESCE(e.entry_date, e.created_at)) >= ?';
     $params[] = $dateFrom;
 }
 if ($dateTo !== '') {
-    $where[] = 'DATE(e.created_at) <= ?';
+    $where[] = 'DATE(COALESCE(e.entry_date, e.created_at)) <= ?';
     $params[] = $dateTo;
 }
 
-$summarySql = 'SELECT e.branch_id, b.name AS branch_name, '
+$summarySql = 'SELECT a.owner_id AS branch_id, b.name AS branch_name, '
     . 'SUM(CASE WHEN e.amount > 0 THEN e.amount ELSE 0 END) AS total_in, '
     . 'SUM(CASE WHEN e.amount < 0 THEN -e.amount ELSE 0 END) AS total_out, '
     . 'SUM(e.amount) AS net_total, '
     . 'COUNT(*) AS entry_count '
-    . 'FROM branch_balance_entries e '
-    . 'LEFT JOIN branches b ON b.id = e.branch_id '
+    . 'FROM account_entries e '
+    . 'JOIN accounts a ON a.id = e.account_id '
+    . 'LEFT JOIN branches b ON b.id = a.owner_id '
     . 'WHERE ' . implode(' AND ', $where) . ' '
-    . 'GROUP BY e.branch_id '
+    . 'GROUP BY a.owner_id '
     . 'ORDER BY b.name ASC';
 $summaryStmt = db()->prepare($summarySql);
 $summaryStmt->execute($params);
@@ -111,34 +112,41 @@ foreach ($customerSummary as $row) {
     $customerSummaryMap[(int) ($row['sub_branch_id'] ?? 0)] = $row;
 }
 
-$detailsSql = 'SELECT e.id, e.branch_id, b.name AS branch_name, e.entry_type, e.amount, e.reference_type, '
-    . 'e.reference_id, e.note, e.created_at, '
-    . 'o.tracking_number, s.shipment_number, '
-    . 't.from_branch_id, bf.name AS from_branch_name, '
-    . 't.to_branch_id, bt.name AS to_branch_name, '
-    . 'tr.customer_id, c.name AS customer_name, c.code AS customer_code '
-    . 'FROM branch_balance_entries e '
-    . 'LEFT JOIN branches b ON b.id = e.branch_id '
-    . 'LEFT JOIN orders o ON o.id = e.reference_id AND e.reference_type = \'order\' '
-    . 'LEFT JOIN shipments s ON s.id = o.shipment_id '
-    . 'LEFT JOIN branch_transfers t ON t.id = e.reference_id AND e.reference_type = \'branch_transfer\' '
-    . 'LEFT JOIN branches bf ON bf.id = t.from_branch_id '
-    . 'LEFT JOIN branches bt ON bt.id = t.to_branch_id '
-    . 'LEFT JOIN transactions tr ON tr.id = e.reference_id AND e.reference_type = \'transaction\' '
+$detailsSql = 'SELECT e.id, a.owner_id AS branch_id, b.name AS branch_name, e.entry_type, e.amount, '
+    . 'COALESCE(e.entry_date, e.created_at) AS entry_date, e.created_at, '
+    . 'at.reference_type, at.reference_id, at.note, '
+    . 'af.name AS from_account_name, aa.name AS to_account_name, '
+    . 'btbl.from_branch_id, bf.name AS from_branch_name, '
+    . 'btbl.to_branch_id, bt.name AS to_branch_name, '
+    . 'tr.customer_id, c.name AS customer_name, c.code AS customer_code, '
+    . 'ge.title AS expense_title '
+    . 'FROM account_entries e '
+    . 'JOIN accounts a ON a.id = e.account_id '
+    . 'LEFT JOIN branches b ON b.id = a.owner_id '
+    . 'LEFT JOIN account_transfers at ON at.id = e.transfer_id '
+    . 'LEFT JOIN accounts af ON af.id = at.from_account_id '
+    . 'LEFT JOIN accounts aa ON aa.id = at.to_account_id '
+    . 'LEFT JOIN branch_transfers btbl ON btbl.id = at.reference_id AND at.reference_type = \'branch_transfer\' '
+    . 'LEFT JOIN branches bf ON bf.id = btbl.from_branch_id '
+    . 'LEFT JOIN branches bt ON bt.id = btbl.to_branch_id '
+    . 'LEFT JOIN transactions tr ON tr.id = at.reference_id AND at.reference_type = \'transaction\' '
     . 'LEFT JOIN customers c ON c.id = tr.customer_id '
+    . 'LEFT JOIN general_expenses ge ON ge.id = at.reference_id AND at.reference_type = \'general_expense\' '
     . 'WHERE ' . implode(' AND ', $where) . ' '
-    . 'ORDER BY e.created_at DESC, e.id DESC';
+    . 'ORDER BY COALESCE(e.entry_date, e.created_at) DESC, e.id DESC';
 $detailsStmt = db()->prepare($detailsSql);
 $detailsStmt->execute($params);
 $details = $detailsStmt->fetchAll();
 
 $entryLabels = [
-    'order_received' => 'Order received',
-    'order_reversal' => 'Order reversal',
-    'transfer_out' => 'Transfer out',
-    'transfer_in' => 'Transfer in',
-    'adjustment' => 'Adjustment',
     'customer_payment' => 'Customer payment',
+    'branch_transfer' => 'Branch transfer',
+    'partner_transaction' => 'Partner transaction',
+    'staff_expense' => 'Staff expense',
+    'general_expense' => 'Company expense',
+    'shipment_expense' => 'Shipment expense',
+    'adjustment' => 'Adjustment',
+    'other' => 'Other',
 ];
 
 $company = company_settings();
@@ -309,23 +317,27 @@ $periodLabel = $dateFrom && $dateTo ? "{$dateFrom} to {$dateTo}" : 'All dates';
                 <tbody>
                     <?php foreach ($details as $row): ?>
                         <?php
-                        $dateLabel = $row['created_at'] ? date('Y-m-d', strtotime($row['created_at'])) : '';
+                        $dateSource = $row['entry_date'] ?? $row['created_at'] ?? null;
+                        $dateLabel = $dateSource ? date('Y-m-d', strtotime($dateSource)) : '';
                         $entryType = $row['entry_type'] ?? '';
                         $typeLabel = $entryLabels[$entryType] ?? ($entryType ?: '-');
                         $amount = (float) ($row['amount'] ?? 0);
                         $amountClass = $amount >= 0 ? 'amount-positive' : 'amount-negative';
                         $reference = '-';
-                        if (($row['reference_type'] ?? '') === 'order') {
-                            $reference = trim(($row['shipment_number'] ?? '') . ' ' . ($row['tracking_number'] ?? ''));
-                            $reference = $reference !== '' ? $reference : 'Order #' . ($row['reference_id'] ?? '');
-                        } elseif (($row['reference_type'] ?? '') === 'branch_transfer') {
-                            $reference = trim(($row['from_branch_name'] ?? '-') . ' -> ' . ($row['to_branch_name'] ?? '-'));
+                        if (($row['reference_type'] ?? '') === 'branch_transfer') {
+                            $fromLabel = $row['from_branch_name'] ?? $row['from_account_name'] ?? '-';
+                            $toLabel = $row['to_branch_name'] ?? $row['to_account_name'] ?? '-';
+                            $reference = trim($fromLabel . ' -> ' . $toLabel);
                         } elseif (($row['reference_type'] ?? '') === 'transaction') {
                             $customerLabel = $row['customer_name'] ?? '';
                             if (!empty($row['customer_code'])) {
                                 $customerLabel = trim($customerLabel . ' (' . $row['customer_code'] . ')');
                             }
                             $reference = $customerLabel !== '' ? $customerLabel : 'Transaction #' . ($row['reference_id'] ?? '');
+                        } elseif (in_array(($row['reference_type'] ?? ''), ['general_expense', 'shipment_expense'], true)) {
+                            $reference = $row['expense_title']
+                                ? $row['expense_title']
+                                : (($row['reference_type'] ?? 'Expense') . ' #' . ($row['reference_id'] ?? ''));
                         } elseif (!empty($row['reference_id'])) {
                             $reference = ($row['reference_type'] ?? 'Ref') . ' #' . $row['reference_id'];
                         }
