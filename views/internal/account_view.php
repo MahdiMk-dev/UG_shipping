@@ -5,6 +5,7 @@ require_once __DIR__ . '/_layout.php';
 
 $user = internal_require_user();
 $role = $user['role'] ?? '';
+$canAdjust = in_array($role, ['Admin', 'Owner'], true);
 internal_page_start($user, 'accounts', 'Account Details', 'Balance and account activity.');
 if (!in_array($role, ['Admin', 'Owner', 'Sub Branch'], true)) {
     http_response_code(403);
@@ -53,6 +54,35 @@ $accountId = $_GET['id'] ?? null;
                 <p>Latest account entries and transfers.</p>
             </div>
         </div>
+        <?php if ($canAdjust): ?>
+            <form class="grid-form" data-account-adjust-form>
+                <label>
+                    <span>Type</span>
+                    <select name="type" data-account-adjust-type required>
+                        <option value="deposit">Add funds</option>
+                        <option value="withdrawal">Withdraw funds</option>
+                    </select>
+                </label>
+                <label>
+                    <span>Amount</span>
+                    <input type="number" step="0.01" name="amount" required>
+                </label>
+                <label>
+                    <span>Title</span>
+                    <input type="text" name="title" required>
+                </label>
+                <label>
+                    <span>Adjustment date</span>
+                    <input type="date" name="adjustment_date">
+                </label>
+                <label class="full">
+                    <span>Note</span>
+                    <input type="text" name="note" placeholder="Optional note">
+                </label>
+                <button class="button primary small" type="submit">Save adjustment</button>
+            </form>
+            <div class="notice-stack" data-account-adjust-status></div>
+        <?php endif; ?>
         <div class="table-wrap">
             <table>
                 <thead>

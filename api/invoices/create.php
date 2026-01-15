@@ -6,6 +6,7 @@ require_once __DIR__ . '/../../app/permissions.php';
 require_once __DIR__ . '/../../app/audit.php';
 require_once __DIR__ . '/../../app/services/balance_service.php';
 require_once __DIR__ . '/../../app/company.php';
+require_once __DIR__ . '/../../app/services/expense_service.php';
 
 api_require_method('POST');
 $user = require_role(['Admin', 'Owner', 'Main Branch', 'Sub Branch']);
@@ -300,7 +301,7 @@ try {
             'invoice',
             $invoiceId,
             $user['id'] ?? null,
-            'Points discount applied'
+            'Using points - Invoice ' . $finalInvoiceNo
         );
         record_branch_balance(
             $db,
@@ -313,6 +314,8 @@ try {
             'Points discount applied'
         );
     }
+
+    sync_invoice_points_expense($db, $invoiceId, $finalInvoiceNo, $pointsDiscount, $user['id'] ?? null);
 
     $invRowStmt = $db->prepare('SELECT * FROM invoices WHERE id = ?');
     $invRowStmt->execute([$invoiceId]);

@@ -92,10 +92,12 @@ $isWarehouse = ($user['role'] ?? '') === 'Warehouse';
                 <span>Height (h)</span>
                 <input type="number" step="0.01" name="h">
             </label>
-            <label class="<?= $isWarehouse ? 'is-hidden' : '' ?>">
-                <span>Rate</span>
-                <input type="number" step="0.01" name="rate">
-            </label>
+            <?php if (!$isWarehouse): ?>
+                <label>
+                    <span>Rate</span>
+                    <input type="number" step="0.01" name="rate">
+                </label>
+            <?php endif; ?>
             <label class="full">
                 <span>Notes</span>
                 <textarea name="note" rows="3" placeholder="Add any notes for this order"></textarea>
@@ -105,6 +107,54 @@ $isWarehouse = ($user['role'] ?? '') === 'Warehouse';
         </form>
         <?php endif; ?>
         <div class="notice-stack" data-orders-status></div>
+    </section>
+
+    <section class="panel is-hidden" data-order-create-media-panel>
+        <div class="panel-header">
+            <div>
+                <h3>Order media</h3>
+                <p data-order-create-media-title>Create an order to upload attachments.</p>
+            </div>
+        </div>
+        <form class="grid-form" data-order-create-media-form enctype="multipart/form-data">
+            <input type="hidden" name="entity_type" value="order">
+            <input type="hidden" name="entity_id" data-order-create-media-id>
+            <label>
+                <span>Title</span>
+                <input type="text" name="title" placeholder="Attachment title">
+            </label>
+            <label>
+                <span>Description</span>
+                <input type="text" name="description" placeholder="Optional notes">
+            </label>
+            <label>
+                <span>File</span>
+                <input type="file" name="file" required>
+            </label>
+            <button class="button primary" type="submit">Upload</button>
+        </form>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Title</th>
+                        <th>Type</th>
+                        <th>Uploaded</th>
+                        <th>Download</th>
+                        <th>Remove</th>
+                    </tr>
+                </thead>
+                <tbody data-order-create-media-table>
+                    <tr><td colspan="5" class="muted">No attachments loaded.</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="table-pagination" data-order-create-media-pagination>
+            <button class="button ghost small" type="button" data-order-create-media-prev>Previous</button>
+            <span class="page-label" data-order-create-media-page>Page 1</span>
+            <button class="button ghost small" type="button" data-order-create-media-next>Next</button>
+        </div>
+        <div class="notice-stack" data-order-create-media-status></div>
     </section>
 </div>
 <?php

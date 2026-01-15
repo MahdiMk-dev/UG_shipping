@@ -170,3 +170,20 @@ function cancel_account_transfer(PDO $db, int $transferId, string $reason, ?int 
         }
     }
 }
+
+function require_admin_cash_account_id(PDO $db): int
+{
+    $stmt = $db->prepare(
+        'SELECT a.id '
+        . 'FROM accounts a '
+        . 'JOIN payment_methods pm ON pm.id = a.payment_method_id '
+        . 'WHERE a.owner_type = ? AND a.deleted_at IS NULL AND a.is_active = 1 AND pm.name = ? '
+        . 'ORDER BY a.id ASC LIMIT 1'
+    );
+    $stmt->execute(['admin', 'Cash']);
+    $accountId = (int) $stmt->fetchColumn();
+    if ($accountId <= 0) {
+        api_error('Admin cash account not found', 422);
+    }
+    return $accountId;
+}

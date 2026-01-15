@@ -48,7 +48,7 @@ foreach ($blockedKeys as $blockedKey) {
         api_error('Order is already invoiced. Price changes are locked.', 409);
     }
 }
-$shipmentStatusStmt = $db->prepare('SELECT status, origin_country_id FROM shipments WHERE id = ? AND deleted_at IS NULL');
+$shipmentStatusStmt = $db->prepare('SELECT status, origin_country_id, shipping_type FROM shipments WHERE id = ? AND deleted_at IS NULL');
 $shipmentStatusStmt->execute([$order['shipment_id']]);
 $shipment = $shipmentStatusStmt->fetch();
 if (!$shipment) {
@@ -167,7 +167,7 @@ $shipmentIdUpdated = array_key_exists('shipment_id', $input);
 $weightTypeUpdated = array_key_exists('weight_type', $input);
 $targetShipment = $shipment;
 if ($shipmentIdUpdated && (int) $newValues['shipment_id'] !== (int) $order['shipment_id']) {
-    $targetStmt = $db->prepare('SELECT status, origin_country_id FROM shipments WHERE id = ? AND deleted_at IS NULL');
+    $targetStmt = $db->prepare('SELECT status, origin_country_id, shipping_type FROM shipments WHERE id = ? AND deleted_at IS NULL');
     $targetStmt->execute([(int) $newValues['shipment_id']]);
     $targetShipment = $targetStmt->fetch();
     if (!$targetShipment) {
@@ -277,7 +277,7 @@ if ($weightType === 'volumetric' && ($w === null || $d === null || $h === null))
     api_error('w, d, h are required for volumetric weight_type', 422);
 }
 
-$qty = compute_qty($unitType, $weightType, (float) $actualWeight, (float) $w, (float) $d, (float) $h);
+$qty = compute_qty($unitType, $weightType, (float) $actualWeight, (float) $w, (float) $d, (float) $h, $targetShipment['shipping_type'] ?? null);
 $basePrice = compute_base_price($qty, (float) $newValues['rate']);
 
 $computedAdjustments = [];

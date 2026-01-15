@@ -6,6 +6,7 @@ require_once __DIR__ . '/../../app/permissions.php';
 require_once __DIR__ . '/../../app/services/finance_service.php';
 require_once __DIR__ . '/../../app/services/shipment_service.php';
 require_once __DIR__ . '/../../app/audit.php';
+require_once __DIR__ . '/../../app/services/account_service.php';
 
 api_require_method('PATCH');
 $user = require_role(['Admin', 'Owner', 'Main Branch']);
@@ -81,6 +82,11 @@ $insertItem = $db->prepare(
     'INSERT INTO partner_invoice_items (invoice_id, description, amount) VALUES (?, ?, ?)'
 );
 
+$expenseLookup = $db->prepare(
+    'SELECT id, account_transfer_id, expense_date, note FROM general_expenses '
+    . 'WHERE reference_type = ? AND reference_id = ? AND deleted_at IS NULL LIMIT 1'
+);
+
 $db->beginTransaction();
 try {
     $delta = $total - (float) ($before['total'] ?? 0);
@@ -124,11 +130,40 @@ try {
             ->execute([$delta, $partnerId]);
     }
 
-    if ($shipmentId) {
+    $expenseLookup->execute(['partner_invoice', $invoiceId]);
+    $expense = $expenseLookup->fetch();
+    if ($expense) {
+        $expenseDate = $issuedAtFinal ? date('Y-m-d', strtotime($issuedAtFinal)) : ($expense['expense_date'] ?? null);
         $db->prepare(
-            'UPDATE general_expenses SET amount = ?, updated_at = NOW(), updated_by_user_id = ? '
-            . 'WHERE reference_type = ? AND reference_id = ? AND deleted_at IS NULL'
-        )->execute([$total, $user['id'] ?? null, 'partner_invoice', $invoiceId]);
+            'UPDATE general_expenses SET amount = ?, expense_date = ?, updated_at = NOW(), updated_by_user_id = ? '
+            . 'WHERE id = ?'
+        )->execute([$total, $expenseDate, $user['id'] ?? null, $expense['id']]);
+
+        $currentTransferId = !empty($expense['account_transfer_id']) ? (int) $expense['account_transfer_id'] : null;
+        if ($currentTransferId) {
+            $fromAccountStmt = $db->prepare('SELECT from_account_id FROM account_transfers WHERE id = ?');
+            $fromAccountStmt->execute([$currentTransferId]);
+            $fromAccountId = (int) $fromAccountStmt->fetchColumn();
+            if ($fromAccountId) {
+                cancel_account_transfer($db, $currentTransferId, 'Partner invoice updated', $user['id'] ?? null);
+                $entryType = $shipmentId ? 'shipment_expense' : 'general_expense';
+                $transferNote = $expense['note'] ?? null;
+                $transferId = create_account_transfer(
+                    $db,
+                    $fromAccountId,
+                    null,
+                    $total,
+                    $entryType,
+                    $expenseDate,
+                    $transferNote,
+                    'general_expense',
+                    (int) $expense['id'],
+                    $user['id'] ?? null
+                );
+                $db->prepare('UPDATE general_expenses SET account_transfer_id = ? WHERE id = ?')
+                    ->execute([$transferId, $expense['id']]);
+            }
+        }
     }
 
     $afterStmt = $db->prepare('SELECT * FROM partner_invoices WHERE id = ?');

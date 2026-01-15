@@ -42,8 +42,6 @@ function internal_page_start(array $user, string $active, string $title, string 
         'orders' => [
             'label' => 'Orders',
             'view' => BASE_URL . '/views/internal/orders',
-            'create' => BASE_URL . '/views/internal/order_create',
-            'create_roles' => ['Admin', 'Owner', 'Main Branch', 'Warehouse'],
         ],
         'customers' => [
             'label' => 'Customers',
@@ -127,7 +125,7 @@ function internal_page_start(array $user, string $active, string $title, string 
     if (!in_array($role, ['Admin', 'Owner'], true)) {
         unset($navItems['company']);
     }
-    if (!in_array($role, ['Admin', 'Owner', 'Main Branch', 'Warehouse'], true)) {
+    if (!in_array($role, ['Admin', 'Owner', 'Main Branch'], true)) {
         unset($navGroups['partners']);
     }
     if (in_array($role, ['Staff', 'Sub Branch', 'Warehouse', 'Main Branch'], true)) {
@@ -314,9 +312,9 @@ function internal_page_start(array $user, string $active, string $title, string 
         $group = $navGroups[$key];
         $label = htmlspecialchars($group['label'], ENT_QUOTES, 'UTF-8');
         $viewHref = $group['view'];
-        $createHref = $group['create'];
+        $createHref = $group['create'] ?? null;
         $viewPath = $normalizePath($viewHref);
-        $createPath = $normalizePath($createHref);
+        $createPath = $createHref ? $normalizePath($createHref) : '';
         $isCreateActive = $currentPath === $createPath || ($key === $active && $isCreateMode);
         $isViewActive = $currentPath === $viewPath && !$isCreateActive;
         $groupActive = $key === $active || $isCreateActive || $isViewActive;
@@ -338,7 +336,7 @@ function internal_page_start(array $user, string $active, string $title, string 
             . '</svg>';
         echo "                    <a class=\"{$viewClass}\" href=\"" . htmlspecialchars($viewHref, ENT_QUOTES, 'UTF-8')
             . "\">{$viewIcon}<span>{$viewLabel}</span></a>\n";
-        if ($canCreate) {
+        if ($canCreate && $createHref) {
             $createLabel = htmlspecialchars('Create', ENT_QUOTES, 'UTF-8');
             $createClass = 'sidebar-sublink' . ($isCreateActive ? ' active' : '');
             $createIcon = '<svg class="sidebar-subicon" viewBox="0 0 24 24" aria-hidden="true">'

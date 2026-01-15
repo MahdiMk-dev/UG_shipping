@@ -3,6 +3,19 @@
         window.APP_BASE = '.';
     }
 
+    if (!window.formatCustomerLabel) {
+        window.formatCustomerLabel = (customer) => {
+            if (!customer) {
+                return '';
+            }
+            const phoneValue = customer.phone || customer.portal_phone || '';
+            const phone = phoneValue ? ` - ${phoneValue}` : '';
+            const countryLabel = customer.profile_country_name ? ` | ${customer.profile_country_name}` : '';
+            return `${customer.name} (${customer.code})${countryLabel}${phone}`;
+        };
+    }
+    const formatCustomerLabel = window.formatCustomerLabel;
+
     const showConfirmDialog = (options = {}) =>
         new Promise((resolve) => {
             const title = options.title || 'Confirm';
@@ -202,6 +215,7 @@
             initStaffView();
             initCustomerCreate();
             initCustomerEdit();
+            initCustomerInfoEdit();
             initCustomerView();
             initAuditPage();
             initReceivingPage();
@@ -248,6 +262,7 @@
         initStaffView();
         initCustomerCreate();
         initCustomerEdit();
+        initCustomerInfoEdit();
         initCustomerView();
         initAuditPage();
         initReceivingPage();
@@ -323,6 +338,7 @@
     initBranchOverviewPage();
     initCustomerCreate();
     initCustomerEdit();
+    initCustomerInfoEdit();
     initCustomerView();
     initStaffPage();
     initStaffView();
@@ -885,6 +901,7 @@ function initShipmentsPage() {
     const nextButton = page.querySelector('[data-shipments-next]');
     const pageLabel = page.querySelector('[data-shipments-page]');
     const { role, branchId } = getUserContext();
+    const canEditProfile = role === 'Admin';
     const showMeta = hasAuditMetaAccess(role);
     const columnCount = 9;
     const metaClass = 'meta-col';
@@ -1103,6 +1120,7 @@ function initShipmentView() {
     const shipmentExpensesPageLabel = page.querySelector('[data-shipment-expenses-page]');
     const shipmentExpensesDrawer = page.querySelector('[data-shipment-expenses-drawer]');
     const shipmentExpensesForm = page.querySelector('[data-shipment-expenses-form]');
+    const shipmentExpensesAccountSelect = page.querySelector('[data-shipment-expenses-account]');
     const shipmentExpensesTitle = page.querySelector('[data-shipment-expenses-title]');
     const shipmentExpensesSubmitLabel = page.querySelector('[data-shipment-expenses-submit-label]');
     const shipmentExpenseIdField = page.querySelector('[data-shipment-expense-id]');
@@ -1121,6 +1139,9 @@ function initShipmentView() {
     const shipmentMediaPageLabel = page.querySelector('[data-shipment-media-page]');
     const shipmentPackingViewLink = page.querySelector('[data-shipment-packing-view]');
     const shipmentPackingDownloadLink = page.querySelector('[data-shipment-packing-download]');
+    const shipmentTabs = page.querySelector('[data-shipment-tabs]');
+    const shipmentTabButtons = shipmentTabs ? Array.from(shipmentTabs.querySelectorAll('[data-shipment-tab]')) : [];
+    const shipmentTabPanels = shipmentTabs ? Array.from(shipmentTabs.querySelectorAll('[data-shipment-tab-panel]')) : [];
     const { role, branchId } = getUserContext();
     const canEditRole = ['Admin', 'Owner', 'Main Branch', 'Warehouse'].includes(role || '');
     const canDistributeRole = ['Admin', 'Owner', 'Main Branch'].includes(role || '');
@@ -1152,6 +1173,31 @@ function initShipmentView() {
         const num = Number(value ?? 0);
         return Number.isFinite(num) ? num.toFixed(2) : '0.00';
     };
+    const renderAccountOptions = (select, accounts, placeholder) => {
+        if (!select) {
+            return;
+        }
+        select.innerHTML = `<option value="">${placeholder}</option>`;
+        (accounts || []).forEach((account) => {
+            const option = document.createElement('option');
+            option.value = account.id;
+            const methodLabel = account.payment_method_name ? ` (${account.payment_method_name})` : '';
+            option.textContent = `${account.name}${methodLabel}`;
+            select.appendChild(option);
+        });
+    };
+    const loadShipmentExpenseAccounts = async () => {
+        if (!shipmentExpensesAccountSelect) {
+            return;
+        }
+        renderAccountOptions(shipmentExpensesAccountSelect, [], 'Select admin account');
+        try {
+            const adminData = await fetchJson(`${window.APP_BASE}/api/accounts/list.php?owner_type=admin&is_active=1`);
+            renderAccountOptions(shipmentExpensesAccountSelect, adminData.data || [], 'Select admin account');
+        } catch (error) {
+            showShipmentExpensesNotice(`Accounts load failed: ${error.message}`, 'error');
+        }
+    };
     const normalizeWhatsAppPhone = (value) => {
         const digits = String(value || '').replace(/\D/g, '');
         if (digits.length === 8) {
@@ -1166,9 +1212,16 @@ function initShipmentView() {
             : shipment?.id
                 ? `Shipment #${shipment.id}`
                 : 'Shipment';
-        const lines = [`UG Shipping - ${shipmentLabel}`, `Customer: ${customerName || 'Customer'}`, 'Orders received:'];
+        const filteredOrders = (orders || []).filter(
+            (order) => !['with_delivery', 'picked_up'].includes(order.fulfillment_status || '')
+        );
+        const lines = [
+            `UG Shipping - ${shipmentLabel}`,
+            `Customer: ${customerName || 'Customer'}`,
+            'Orders received:',
+        ];
         let total = 0;
-        orders.forEach((order, index) => {
+        filteredOrders.forEach((order, index) => {
             const tracking = order.tracking_number || `Order #${order.id}`;
             const qtyValue = Number(order.qty ?? 0);
             const qtyLabel = Number.isFinite(qtyValue) && qtyValue > 0
@@ -1187,7 +1240,7 @@ function initShipmentView() {
             }
             lines.push(line);
         });
-        lines.push(`Count: ${orders.length}`);
+        lines.push(`Count: ${filteredOrders.length}`);
         if (canSeeIncome) {
             lines.push(`Total: ${formatAmount(total)}`);
         }
@@ -1226,6 +1279,36 @@ function initShipmentView() {
             toggle.addEventListener('click', () => {
                 const isCollapsed = panel.getAttribute('data-collapsed') === '1';
                 setCollapsed(!isCollapsed);
+            });
+        });
+    };
+
+    const setActiveShipmentTab = (tabId) => {
+        if (!tabId) {
+            return;
+        }
+        shipmentTabButtons.forEach((button) => {
+            const isActive = button.getAttribute('data-shipment-tab') === tabId;
+            button.classList.toggle('is-active', isActive);
+            button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        });
+        shipmentTabPanels.forEach((panel) => {
+            const isActive = panel.getAttribute('data-shipment-tab-panel') === tabId;
+            panel.classList.toggle('is-active', isActive);
+        });
+    };
+
+    const initShipmentTabs = () => {
+        if (!shipmentTabs || !shipmentTabButtons.length || !shipmentTabPanels.length) {
+            return;
+        }
+        const activeButton = shipmentTabButtons.find((button) => button.classList.contains('is-active'));
+        const initialTab = activeButton ? activeButton.getAttribute('data-shipment-tab') : shipmentTabButtons[0].getAttribute('data-shipment-tab');
+        setActiveShipmentTab(initialTab);
+        shipmentTabButtons.forEach((button) => {
+            button.addEventListener('click', () => {
+                const tabId = button.getAttribute('data-shipment-tab');
+                setActiveShipmentTab(tabId);
             });
         });
     };
@@ -1341,6 +1424,9 @@ function initShipmentView() {
         shipmentExpensesForm.querySelector('[name="amount"]').value = expense?.amount ?? '';
         shipmentExpensesForm.querySelector('[name="expense_date"]').value = expense?.expense_date || '';
         shipmentExpensesForm.querySelector('[name="note"]').value = expense?.note || '';
+        if (shipmentExpensesAccountSelect) {
+            shipmentExpensesAccountSelect.value = expense?.from_account_id ? String(expense.from_account_id) : '';
+        }
     };
 
     const renderShipmentExpenses = () => {
@@ -2189,6 +2275,10 @@ function initShipmentView() {
                 showShipmentExpenseFormNotice('Title and amount are required.', 'error');
                 return;
             }
+            if (!payload.from_account_id) {
+                showShipmentExpenseFormNotice('Select an admin account.', 'error');
+                return;
+            }
             try {
                 if (expenseId) {
                     payload.id = expenseId;
@@ -2279,9 +2369,11 @@ function initShipmentView() {
     });
 
     initCollapsiblePanels();
+    initShipmentTabs();
     loadCountries();
     loadGoodsTypes();
     loadPartners();
+    loadShipmentExpenseAccounts();
     loadShipment();
 }
 
@@ -2423,9 +2515,13 @@ function initReceivingPage() {
             .map((row) => {
                 const shipmentLabel = row.shipment_number || row.shipment_id || '-';
                 const branchLabel = row.branch_name || row.branch_id || '-';
+                const lockedStatuses = new Set(['received_subbranch', 'with_delivery', 'picked_up']);
+                const canReturn = row.order_id && !lockedStatuses.has(row.order_status || '');
                 const actionCell = canManage
                     ? `<td>${
-                          row.order_id ? `<button class="button ghost small" type="button" data-return-scan="${row.id}">Return</button>` : '-'
+                          canReturn
+                              ? `<button class="button ghost small" type="button" data-return-scan="${row.id}">Return</button>`
+                              : '-'
                       }</td>`
                     : '';
                 return `<tr>
@@ -3233,7 +3329,8 @@ function initShipmentCustomerOrders() {
                 showEditNotice('Order is not loaded.', 'error');
                 return;
             }
-            const weightType = editForm.querySelector('[name="weight_type"]')?.value || 'actual';
+            const weightType =
+                editForm.querySelector('[name="weight_type"]:checked')?.value || 'actual';
             const rateInput = editForm.querySelector('[name="rate"]');
             const rateValue = rateInput?.value || '';
             const payload = {
@@ -3320,6 +3417,7 @@ function initShipmentOrdersPage() {
     const shipmentIdAttr = page.getAttribute('data-shipment-id');
     const shipmentNumberAttr = page.getAttribute('data-shipment-number');
     const canSeeIncome = page.getAttribute('data-show-income') !== '0';
+    const canReturn = page.getAttribute('data-can-return') === '1';
     const tableBody = page.querySelector('[data-shipment-orders-table]');
     const statusStack = page.querySelector('[data-shipment-orders-status]');
     const filterForm = page.querySelector('[data-shipment-orders-filter]');
@@ -3330,6 +3428,15 @@ function initShipmentOrdersPage() {
     const nextButton = page.querySelector('[data-shipment-orders-next]');
     const pageLabel = page.querySelector('[data-shipment-orders-page]');
     const details = page.querySelectorAll('[data-detail]');
+    const mediaPanel = page.querySelector('[data-order-media-panel]');
+    const mediaTitle = page.querySelector('[data-order-media-title]');
+    const mediaForm = page.querySelector('[data-order-media-form]');
+    const mediaIdField = page.querySelector('[data-order-media-id]');
+    const mediaTable = page.querySelector('[data-order-media-table]');
+    const mediaStatus = page.querySelector('[data-order-media-status]');
+    const mediaPrev = page.querySelector('[data-order-media-prev]');
+    const mediaNext = page.querySelector('[data-order-media-next]');
+    const mediaPageLabel = page.querySelector('[data-order-media-page]');
 
     const detailMap = {};
     details.forEach((el) => {
@@ -3344,6 +3451,18 @@ function initShipmentOrdersPage() {
         notice.className = `notice ${type}`;
         notice.textContent = message;
         statusStack.appendChild(notice);
+        setTimeout(() => notice.remove(), 6000);
+    };
+
+    const showMediaNotice = (message, type = 'error') => {
+        if (!mediaStatus) {
+            showNotice(message, type);
+            return;
+        }
+        const notice = document.createElement('div');
+        notice.className = `notice ${type}`;
+        notice.textContent = message;
+        mediaStatus.appendChild(notice);
         setTimeout(() => notice.remove(), 6000);
     };
 
@@ -3367,6 +3486,7 @@ function initShipmentOrdersPage() {
     };
 
     const limit = 20;
+    const mediaPageSize = 5;
     let offset = 0;
     let lastCount = 0;
     let resolvedShipmentId = shipmentIdAttr || '';
@@ -3374,6 +3494,8 @@ function initShipmentOrdersPage() {
         status: '',
         q: '',
     };
+    let mediaPage = 0;
+    let mediaData = [];
 
     const updatePager = () => {
         if (prevButton) {
@@ -3387,11 +3509,125 @@ function initShipmentOrdersPage() {
         }
     };
 
+    const updateMediaPager = () => {
+        if (mediaPrev) {
+            mediaPrev.disabled = mediaPage === 0;
+        }
+        if (mediaNext) {
+            mediaNext.disabled = mediaData.length <= (mediaPage + 1) * mediaPageSize;
+        }
+        if (mediaPageLabel) {
+            mediaPageLabel.textContent = `Page ${mediaPage + 1}`;
+        }
+    };
+
+    const renderMediaTable = (orderId) => {
+        if (!mediaTable) {
+            return;
+        }
+        if (!mediaData.length) {
+            mediaTable.innerHTML = '<tr><td colspan="5" class="muted">No attachments yet.</td></tr>';
+            updateMediaPager();
+            return;
+        }
+        const rows = mediaData.slice(mediaPage * mediaPageSize, mediaPage * mediaPageSize + mediaPageSize);
+        mediaTable.innerHTML = rows
+            .map((att) => {
+                const downloadUrl =
+                    att.download_url || `${window.APP_BASE}/api/attachments/download.php?id=${att.id}`;
+                return `<tr>
+                    <td>${att.title || att.original_name || '-'}</td>
+                    <td>${att.mime_type || '-'}</td>
+                    <td>${att.created_at || '-'}</td>
+                    <td><a class="text-link" href="${downloadUrl}">Download</a></td>
+                    <td><button class="button ghost small" type="button" data-attachment-delete data-attachment-id="${att.id}">Delete</button></td>
+                </tr>`;
+            })
+            .join('');
+        updateMediaPager();
+        bindMediaDeletes(orderId);
+    };
+
+    const bindMediaDeletes = (orderId) => {
+        if (!mediaTable) {
+            return;
+        }
+        mediaTable.querySelectorAll('[data-attachment-delete]').forEach((button) => {
+            button.addEventListener('click', async () => {
+                const attachmentId = button.getAttribute('data-attachment-id');
+                if (!attachmentId) {
+                    return;
+                }
+                try {
+                    await fetchJson(`${window.APP_BASE}/api/attachments/delete.php`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ id: attachmentId }),
+                    });
+                    await loadMedia(orderId);
+                } catch (error) {
+                    showMediaNotice(`Delete failed: ${error.message}`, 'error');
+                }
+            });
+        });
+    };
+
+    const loadMedia = async (orderId) => {
+        if (!mediaTable) {
+            return;
+        }
+        mediaTable.innerHTML = '<tr><td colspan="5" class="muted">Loading attachments...</td></tr>';
+        try {
+            const data = await fetchJson(
+                `${window.APP_BASE}/api/attachments/list.php?entity_type=order&entity_id=${encodeURIComponent(
+                    String(orderId)
+                )}`
+            );
+            mediaData = data.data || [];
+            mediaPage = 0;
+            renderMediaTable(orderId);
+        } catch (error) {
+            mediaData = [];
+            renderMediaTable(orderId);
+            showMediaNotice(`Attachments load failed: ${error.message}`, 'error');
+        }
+    };
+
+    const openMediaPanel = (orderId, trackingLabel = '') => {
+        if (mediaPanel) {
+            mediaPanel.classList.remove('is-hidden');
+        }
+        if (mediaIdField) {
+            mediaIdField.value = String(orderId);
+        }
+        if (mediaTitle) {
+            const label = trackingLabel ? `Order ${trackingLabel}` : `Order #${orderId}`;
+            mediaTitle.textContent = `Attachments for ${label}.`;
+        }
+        loadMedia(orderId);
+    };
+
+    const bindOrderMediaButtons = () => {
+        if (!tableBody) {
+            return;
+        }
+        tableBody.querySelectorAll('[data-order-media]').forEach((button) => {
+            button.addEventListener('click', () => {
+                const orderId = button.getAttribute('data-order-id');
+                if (!orderId) {
+                    return;
+                }
+                const tracking = button.getAttribute('data-order-tracking') || '';
+                openMediaPanel(orderId, tracking ? `#${tracking}` : '');
+            });
+        });
+    };
+
     const renderOrders = (rows) => {
         if (!tableBody) {
             return;
         }
-        const columnCount = canSeeIncome ? 7 : 6;
+        const columnCount = canSeeIncome ? (canReturn ? 9 : 8) : (canReturn ? 8 : 7);
         if (!rows.length) {
             tableBody.innerHTML = `<tr><td colspan="${columnCount}" class="muted">No orders found.</td></tr>`;
             updatePager();
@@ -3407,6 +3643,17 @@ function initShipmentOrdersPage() {
                 const qtyValue = row.qty !== null && row.qty !== undefined ? row.qty : null;
                 const qtyLabel = qtyValue !== null && qtyValue !== '' ? `${qtyValue} ${row.unit_type || ''}`.trim() : '-';
                 const totalCell = canSeeIncome ? `<td>${formatAmount(row.total_price)}</td>` : '';
+                const canReturnRow =
+                    canReturn
+                    && row.sub_branch_id
+                    && !['with_delivery', 'picked_up'].includes(row.fulfillment_status || '');
+                const returnCell = canReturn
+                    ? `<td>${
+                          canReturnRow
+                              ? `<button class="button ghost small" type="button" data-order-return="${row.id}">Return</button>`
+                              : '-'
+                      }</td>`
+                    : '';
                 return `<tr>
                     <td>${row.tracking_number || '-'}</td>
                     <td>${customerLabel}</td>
@@ -3415,10 +3662,18 @@ function initShipmentOrdersPage() {
                     ${totalCell}
                     <td>${row.fulfillment_status || '-'}</td>
                     <td>${row.created_at || '-'}</td>
+                    <td>
+                        <button class="button ghost small" type="button" data-order-media data-order-id="${row.id}"
+                            data-order-tracking="${row.tracking_number || ''}">
+                            Manage
+                        </button>
+                    </td>
+                    ${returnCell}
                 </tr>`;
             })
             .join('');
         updatePager();
+        bindOrderMediaButtons();
     };
 
     const loadOrders = async () => {
@@ -3426,7 +3681,7 @@ function initShipmentOrdersPage() {
             return;
         }
         if (tableBody) {
-            const columnCount = canSeeIncome ? 7 : 6;
+            const columnCount = canSeeIncome ? 8 : 7;
             tableBody.innerHTML = `<tr><td colspan="${columnCount}" class="muted">Loading orders...</td></tr>`;
         }
         const params = new URLSearchParams({
@@ -3547,6 +3802,96 @@ function initShipmentOrdersPage() {
                 searchInput.value = '';
             }
             applyFilters();
+        });
+    }
+
+    if (mediaPrev) {
+        mediaPrev.addEventListener('click', () => {
+            if (mediaPage === 0) {
+                return;
+            }
+            mediaPage -= 1;
+            renderMediaTable(mediaIdField ? mediaIdField.value : '');
+        });
+    }
+
+    if (mediaNext) {
+        mediaNext.addEventListener('click', () => {
+            if (mediaData.length <= (mediaPage + 1) * mediaPageSize) {
+                return;
+            }
+            mediaPage += 1;
+            renderMediaTable(mediaIdField ? mediaIdField.value : '');
+        });
+    }
+
+    if (mediaForm) {
+        mediaForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const orderId = mediaIdField ? mediaIdField.value : '';
+            if (!orderId) {
+                showMediaNotice('Select an order to upload media.', 'error');
+                return;
+            }
+            const fileInput = mediaForm.querySelector('[name="file"]');
+            if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+                showMediaNotice('Choose a file to upload.', 'error');
+                return;
+            }
+            const formData = new FormData(mediaForm);
+            formData.set('entity_type', 'order');
+            formData.set('entity_id', orderId);
+            try {
+                const response = await fetch(`${window.APP_BASE}/api/attachments/upload.php`, {
+                    method: 'POST',
+                    body: formData,
+                    credentials: 'same-origin',
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok || data.ok === false) {
+                    throw new Error(data.error || 'Upload failed.');
+                }
+                showMediaNotice('Attachment uploaded.', 'success');
+                mediaForm.querySelectorAll('input[type="text"]').forEach((input) => {
+                    input.value = '';
+                });
+                fileInput.value = '';
+                await loadMedia(orderId);
+            } catch (error) {
+                showMediaNotice(`Upload failed: ${error.message}`, 'error');
+            }
+        });
+    }
+
+    if (tableBody && canReturn) {
+        tableBody.addEventListener('click', async (event) => {
+            const button = event.target.closest('[data-order-return]');
+            if (!button) {
+                return;
+            }
+            const orderId = button.getAttribute('data-order-return');
+            if (!orderId) {
+                return;
+            }
+            const confirmed = await showConfirmDialog({
+                title: 'Return order',
+                message: 'Return this order to the main branch?',
+                confirmLabel: 'Return',
+            });
+            if (!confirmed) {
+                return;
+            }
+            try {
+                await fetchJson(`${window.APP_BASE}/api/orders/return_to_main.php`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ order_id: orderId }),
+                });
+                showNotice('Order returned to main branch.', 'success');
+                loadShipment().then(loadOrders);
+            } catch (error) {
+                showNotice(`Return failed: ${error.message}`, 'error');
+            }
         });
     }
 
@@ -3781,6 +4126,7 @@ function initPartnerView() {
     const invoiceIdInput = page.querySelector('[data-partner-invoice-id]');
     const invoiceCurrencySelect = page.querySelector('[data-partner-invoice-currency]');
     const invoiceSubmitButton = page.querySelector('[data-partner-invoice-submit]');
+    const invoiceAccountSelect = page.querySelector('[data-partner-invoice-account]');
     const invoiceCancelEditButton = page.querySelector('[data-partner-invoice-cancel-edit]');
     const shipmentSearchInput = page.querySelector('[data-shipment-search]');
     const shipmentSelect = page.querySelector('[data-shipment-select]');
@@ -3969,6 +4315,11 @@ function initPartnerView() {
         if (invoiceCurrencySelect) {
             invoiceCurrencySelect.value = 'USD';
         }
+        if (invoiceAccountSelect) {
+            invoiceAccountSelect.disabled = false;
+            invoiceAccountSelect.required = true;
+            invoiceAccountSelect.value = '';
+        }
         if (shipmentSearchInput) {
             shipmentSearchInput.disabled = false;
         }
@@ -3995,6 +4346,11 @@ function initPartnerView() {
         }
         if (invoiceCurrencySelect) {
             invoiceCurrencySelect.value = (invoice.currency || 'USD').toUpperCase();
+        }
+        if (invoiceAccountSelect) {
+            invoiceAccountSelect.disabled = true;
+            invoiceAccountSelect.required = false;
+            invoiceAccountSelect.value = '';
         }
         if (invoiceForm) {
             const noteInput = invoiceForm.querySelector('[name="note"]');
@@ -4423,7 +4779,7 @@ function initPartnerView() {
     };
 
     const loadPaymentAccounts = async () => {
-        if (!paymentAccountSelect) {
+        if (!paymentAccountSelect && !invoiceAccountSelect) {
             return;
         }
         accountMap.clear();
@@ -4431,6 +4787,7 @@ function initPartnerView() {
             const adminData = await fetchJson(`${window.APP_BASE}/api/accounts/list.php?owner_type=admin&is_active=1`);
             const adminAccounts = adminData.data || [];
             renderAccountOptions(paymentAccountSelect, adminAccounts, 'Select admin account');
+            renderAccountOptions(invoiceAccountSelect, adminAccounts, 'Select admin account');
         } catch (error) {
             showNotice(statusStack, `Accounts load failed: ${error.message}`, 'error');
         }
@@ -4462,49 +4819,56 @@ function initPartnerView() {
                 return;
             }
 
-              const isEditing = Boolean(editingInvoiceId);
-              const payload = {
-                  partner_id: partnerId,
-                  items,
-                  currency: invoiceCurrencySelect ? invoiceCurrencySelect.value || 'USD' : 'USD',
-              };
-              if (!isEditing && shipmentValue) {
-                  payload.shipment_id = shipmentValue;
-              }
-              const normalizedIssued = normalizeDateTime(issuedValue);
-              if (normalizedIssued) {
-                  payload.issued_at = normalizedIssued;
-              }
-              if (isEditing) {
-                  payload.invoice_id = editingInvoiceId;
-                  payload.note = noteValue;
-              } else if (noteValue) {
-                  payload.note = noteValue;
-              }
-              try {
-                 await fetchJson(`${window.APP_BASE}/api/partner_invoices/${isEditing ? 'update' : 'create'}.php`, {
-                      method: isEditing ? 'PATCH' : 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify(payload),
-                  });
-                  showNotice(invoiceStatus, isEditing ? 'Invoice updated.' : 'Invoice created.', 'success');
-                  resetInvoiceForm();
-                  if (invoiceLineManager) {
-                      invoiceLineManager.updateTotal();
-                  }
+            const isEditing = Boolean(editingInvoiceId);
+            const payload = {
+                partner_id: partnerId,
+                items,
+                currency: invoiceCurrencySelect ? invoiceCurrencySelect.value || 'USD' : 'USD',
+            };
+            if (!isEditing) {
+                if (!invoiceAccountSelect || !invoiceAccountSelect.value) {
+                    showNotice(invoiceStatus, 'Select an admin account.', 'error');
+                    return;
+                }
+                payload.admin_account_id = invoiceAccountSelect.value;
+                if (shipmentValue) {
+                    payload.shipment_id = shipmentValue;
+                }
+            }
+            const normalizedIssued = normalizeDateTime(issuedValue);
+            if (normalizedIssued) {
+                payload.issued_at = normalizedIssued;
+            }
+            if (isEditing) {
+                payload.invoice_id = editingInvoiceId;
+                payload.note = noteValue;
+            } else if (noteValue) {
+                payload.note = noteValue;
+            }
+            try {
+                await fetchJson(`${window.APP_BASE}/api/partner_invoices/${isEditing ? 'update' : 'create'}.php`, {
+                    method: isEditing ? 'PATCH' : 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                showNotice(invoiceStatus, isEditing ? 'Invoice updated.' : 'Invoice created.', 'success');
+                resetInvoiceForm();
+                if (invoiceLineManager) {
+                    invoiceLineManager.updateTotal();
+                }
                 invoicesPage = 0;
                 loadPartner();
                 loadInvoices();
                 loadInvoiceOptions();
-              } catch (error) {
-                  showNotice(
-                      invoiceStatus,
-                      `${isEditing ? 'Update' : 'Create'} failed: ${error.message}`,
-                      'error'
-                  );
-              }
-          });
-      }
+            } catch (error) {
+                showNotice(
+                    invoiceStatus,
+                    `${isEditing ? 'Update' : 'Create'} failed: ${error.message}`,
+                    'error'
+                );
+            }
+        });
+    }
 
     if (shipmentSearchInput && shipmentSelect) {
         shipmentSearchInput.addEventListener('input', () => {
@@ -4992,15 +5356,27 @@ function initOrderCreate() {
     const rateField = rateInput ? rateInput.closest('label') : null;
     const trackingInput = createForm?.querySelector('[name="tracking_number"]');
     const submitButton = createForm?.querySelector('button[type="submit"]');
+    const mediaPanel = page.querySelector('[data-order-create-media-panel]');
+    const mediaTitle = page.querySelector('[data-order-create-media-title]');
+    const mediaForm = page.querySelector('[data-order-create-media-form]');
+    const mediaIdField = page.querySelector('[data-order-create-media-id]');
+    const mediaTable = page.querySelector('[data-order-create-media-table]');
+    const mediaStatus = page.querySelector('[data-order-create-media-status]');
+    const mediaPrev = page.querySelector('[data-order-create-media-prev]');
+    const mediaNext = page.querySelector('[data-order-create-media-next]');
+    const mediaPageLabel = page.querySelector('[data-order-create-media-page]');
     const { role } = getUserContext();
     const isWarehouse = role === 'Warehouse';
     const minCustomerQuery = 2;
+    const mediaPageSize = 5;
 
     const shipmentId = page.getAttribute('data-shipment-id');
     const shipmentNumber = page.getAttribute('data-shipment-number');
     const presetCollectionId = page.getAttribute('data-collection-id');
     let customerSelectize = null;
     let shipmentOriginCountryId = null;
+    let mediaPage = 0;
+    let mediaData = [];
 
     const showNotice = (message, type = 'error') => {
         if (!statusStack) {
@@ -5011,6 +5387,116 @@ function initOrderCreate() {
         notice.textContent = message;
         statusStack.appendChild(notice);
         setTimeout(() => notice.remove(), 7000);
+    };
+
+    const showMediaNotice = (message, type = 'error') => {
+        if (!mediaStatus) {
+            showNotice(message, type);
+            return;
+        }
+        const notice = document.createElement('div');
+        notice.className = `notice ${type}`;
+        notice.textContent = message;
+        mediaStatus.appendChild(notice);
+        setTimeout(() => notice.remove(), 7000);
+    };
+
+    const updateMediaPager = () => {
+        if (mediaPrev) {
+            mediaPrev.disabled = mediaPage === 0;
+        }
+        if (mediaNext) {
+            mediaNext.disabled = mediaData.length <= (mediaPage + 1) * mediaPageSize;
+        }
+        if (mediaPageLabel) {
+            mediaPageLabel.textContent = `Page ${mediaPage + 1}`;
+        }
+    };
+
+    const renderMediaTable = () => {
+        if (!mediaTable) {
+            return;
+        }
+        if (!mediaData.length) {
+            mediaTable.innerHTML = '<tr><td colspan="5" class="muted">No attachments yet.</td></tr>';
+            updateMediaPager();
+            return;
+        }
+        const rows = mediaData.slice(mediaPage * mediaPageSize, mediaPage * mediaPageSize + mediaPageSize);
+        mediaTable.innerHTML = rows
+            .map((att) => {
+                const downloadUrl =
+                    att.download_url || `${window.APP_BASE}/api/attachments/download.php?id=${att.id}`;
+                return `<tr>
+                    <td>${att.title || att.original_name || '-'}</td>
+                    <td>${att.mime_type || '-'}</td>
+                    <td>${att.created_at || '-'}</td>
+                    <td><a class="text-link" href="${downloadUrl}">Download</a></td>
+                    <td><button class="button ghost small" type="button" data-attachment-delete data-attachment-id="${att.id}">Delete</button></td>
+                </tr>`;
+            })
+            .join('');
+        updateMediaPager();
+    };
+
+    const bindMediaDeletes = (orderId) => {
+        if (!mediaTable) {
+            return;
+        }
+        mediaTable.querySelectorAll('[data-attachment-delete]').forEach((button) => {
+            button.addEventListener('click', async () => {
+                const attachmentId = button.getAttribute('data-attachment-id');
+                if (!attachmentId) {
+                    return;
+                }
+                try {
+                    await fetchJson(`${window.APP_BASE}/api/attachments/delete.php`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ id: attachmentId }),
+                    });
+                    await loadMedia(orderId);
+                } catch (error) {
+                    showMediaNotice(`Delete failed: ${error.message}`, 'error');
+                }
+            });
+        });
+    };
+
+    const loadMedia = async (orderId) => {
+        if (!mediaTable) {
+            return;
+        }
+        mediaTable.innerHTML = '<tr><td colspan="5" class="muted">Loading attachments...</td></tr>';
+        try {
+            const data = await fetchJson(
+                `${window.APP_BASE}/api/attachments/list.php?entity_type=order&entity_id=${encodeURIComponent(
+                    String(orderId)
+                )}`
+            );
+            mediaData = data.data || [];
+            mediaPage = 0;
+            renderMediaTable();
+            bindMediaDeletes(orderId);
+        } catch (error) {
+            mediaData = [];
+            renderMediaTable();
+            showMediaNotice(`Attachments load failed: ${error.message}`, 'error');
+        }
+    };
+
+    const openMediaPanel = (orderId, trackingLabel = '') => {
+        if (mediaPanel) {
+            mediaPanel.classList.remove('is-hidden');
+        }
+        if (mediaIdField) {
+            mediaIdField.value = String(orderId);
+        }
+        if (mediaTitle) {
+            const label = trackingLabel ? `Order ${trackingLabel}` : `Order #${orderId}`;
+            mediaTitle.textContent = `Attachments for ${label}.`;
+        }
+        loadMedia(orderId);
     };
 
     if (!shipmentId && !shipmentNumber) {
@@ -5097,7 +5583,7 @@ function initOrderCreate() {
     const loadCustomerOptions = async (query, callback) => {
         const trimmedQuery = query.trim();
         if (trimmedQuery.length < minCustomerQuery) {
-            callback();
+            callback([]);
             return;
         }
         try {
@@ -5116,7 +5602,7 @@ function initOrderCreate() {
             callback(options);
         } catch (error) {
             showNotice(`Customers load failed: ${error.message}`, 'error');
-            callback();
+            callback([]);
         }
     };
 
@@ -5127,7 +5613,9 @@ function initOrderCreate() {
         if (!window.TomSelect) {
             customerSelect.addEventListener('change', () => {
                 syncCustomerBranchByValue(customerSelect.value);
-                focusWeightField();
+                if (customerSelect.value) {
+                    focusWeightField();
+                }
             });
             return;
         }
@@ -5149,7 +5637,9 @@ function initOrderCreate() {
             },
             onChange: (value) => {
                 syncCustomerBranchByValue(value);
-                focusWeightField();
+                if (value) {
+                    focusWeightField();
+                }
             },
             render: {
                 no_results: (data, escape) => {
@@ -5253,6 +5743,10 @@ function initOrderCreate() {
                     body: JSON.stringify(payload),
                 });
                 showNotice(`Order created (#${data.id}).`, 'success');
+                const trackingLabel = payload.tracking_number ? `#${payload.tracking_number}` : '';
+                if (data.id && mediaPanel) {
+                    openMediaPanel(data.id, trackingLabel);
+                }
                 createForm.reset();
                 if (collectionSelect) {
                     collectionSelect.value = lastCollection;
@@ -5271,6 +5765,64 @@ function initOrderCreate() {
                 }
             } catch (error) {
                 showNotice(`Create failed: ${error.message}`, 'error');
+            }
+        });
+    }
+
+    if (mediaPrev) {
+        mediaPrev.addEventListener('click', () => {
+            if (mediaPage === 0) {
+                return;
+            }
+            mediaPage -= 1;
+            renderMediaTable();
+        });
+    }
+
+    if (mediaNext) {
+        mediaNext.addEventListener('click', () => {
+            if (mediaData.length <= (mediaPage + 1) * mediaPageSize) {
+                return;
+            }
+            mediaPage += 1;
+            renderMediaTable();
+        });
+    }
+
+    if (mediaForm) {
+        mediaForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const orderId = mediaIdField ? mediaIdField.value : '';
+            if (!orderId) {
+                showMediaNotice('Create an order first.', 'error');
+                return;
+            }
+            const fileInput = mediaForm.querySelector('[name="file"]');
+            if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+                showMediaNotice('Choose a file to upload.', 'error');
+                return;
+            }
+            const formData = new FormData(mediaForm);
+            formData.set('entity_type', 'order');
+            formData.set('entity_id', orderId);
+            try {
+                const response = await fetch(`${window.APP_BASE}/api/attachments/upload.php`, {
+                    method: 'POST',
+                    body: formData,
+                    credentials: 'same-origin',
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok || data.ok === false) {
+                    throw new Error(data.error || 'Upload failed.');
+                }
+                showMediaNotice('Attachment uploaded.', 'success');
+                mediaForm.querySelectorAll('input[type="text"]').forEach((input) => {
+                    input.value = '';
+                });
+                fileInput.value = '';
+                await loadMedia(orderId);
+            } catch (error) {
+                showMediaNotice(`Upload failed: ${error.message}`, 'error');
             }
         });
     }
@@ -5321,7 +5873,7 @@ function initOrderCreate() {
     if (trackingInput) {
         trackingInput.focus();
         trackingInput.addEventListener('keydown', (event) => {
-            if (event.key === 'Enter') {
+            if (event.key === 'Enter' || event.key === 'Tab') {
                 event.preventDefault();
                 focusCustomerSelect();
             }
@@ -5366,9 +5918,9 @@ function initCustomersPage() {
 
     const { role, branchId } = getUserContext();
     const fullAccess = hasFullCustomerAccess(role);
-    const canCreateProfile = ['Admin', 'Owner', 'Main Branch', 'Sub Branch'].includes(role || '');
+    const canCreateProfile = role === 'Admin';
     const canOpenProfile = role !== 'Warehouse';
-    const canEditProfile = canCreateProfile;
+    const canEditProfile = role === 'Admin';
     const showBalance = role !== 'Warehouse';
     const limit = 5;
     let offset = 0;
@@ -5478,7 +6030,10 @@ function initCustomersPage() {
                 }
                 if (canEditProfile) {
                     actions.push(
-                        `<a class="text-link" href="${window.APP_BASE}/views/internal/customer_edit?id=${profile.id}">Edit</a>`
+                        `<a class="text-link" href="${window.APP_BASE}/views/internal/customer_edit?id=${profile.id}">Edit code</a>`
+                    );
+                    actions.push(
+                        `<a class="text-link" href="${window.APP_BASE}/views/internal/customer_info_edit?id=${profile.id}">Edit info</a>`
                     );
                 }
                 const actionsHtml = actions.length ? actions.join(' | ') : '-';
@@ -5509,11 +6064,11 @@ function initCustomersPage() {
     };
 
       const buildProfileLink = (row) => {
-          if (!canCreateProfile || !row.account_id) {
+          if (!canCreateProfile || !row.id) {
               return '';
           }
           const params = new URLSearchParams();
-          params.set('account_id', String(row.account_id));
+          params.set('customer_id', String(row.id));
           params.set('add_profile', '1');
           return `${window.APP_BASE}/views/internal/customer_create?${params.toString()}`;
       };
@@ -5882,6 +6437,8 @@ function initBalancesPage() {
         return;
     }
 
+    const { role } = getUserContext();
+    const canRecordPayment = ['Admin', 'Owner'].includes(role || '');
     const filterForm = page.querySelector('[data-balances-filter]');
     const countrySelect = page.querySelector('[data-balances-country]');
     const refreshButton = page.querySelector('[data-balances-refresh]');
@@ -6041,6 +6598,10 @@ function initBalancesPage() {
                 const dueLabel = formatAmount(dueValue);
                 const dueClass = dueValue > 0 ? 'amount-positive' : '';
                 const countLabel = row.customer_balance_count ? String(row.customer_balance_count) : '0';
+                const canPay = canRecordPayment && row.type === 'sub';
+                const paymentLink = canPay
+                    ? `<a class="text-link" href="${window.APP_BASE}/views/internal/branches?payment=1&branch_id=${row.id}">Record payment</a>`
+                    : '-';
                 return `<tr>
                     <td>${escapeHtml(branchLabel)}</td>
                     <td>${escapeHtml(row.type || '-')}</td>
@@ -6052,6 +6613,8 @@ function initBalancesPage() {
                         <button class="button ghost small" type="button" data-branch-balances-view data-branch-id="${row.id}">
                             View
                         </button>
+                        <span class="muted">|</span>
+                        ${paymentLink}
                     </td>
                 </tr>`;
             })
@@ -7249,6 +7812,10 @@ function initBranchesPage() {
     let lastFilters = {};
     const branchMap = new Map();
     const accountMap = new Map();
+    const urlParams = new URLSearchParams(window.location.search || '');
+    const pendingPaymentBranchId = urlParams.get('branch_id');
+    const shouldOpenPayment = urlParams.get('payment') === '1';
+    let paymentOpened = false;
 
     const showNotice = (message, type = 'error') => {
         if (!statusStack) {
@@ -7425,6 +7992,11 @@ function initBranchesPage() {
                     paymentFromSelect.appendChild(option);
                 }
             });
+            if (shouldOpenPayment && pendingPaymentBranchId && !paymentOpened) {
+                paymentFromSelect.value = String(pendingPaymentBranchId);
+                openPaymentDrawer();
+                paymentOpened = true;
+            }
         } catch (error) {
             showPaymentNotice(`Branches load failed: ${error.message}`, 'error');
         }
@@ -8531,6 +9103,8 @@ function initAccountView() {
     const entriesPrev = page.querySelector('[data-account-entries-prev]');
     const entriesNext = page.querySelector('[data-account-entries-next]');
     const entriesPageLabel = page.querySelector('[data-account-entries-page]');
+    const adjustForm = page.querySelector('[data-account-adjust-form]');
+    const adjustStatus = page.querySelector('[data-account-adjust-status]');
     const detailMap = {};
     const pageSize = 25;
     let entriesPage = 0;
@@ -8550,6 +9124,18 @@ function initAccountView() {
         notice.className = `notice ${type}`;
         notice.textContent = message;
         statusStack.appendChild(notice);
+        setTimeout(() => notice.remove(), 6000);
+    };
+
+    const showAdjustNotice = (message, type = 'error') => {
+        if (!adjustStatus) {
+            showNotice(message, type);
+            return;
+        }
+        const notice = document.createElement('div');
+        notice.className = `notice ${type}`;
+        notice.textContent = message;
+        adjustStatus.appendChild(notice);
         setTimeout(() => notice.remove(), 6000);
     };
 
@@ -8633,8 +9219,8 @@ function initAccountView() {
                     transferLabel = entry.from_account_name || entry.to_account_name;
                 }
                 const statusLabel = entry.status === 'canceled' ? 'Canceled' : 'Active';
-                let referenceLabel = '-';
-                if (entry.reference_type && entry.reference_id) {
+                let referenceLabel = entry.reference_label || '-';
+                if (!entry.reference_label && entry.reference_type && entry.reference_id) {
                     if (entry.reference_type === 'transaction' && entry.customer_name) {
                         const codeLabel = entry.customer_code ? ` (${entry.customer_code})` : '';
                         referenceLabel = `${entry.customer_name}${codeLabel}`;
@@ -8642,7 +9228,7 @@ function initAccountView() {
                         referenceLabel = `${entry.reference_type} #${entry.reference_id}`;
                     }
                 }
-                const noteLabel = entry.transfer_note || '-';
+                const noteLabel = entry.transfer_note || entry.reference_note || '-';
                 return `<tr>
                     <td>${escapeHtml(dateLabel)}</td>
                     <td>${escapeHtml(typeLabel)}</td>
@@ -8728,6 +9314,41 @@ function initAccountView() {
         entriesNext.addEventListener('click', () => {
             entriesPage += 1;
             loadEntries();
+        });
+    }
+
+    if (adjustForm) {
+        adjustForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            if (adjustStatus) {
+                adjustStatus.innerHTML = '';
+            }
+            const formData = new FormData(adjustForm);
+            const payload = {
+                account_id: Number(accountId),
+                type: formData.get('type'),
+                amount: Number(formData.get('amount') || 0),
+                title: (formData.get('title') || '').toString().trim(),
+                adjustment_date: (formData.get('adjustment_date') || '').toString() || null,
+                note: (formData.get('note') || '').toString().trim() || null,
+            };
+            if (!payload.type || !payload.title || !Number.isFinite(payload.amount) || payload.amount <= 0) {
+                showAdjustNotice('Type, title, and a valid amount are required.', 'error');
+                return;
+            }
+            try {
+                await fetchJson(`${window.APP_BASE}/api/accounts/adjust.php`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                showAdjustNotice('Account adjustment saved.', 'success');
+                adjustForm.reset();
+                loadAccount();
+                loadEntries();
+            } catch (error) {
+                showAdjustNotice(`Adjustment failed: ${error.message}`, 'error');
+            }
         });
     }
 
@@ -9196,9 +9817,15 @@ function initCustomerCreate() {
       const portalPasswordInput = form ? form.querySelector('[name="portal_password"]') : null;
       const phoneInput = form ? form.querySelector('[name="phone"]') : null;
       const queryParams = new URLSearchParams(window.location.search);
-      const profileAccountId = queryParams.get('account_id') || '';
+      const accountIdField = form ? form.querySelector('[name="account_id"]') : null;
+      const profileAccountId =
+          (accountIdField && accountIdField.value ? accountIdField.value : '') ||
+          queryParams.get('account_id') ||
+          '';
       const profileMode =
-          profileAccountId !== '' || page.getAttribute('data-profile-mode') === '1';
+          profileAccountId !== '' ||
+          queryParams.get('customer_id') !== null ||
+          page.getAttribute('data-profile-mode') === '1';
       const prefillPortalUsername = profileMode ? '' : queryParams.get('portal_username') || '';
       const prefillPhone = profileMode ? '' : queryParams.get('portal_phone') || queryParams.get('phone') || '';
       const prefillBranchId = profileMode ? '' : queryParams.get('sub_branch_id') || '';
@@ -9387,14 +10014,82 @@ function initCustomerEdit() {
     const customerId = page.getAttribute('data-customer-id');
     const form = page.querySelector('[data-customer-edit-form]');
     const statusStack = page.querySelector('[data-customer-edit-status]');
+    const codeInput = form ? form.querySelector('[name="code"]') : null;
+
+    const showNotice = (message, type = 'error') => {
+        if (!statusStack) {
+            return;
+        }
+        const notice = document.createElement('div');
+        notice.className = `notice ${type}`;
+        notice.textContent = message;
+        statusStack.appendChild(notice);
+        setTimeout(() => notice.remove(), 6000);
+    };
+
+    if (!customerId) {
+        showNotice('Missing customer id.', 'error');
+        return;
+    }
+
+    const populateForm = (customer) => {
+        if (!form || !codeInput) {
+            return;
+        }
+        codeInput.value = customer.code || '';
+    };
+
+    fetchJson(`${window.APP_BASE}/api/customers/view.php?customer_id=${encodeURIComponent(customerId)}`)
+        .then((data) => {
+            populateForm(data.customer);
+        })
+        .catch((error) => {
+            showNotice(`Load failed: ${error.message}`, 'error');
+        });
+
+    if (form) {
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            if (!codeInput) {
+                showNotice('Code is required.', 'error');
+                return;
+            }
+            const payload = {
+                customer_id: customerId,
+                code: codeInput.value.trim(),
+            };
+            if (!payload.code) {
+                showNotice('Code is required.', 'error');
+                return;
+            }
+            try {
+                await fetchJson(`${window.APP_BASE}/api/customers/update.php`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                showNotice('Customer updated.', 'success');
+            } catch (error) {
+                showNotice(`Update failed: ${error.message}`, 'error');
+            }
+        });
+    }
+}
+
+function initCustomerInfoEdit() {
+    const page = document.querySelector('[data-customer-info-edit]');
+    if (!page) {
+        return;
+    }
+
+    const customerId = page.getAttribute('data-customer-id');
+    const form = page.querySelector('[data-customer-info-edit-form]');
+    const statusStack = page.querySelector('[data-customer-info-edit-status]');
     const branchSelect = page.querySelector('[data-branch-select]');
-    const branchField = page.querySelector('[data-branch-field]');
-    const countrySelect = page.querySelector('[data-country-select]');
-    const { role, branchId } = getUserContext();
-    const fullAccess = hasFullCustomerAccess(role);
-    const portalUsernameInput = form ? form.querySelector('[name="portal_username"]') : null;
-    const portalPasswordInput = form ? form.querySelector('[name="portal_password"]') : null;
+    const nameInput = form ? form.querySelector('[name="name"]') : null;
     const phoneInput = form ? form.querySelector('[name="phone"]') : null;
+    const addressInput = form ? form.querySelector('[name="address"]') : null;
+    const noteInput = form ? form.querySelector('[name="note"]') : null;
 
     const showNotice = (message, type = 'error') => {
         if (!statusStack) {
@@ -9429,54 +10124,28 @@ function initCustomerEdit() {
         }
     };
 
-    const loadCountries = async () => {
-        if (!countrySelect) {
-            return;
-        }
-        try {
-            const data = await fetchJson(`${window.APP_BASE}/api/countries/list.php?limit=300`);
-            data.data.forEach((country) => {
-                const option = document.createElement('option');
-                option.value = country.id;
-                option.textContent = country.name;
-                countrySelect.appendChild(option);
-            });
-        } catch (error) {
-            showNotice(`Countries load failed: ${error.message}`, 'error');
-        }
-    };
-
     const populateForm = (customer) => {
         if (!form) {
             return;
         }
-        form.querySelector('[name="name"]').value = customer.name || '';
-        form.querySelector('[name="code"]').value = customer.code || '';
-        form.querySelector('[name="phone"]').value = customer.phone || '';
-        form.querySelector('[name="address"]').value = customer.address || '';
-        const noteField = form.querySelector('[name="note"]');
-        if (noteField) {
-            noteField.value = customer.note || '';
+        if (nameInput) {
+            nameInput.value = customer.name || '';
         }
-        if (portalUsernameInput) {
-            portalUsernameInput.value = customer.portal_username || '';
+        if (phoneInput) {
+            phoneInput.value = customer.phone || '';
         }
-        if (branchSelect && customer.sub_branch_id) {
-            branchSelect.value = customer.sub_branch_id;
+        if (addressInput) {
+            addressInput.value = customer.address || '';
         }
-        if (countrySelect && customer.profile_country_id) {
-            countrySelect.value = customer.profile_country_id;
+        if (noteInput) {
+            noteInput.value = customer.note || '';
+        }
+        if (branchSelect) {
+            branchSelect.value = customer.sub_branch_id || '';
         }
     };
 
-    if (!fullAccess && branchField) {
-        branchField.classList.add('is-hidden');
-    }
-
-    if (fullAccess) {
-        loadBranches();
-    }
-    loadCountries();
+    loadBranches();
 
     fetchJson(`${window.APP_BASE}/api/customers/view.php?customer_id=${encodeURIComponent(customerId)}`)
         .then((data) => {
@@ -9489,34 +10158,46 @@ function initCustomerEdit() {
     if (form) {
         form.addEventListener('submit', async (event) => {
             event.preventDefault();
-            const formData = new FormData(form);
-            const payload = Object.fromEntries(formData.entries());
-            if (portalUsernameInput && !payload.portal_username) {
-                showNotice('Portal username is required.', 'error');
+            if (!nameInput) {
+                showNotice('Name is required.', 'error');
                 return;
             }
-            if (!payload.profile_country_id) {
-                showNotice('Profile country is required.', 'error');
+            const payload = {
+                customer_id: customerId,
+                name: nameInput.value.trim(),
+            };
+            if (!payload.name) {
+                showNotice('Name is required.', 'error');
                 return;
             }
-            if (payload.portal_password !== undefined && String(payload.portal_password).trim() === '') {
-                delete payload.portal_password;
+            if (phoneInput) {
+                const phoneValue = phoneInput.value.trim();
+                if (phoneValue) {
+                    if (phoneValue.length < 8) {
+                        showNotice('Phone number must be at least 8 characters.', 'error');
+                        return;
+                    }
+                    payload.phone = phoneValue;
+                }
             }
-            if (phoneInput && payload.phone && String(payload.phone).trim().length < 8) {
-                showNotice('Phone number must be at least 8 characters.', 'error');
-                return;
+            if (addressInput) {
+                const addressValue = addressInput.value.trim();
+                payload.address = addressValue ? addressValue : null;
             }
-            payload.customer_id = customerId;
-            if (!fullAccess) {
-                delete payload.sub_branch_id;
+            if (noteInput) {
+                const noteValue = noteInput.value.trim();
+                payload.note = noteValue ? noteValue : null;
+            }
+            if (branchSelect) {
+                payload.sub_branch_id = branchSelect.value ? branchSelect.value : null;
             }
             try {
-                await fetchJson(`${window.APP_BASE}/api/customers/update.php`, {
+                await fetchJson(`${window.APP_BASE}/api/customers/update_info.php`, {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload),
                 });
-                showNotice('Customer updated.', 'success');
+                showNotice('Customer info updated.', 'success');
             } catch (error) {
                 showNotice(`Update failed: ${error.message}`, 'error');
             }
@@ -9586,10 +10267,11 @@ function initCustomerView() {
     const noteSearchButton = page.querySelector('[data-order-note-submit]');
     const addProfileLink = page.querySelector('[data-add-profile]');
     const { role, branchId } = getUserContext();
-      const isBranchRole = role === 'Sub Branch' || role === 'Main Branch';
-      const canRecordPayments = isBranchRole;
-      const canRecordRefunds = isBranchRole;
-      const canRecordCustomerPayment = isBranchRole;
+    const isBranchRole = role === 'Sub Branch' || role === 'Main Branch';
+    const canEditProfile = role === 'Admin';
+    const canRecordPayments = isBranchRole;
+    const canRecordRefunds = isBranchRole;
+    const canRecordCustomerPayment = isBranchRole;
     const showMeta = hasAuditMetaAccess(role);
     const ordersColumnCount = 9;
     const metaClass = 'meta-col';
@@ -9888,6 +10570,7 @@ function initCustomerView() {
                 };
                 const typeLabel = typeLabelMap[typeKey] || typeKey;
                 const dateLabel = tx.payment_date || tx.created_at || '-';
+                const reasonLabel = tx.reason || tx.note || '-';
                 let referenceLabel = '-';
                 if (tx.reference_type === 'order') {
                     const tracking = tx.tracking_number || (tx.reference_id ? `Order #${tx.reference_id}` : 'Order');
@@ -9895,6 +10578,8 @@ function initCustomerView() {
                     referenceLabel = `${tracking}${shipment}`;
                 } else if (tx.reference_type === 'transaction') {
                     referenceLabel = tx.invoice_nos ? `Invoice ${tx.invoice_nos}` : 'Payment';
+                } else if (tx.reference_type === 'invoice') {
+                    referenceLabel = tx.invoice_no ? `Invoice ${tx.invoice_no}` : `Invoice #${tx.reference_id || ''}`.trim();
                 }
                 const receiptLink =
                     tx.reference_type === 'transaction' && tx.reference_id
@@ -9905,7 +10590,7 @@ function initCustomerView() {
                     <td>${formatAmount(tx.amount)}</td>
                     <td>${escapeHtml(tx.account_label || tx.payment_method || '-')}</td>
                     <td>${escapeHtml(dateLabel)}</td>
-                    <td>${escapeHtml(tx.reason || '-')}</td>
+                    <td>${escapeHtml(reasonLabel)}</td>
                     <td>${escapeHtml(referenceLabel)}</td>
                     <td>${receiptLink}</td>
                 </tr>`;
@@ -9967,6 +10652,17 @@ function initCustomerView() {
             .map((profile) => {
                 const isCurrent = String(profile.id) === String(customerId);
                 const nameLabel = `${profile.name || '-'}${isCurrent ? ' (current)' : ''}`;
+                const actions = [
+                    `<a class="text-link" href="${window.APP_BASE}/views/internal/customer_view?id=${profile.id}">Open</a>`,
+                ];
+                if (canEditProfile) {
+                    actions.push(
+                        `<a class="text-link" href="${window.APP_BASE}/views/internal/customer_edit?id=${profile.id}">Edit code</a>`
+                    );
+                    actions.push(
+                        `<a class="text-link" href="${window.APP_BASE}/views/internal/customer_info_edit?id=${profile.id}">Edit info</a>`
+                    );
+                }
                 return `<tr>
                         <td>${nameLabel}</td>
                         <td>${profile.code || '-'}</td>
@@ -9974,11 +10670,7 @@ function initCustomerView() {
                         <td>${profile.sub_branch_name || '-'}</td>
                         <td>${profile.balance || '0.00'}</td>
                         <td>${profile.portal_username || '-'}</td>
-                        <td>
-                            <a class="text-link" href="${window.APP_BASE}/views/internal/customer_view?id=${profile.id}">Open</a>
-                            |
-                            <a class="text-link" href="${window.APP_BASE}/views/internal/customer_edit?id=${profile.id}">Edit</a>
-                        </td>
+                        <td>${actions.join(' | ')}</td>
                     </tr>`;
             })
             .join('');
@@ -10273,9 +10965,9 @@ function initCustomerView() {
                     el.textContent = value !== null && value !== undefined && value !== '' ? value : '--';
                 });
               if (addProfileLink) {
-                  if (customer.account_id) {
+                  if (customer.id) {
                       const profileParams = new URLSearchParams();
-                      profileParams.set('account_id', String(customer.account_id));
+                      profileParams.set('customer_id', String(customer.id));
                       profileParams.set('add_profile', '1');
                       addProfileLink.href = `${window.APP_BASE}/views/internal/customer_create?${profileParams.toString()}`;
                       addProfileLink.classList.remove('is-hidden');

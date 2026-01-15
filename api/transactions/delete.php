@@ -127,21 +127,6 @@ try {
         'Transaction canceled: ' . $reason
     );
 
-    $branchBalanceDelta = -$normalizedAmount;
-    if (in_array($transaction['type'] ?? '', ['refund', 'adjustment'], true)) {
-        $branchBalanceDelta = $normalizedAmount;
-    }
-    record_branch_balance(
-        $db,
-        (int) ($transaction['branch_id'] ?? 0),
-        -$branchBalanceDelta,
-        'customer_payment',
-        'transaction',
-        $transactionId,
-        $user['id'] ?? null,
-        'Transaction canceled: ' . $reason
-    );
-
     if (!empty($transaction['account_transfer_id'])) {
         cancel_account_transfer(
             $db,

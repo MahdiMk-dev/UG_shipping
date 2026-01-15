@@ -190,149 +190,216 @@ if ($shipmentId) {
         </div>
     <?php endif; ?>
 
-    <section class="panel is-collapsible" data-collapsible-panel>
+    <section class="panel" data-shipment-tabs>
         <div class="panel-header">
             <div>
-                <h3>Collections</h3>
-                <p>Groupings within this shipment.</p>
-            </div>
-            <div class="panel-actions">
-                <button class="panel-toggle" type="button" data-panel-toggle aria-expanded="true" aria-label="Collapse section">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
-                </button>
+                <h3>Shipment activity</h3>
+                <p>Browse customers, collections, media, expenses, and attachments.</p>
             </div>
         </div>
         <div class="panel-body">
-            <?php if ($canEdit): ?>
-                <form class="grid-form" data-collection-create-form>
-                    <label>
-                        <span>New collection name</span>
-                        <input type="text" name="name" placeholder="Collection name" required>
-                    </label>
-                    <button class="button ghost small" type="submit">Add collection</button>
-                </form>
-            <?php endif; ?>
-            <div class="table-wrap">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Collection</th>
-                            <th>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody data-collections-table>
-                        <tr><td colspan="2" class="muted">Loading collections...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-            <div class="table-pagination" data-collections-pagination>
-                <button class="button ghost small" type="button" data-collections-prev>Previous</button>
-                <span class="page-label" data-collections-page>Page 1</span>
-                <button class="button ghost small" type="button" data-collections-next>Next</button>
-            </div>
-        </div>
-    </section>
-
-    <section class="panel is-collapsible" data-collapsible-panel>
-        <div class="panel-header">
-            <div>
-                <h3>Shipment media</h3>
-                <p>Upload and manage files linked to this shipment.</p>
-            </div>
-            <div class="panel-actions">
-                <a class="button ghost small" target="_blank" data-shipment-packing-view href="#">
-                    Packing list
-                </a>
-                <a class="button ghost small" target="_blank" data-shipment-packing-download href="#">
-                    Download
-                </a>
-                <button class="panel-toggle" type="button" data-panel-toggle aria-expanded="true" aria-label="Collapse section">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+            <div class="tab-nav" role="tablist">
+                <button class="tab-button is-active" type="button" role="tab" data-shipment-tab="customers" aria-selected="true">
+                    Customers
+                </button>
+                <button class="tab-button" type="button" role="tab" data-shipment-tab="collections" aria-selected="false">
+                    Collections
+                </button>
+                <button class="tab-button" type="button" role="tab" data-shipment-tab="media" aria-selected="false">
+                    Media
+                </button>
+                <?php if (in_array($user['role'] ?? '', ['Admin', 'Owner'], true)): ?>
+                    <button class="tab-button" type="button" role="tab" data-shipment-tab="expenses" aria-selected="false">
+                        Expenses
+                    </button>
+                <?php endif; ?>
+                <button class="tab-button" type="button" role="tab" data-shipment-tab="attachments" aria-selected="false">
+                    Attachments
                 </button>
             </div>
-        </div>
-        <div class="panel-body">
-            <form class="grid-form" data-shipment-media-form enctype="multipart/form-data">
-                <input type="hidden" name="entity_type" value="shipment">
-                <input type="hidden" name="entity_id" data-shipment-media-id>
-                <label>
-                    <span>Title</span>
-                    <input type="text" name="title" placeholder="Attachment title">
-                </label>
-                <label>
-                    <span>Description</span>
-                    <input type="text" name="description" placeholder="Optional notes">
-                </label>
-                <label>
-                    <span>File</span>
-                    <input type="file" name="file" required>
-                </label>
-                <button class="button primary small" type="submit">Upload</button>
-            </form>
-            <div class="table-wrap">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Title</th>
-                            <th>Type</th>
-                            <th>Uploaded</th>
-                            <th>Download</th>
-                            <th>Remove</th>
-                        </tr>
-                    </thead>
-                    <tbody data-shipment-media-table>
-                        <tr><td colspan="5" class="muted">Loading shipment media...</td></tr>
-                    </tbody>
-                </table>
+            <div class="tab-panels">
+                <div class="tab-panel is-active" data-shipment-tab-panel="customers">
+                    <div class="panel-title-row">
+                        <h4>Orders by customer</h4>
+                        <?php if ($canEdit): ?>
+                            <a class="button ghost small" data-add-order-link href="<?= htmlspecialchars($orderCreateUrl, ENT_QUOTES) ?>">Add order</a>
+                        <?php endif; ?>
+                    </div>
+                    <p>Grouped totals for each customer in this shipment.</p>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Customer</th>
+                                    <th>Orders</th>
+                                    <th>Total Qty</th>
+                                    <?php if ($showIncome): ?>
+                                        <th>Total</th>
+                                    <?php endif; ?>
+                                    <th>WhatsApp</th>
+                                    <th>View</th>
+                                </tr>
+                            </thead>
+                            <tbody data-orders-table>
+                                <tr><td colspan="<?= $showIncome ? 6 : 5 ?>" class="muted">Loading orders...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="table-pagination" data-orders-pagination>
+                        <button class="button ghost small" type="button" data-orders-prev>Previous</button>
+                        <span class="page-label" data-orders-page>Page 1</span>
+                        <button class="button ghost small" type="button" data-orders-next>Next</button>
+                    </div>
+                </div>
+                <div class="tab-panel" data-shipment-tab-panel="collections">
+                    <div class="panel-title-row">
+                        <h4>Collections</h4>
+                    </div>
+                    <p>Groupings within this shipment.</p>
+                    <?php if ($canEdit): ?>
+                        <form class="grid-form" data-collection-create-form>
+                            <label>
+                                <span>New collection name</span>
+                                <input type="text" name="name" placeholder="Collection name" required>
+                            </label>
+                            <button class="button ghost small" type="submit">Add collection</button>
+                        </form>
+                    <?php endif; ?>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Collection</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody data-collections-table>
+                                <tr><td colspan="2" class="muted">Loading collections...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="table-pagination" data-collections-pagination>
+                        <button class="button ghost small" type="button" data-collections-prev>Previous</button>
+                        <span class="page-label" data-collections-page>Page 1</span>
+                        <button class="button ghost small" type="button" data-collections-next>Next</button>
+                    </div>
+                </div>
+                <div class="tab-panel" data-shipment-tab-panel="media">
+                    <div class="panel-title-row">
+                        <h4>Shipment media</h4>
+                        <div class="panel-actions">
+                            <a class="button ghost small" target="_blank" data-shipment-packing-view href="#">
+                                Packing list
+                            </a>
+                            <a class="button ghost small" target="_blank" data-shipment-packing-download href="#">
+                                Download
+                            </a>
+                        </div>
+                    </div>
+                    <p>Upload and manage files linked to this shipment.</p>
+                    <form class="grid-form" data-shipment-media-form enctype="multipart/form-data">
+                        <input type="hidden" name="entity_type" value="shipment">
+                        <input type="hidden" name="entity_id" data-shipment-media-id>
+                        <label>
+                            <span>Title</span>
+                            <input type="text" name="title" placeholder="Attachment title">
+                        </label>
+                        <label>
+                            <span>Description</span>
+                            <input type="text" name="description" placeholder="Optional notes">
+                        </label>
+                        <label>
+                            <span>File</span>
+                            <input type="file" name="file" required>
+                        </label>
+                        <button class="button primary small" type="submit">Upload</button>
+                    </form>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Title</th>
+                                    <th>Type</th>
+                                    <th>Uploaded</th>
+                                    <th>Download</th>
+                                    <th>Remove</th>
+                                </tr>
+                            </thead>
+                            <tbody data-shipment-media-table>
+                                <tr><td colspan="5" class="muted">Loading shipment media...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="table-pagination" data-shipment-media-pagination>
+                        <button class="button ghost small" type="button" data-shipment-media-prev>Previous</button>
+                        <span class="page-label" data-shipment-media-page>Page 1</span>
+                        <button class="button ghost small" type="button" data-shipment-media-next>Next</button>
+                    </div>
+                    <div class="notice-stack" data-shipment-media-status></div>
+                </div>
+                <?php if (in_array($user['role'] ?? '', ['Admin', 'Owner'], true)): ?>
+                    <div class="tab-panel" data-shipment-tab-panel="expenses">
+                        <div class="panel-title-row">
+                            <h4>Shipment expenses</h4>
+                            <button class="button ghost small" type="button" data-shipment-expenses-add>Add expense</button>
+                        </div>
+                        <p>Admin-only expenses linked to this shipment.</p>
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Title</th>
+                                        <th>Amount</th>
+                                        <th>Note</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody data-shipment-expenses-table>
+                                    <tr><td colspan="5" class="muted">Loading expenses...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="table-pagination" data-shipment-expenses-pagination>
+                            <button class="button ghost small" type="button" data-shipment-expenses-prev>Previous</button>
+                            <span class="page-label" data-shipment-expenses-page>Page 1</span>
+                            <button class="button ghost small" type="button" data-shipment-expenses-next>Next</button>
+                        </div>
+                        <div class="notice-stack" data-shipment-expenses-status></div>
+                    </div>
+                <?php endif; ?>
+                <div class="tab-panel" data-shipment-tab-panel="attachments">
+                    <div class="panel-title-row">
+                        <h4>Attachments</h4>
+                    </div>
+                    <p>Media linked to this shipment and its orders.</p>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Title</th>
+                                    <th>Entity</th>
+                                    <th>Type</th>
+                                    <th>Uploaded</th>
+                                    <th>Download</th>
+                                </tr>
+                            </thead>
+                            <tbody data-attachments-table>
+                                <tr><td colspan="5" class="muted">Loading attachments...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="table-pagination" data-attachments-pagination>
+                        <button class="button ghost small" type="button" data-attachments-prev>Previous</button>
+                        <span class="page-label" data-attachments-page>Page 1</span>
+                        <button class="button ghost small" type="button" data-attachments-next>Next</button>
+                    </div>
+                </div>
             </div>
-            <div class="table-pagination" data-shipment-media-pagination>
-                <button class="button ghost small" type="button" data-shipment-media-prev>Previous</button>
-                <span class="page-label" data-shipment-media-page>Page 1</span>
-                <button class="button ghost small" type="button" data-shipment-media-next>Next</button>
-            </div>
-            <div class="notice-stack" data-shipment-media-status></div>
         </div>
     </section>
 
     <?php if (in_array($user['role'] ?? '', ['Admin', 'Owner'], true)): ?>
-        <section class="panel is-collapsible" data-shipment-expenses data-collapsible-panel>
-            <div class="panel-header">
-                <div>
-                    <h3>Shipment expenses</h3>
-                    <p>Admin-only expenses linked to this shipment.</p>
-                </div>
-                <div class="panel-actions">
-                    <button class="button ghost small" type="button" data-shipment-expenses-add>Add expense</button>
-                    <button class="panel-toggle" type="button" data-panel-toggle aria-expanded="true" aria-label="Collapse section">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
-                    </button>
-                </div>
-            </div>
-            <div class="panel-body">
-                <div class="table-wrap">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Date</th>
-                                <th>Title</th>
-                                <th>Amount</th>
-                                <th>Note</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody data-shipment-expenses-table>
-                            <tr><td colspan="5" class="muted">Loading expenses...</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-                <div class="table-pagination" data-shipment-expenses-pagination>
-                    <button class="button ghost small" type="button" data-shipment-expenses-prev>Previous</button>
-                    <span class="page-label" data-shipment-expenses-page>Page 1</span>
-                    <button class="button ghost small" type="button" data-shipment-expenses-next>Next</button>
-                </div>
-                <div class="notice-stack" data-shipment-expenses-status></div>
-            </div>
-        </section>
         <div class="drawer" data-shipment-expenses-drawer>
             <div class="drawer-scrim" data-shipment-expenses-close></div>
             <div class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="shipment-expense-title">
@@ -356,6 +423,12 @@ if ($shipmentId) {
                         <input type="number" step="0.01" name="amount" placeholder="0.00" required>
                     </label>
                     <label>
+                        <span>Admin account</span>
+                        <select name="from_account_id" data-shipment-expenses-account required>
+                            <option value="">Select admin account</option>
+                        </select>
+                    </label>
+                    <label>
                         <span>Expense date</span>
                         <input type="date" name="expense_date">
                     </label>
@@ -369,86 +442,6 @@ if ($shipmentId) {
             </div>
         </div>
     <?php endif; ?>
-
-    <section class="panel is-collapsible" data-collapsible-panel>
-        <div class="panel-header">
-            <div>
-                <h3>Orders by customer</h3>
-                <p>Grouped totals for each customer in this shipment.</p>
-            </div>
-            <div class="panel-actions">
-                <?php if ($canEdit): ?>
-                    <a class="button ghost small" data-add-order-link href="<?= htmlspecialchars($orderCreateUrl, ENT_QUOTES) ?>">Add order</a>
-                <?php endif; ?>
-                <button class="panel-toggle" type="button" data-panel-toggle aria-expanded="true" aria-label="Collapse section">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
-                </button>
-            </div>
-        </div>
-        <div class="panel-body">
-            <div class="table-wrap">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Customer</th>
-                            <th>Orders</th>
-                            <th>Total Qty</th>
-                            <?php if ($showIncome): ?>
-                                <th>Total</th>
-                            <?php endif; ?>
-                            <th>WhatsApp</th>
-                            <th>View</th>
-                        </tr>
-                    </thead>
-                    <tbody data-orders-table>
-                        <tr><td colspan="<?= $showIncome ? 6 : 5 ?>" class="muted">Loading orders...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-            <div class="table-pagination" data-orders-pagination>
-                <button class="button ghost small" type="button" data-orders-prev>Previous</button>
-                <span class="page-label" data-orders-page>Page 1</span>
-                <button class="button ghost small" type="button" data-orders-next>Next</button>
-            </div>
-        </div>
-    </section>
-
-    <section class="panel is-collapsible" data-collapsible-panel>
-        <div class="panel-header">
-            <div>
-                <h3>Attachments</h3>
-                <p>Media linked to this shipment and its orders.</p>
-            </div>
-            <div class="panel-actions">
-                <button class="panel-toggle" type="button" data-panel-toggle aria-expanded="true" aria-label="Collapse section">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
-                </button>
-            </div>
-        </div>
-        <div class="panel-body">
-            <div class="table-wrap">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Title</th>
-                            <th>Entity</th>
-                            <th>Type</th>
-                            <th>Uploaded</th>
-                            <th>Download</th>
-                        </tr>
-                    </thead>
-                    <tbody data-attachments-table>
-                        <tr><td colspan="5" class="muted">Loading attachments...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-            <div class="table-pagination" data-attachments-pagination>
-                <button class="button ghost small" type="button" data-attachments-prev>Previous</button>
-                <span class="page-label" data-attachments-page>Page 1</span>
-                <button class="button ghost small" type="button" data-attachments-next>Next</button>
-            </div>
-        </div>
-    </section>
 
     <div class="notice-stack" data-shipment-status></div>
 </div>

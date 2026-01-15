@@ -44,7 +44,7 @@ if (!in_array($weightType, $allowedWeight, true)) {
 $db = db();
 
 $shipmentStmt = $db->prepare(
-    'SELECT id, status, origin_country_id, default_rate FROM shipments WHERE id = ? AND deleted_at IS NULL'
+    'SELECT id, status, origin_country_id, default_rate, shipping_type FROM shipments WHERE id = ? AND deleted_at IS NULL'
 );
 $shipmentStmt->execute([$shipmentId]);
 $shipment = $shipmentStmt->fetch();
@@ -112,7 +112,7 @@ if ($weightType === 'volumetric' && ($w === null || $d === null || $h === null))
     api_error('w, d, h are required for volumetric weight_type', 422);
 }
 
-$qty = compute_qty($unitType, $weightType, $actualWeight, $w, $d, $h);
+$qty = compute_qty($unitType, $weightType, $actualWeight, $w, $d, $h, $shipment['shipping_type'] ?? null);
 $basePrice = compute_base_price($qty, $rate);
 
 $adjustments = $input['adjustments'] ?? [];

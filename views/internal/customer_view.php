@@ -6,7 +6,7 @@ require_once __DIR__ . '/_layout.php';
 $user = internal_require_user();
 $role = $user['role'] ?? '';
 $canCreatePayment = in_array($role, ['Main Branch', 'Sub Branch'], true);
-$canCreateCustomer = in_array($role, ['Admin', 'Owner', 'Main Branch', 'Sub Branch'], true);
+$canCreateCustomer = $role === 'Admin';
 $canReassign = in_array($role, ['Admin', 'Owner', 'Main Branch'], true);
 internal_page_start($user, 'customers', 'Customer Details', 'Profile, balance, and activity.');
 if ($role === 'Warehouse') {
@@ -61,6 +61,9 @@ $customerId = $_GET['id'] ?? null;
                 <p>All profiles linked to this portal account.</p>
             </div>
             <?php if ($canCreateCustomer): ?>
+                <a class="button ghost small" href="<?= BASE_URL ?>/views/internal/customer_info_edit?id=<?= htmlspecialchars((string) $customerId, ENT_QUOTES) ?>">
+                    Edit info
+                </a>
                 <a class="button ghost small is-hidden" href="#" data-add-profile>Add profile</a>
             <?php endif; ?>
         </div>

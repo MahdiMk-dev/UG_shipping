@@ -7,6 +7,7 @@ require_once __DIR__ . '/../../app/audit.php';
 require_once __DIR__ . '/../../app/company.php';
 require_once __DIR__ . '/../../app/services/balance_service.php';
 require_once __DIR__ . '/../../app/services/finance_service.php';
+require_once __DIR__ . '/../../app/services/expense_service.php';
 
 api_require_method('PATCH');
 $user = require_role(['Admin', 'Owner', 'Main Branch', 'Sub Branch']);
@@ -24,6 +25,7 @@ $before = $beforeStmt->fetch();
 if (!$before) {
     api_error('Invoice not found', 404);
 }
+$invoiceNo = (string) ($before['invoice_no'] ?? '');
 
 $role = $user['role'] ?? '';
 if ($role === 'Sub Branch') {
@@ -348,7 +350,7 @@ if ($updateOrders) {
                     'invoice',
                     $invoiceId,
                     $user['id'] ?? null,
-                    'Points discount adjusted'
+                    'Using points - Invoice ' . $invoiceNo
                 );
                 record_branch_balance(
                     $db,
@@ -361,6 +363,10 @@ if ($updateOrders) {
                     'Points discount adjusted'
                 );
             }
+        }
+
+        if ($updatePoints) {
+            sync_invoice_points_expense($db, $invoiceId, $invoiceNo, $pointsDiscount, $user['id'] ?? null);
         }
 
         $afterStmt = $db->prepare('SELECT * FROM invoices WHERE id = ?');
@@ -404,7 +410,7 @@ try {
                 'invoice',
                 $invoiceId,
                 $user['id'] ?? null,
-                'Points discount adjusted'
+                'Using points - Invoice ' . $invoiceNo
             );
             record_branch_balance(
                 $db,
@@ -417,6 +423,9 @@ try {
                 'Points discount adjusted'
             );
         }
+    }
+    if ($updatePoints) {
+        sync_invoice_points_expense($db, $invoiceId, $invoiceNo, $pointsDiscount, $user['id'] ?? null);
     }
     $afterStmt = $db->prepare('SELECT * FROM invoices WHERE id = ?');
     $afterStmt->execute([$invoiceId]);

@@ -5,7 +5,7 @@ require_once __DIR__ . '/../../app/api.php';
 require_once __DIR__ . '/../../app/permissions.php';
 
 api_require_method('GET');
-$user = require_role(['Admin', 'Owner', 'Main Branch', 'Warehouse']);
+$user = require_role(['Admin', 'Owner', 'Main Branch']);
 $filters = $_GET ?? [];
 
 $search = api_string($filters['q'] ?? null);

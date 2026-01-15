@@ -40,6 +40,9 @@ if (!$profileCountryId) {
 $db = db();
 $account = null;
 if ($accountIdInput) {
+    if ($role !== 'Admin') {
+        api_error('Only admins can add profiles to existing customer accounts', 403);
+    }
     $accountStmt = $db->prepare(
         'SELECT id, username, phone, sub_branch_id FROM customer_accounts WHERE id = ? AND deleted_at IS NULL LIMIT 1'
     );
@@ -70,6 +73,8 @@ if ($accountIdInput) {
         if ($phoneCheck->fetch()) {
             api_error('Phone already belongs to another portal account', 409);
         }
+    } elseif ($role !== 'Admin') {
+        api_error('Only admins can add profiles to existing customer accounts', 403);
     }
 }
 

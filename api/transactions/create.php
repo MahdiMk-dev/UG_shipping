@@ -187,21 +187,6 @@ try {
         $note
     );
 
-    $branchBalanceDelta = -$normalizedAmount;
-    if (in_array($type, ['refund', 'adjustment'], true)) {
-        $branchBalanceDelta = $normalizedAmount;
-    }
-    record_branch_balance(
-        $db,
-        $branchId,
-        $branchBalanceDelta,
-        'customer_payment',
-        'transaction',
-        $transactionId,
-        $user['id'] ?? null,
-        $note
-    );
-
     $transferId = create_account_transfer(
         $db,
         $fromAccountId,

@@ -80,6 +80,7 @@ try {
             . 'ELSE NULL '
         . 'END AS account_label, '
         . 'o.tracking_number, s.shipment_number, '
+        . 'inv.invoice_no AS invoice_no, '
         . '(SELECT GROUP_CONCAT(DISTINCT i.invoice_no ORDER BY i.invoice_no SEPARATOR \', \') '
         . 'FROM transaction_allocations ta '
         . 'JOIN invoices i ON i.id = ta.invoice_id AND i.deleted_at IS NULL '
@@ -92,6 +93,7 @@ try {
         . 'LEFT JOIN accounts aa ON aa.id = at.to_account_id '
         . 'LEFT JOIN orders o ON o.id = e.reference_id AND e.reference_type = \'order\' '
         . 'LEFT JOIN shipments s ON s.id = o.shipment_id '
+        . 'LEFT JOIN invoices inv ON inv.id = e.reference_id AND e.reference_type = \'invoice\' '
         . 'WHERE e.customer_id = ? '
         . 'ORDER BY e.id DESC LIMIT 50'
     );

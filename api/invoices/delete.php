@@ -5,6 +5,7 @@ require_once __DIR__ . '/../../app/api.php';
 require_once __DIR__ . '/../../app/permissions.php';
 require_once __DIR__ . '/../../app/audit.php';
 require_once __DIR__ . '/../../app/services/balance_service.php';
+require_once __DIR__ . '/../../app/services/expense_service.php';
 
 api_require_method('POST');
 $user = require_role(['Admin', 'Owner', 'Main Branch', 'Sub Branch']);
@@ -24,7 +25,7 @@ $db->beginTransaction();
 
 try {
     $stmt = $db->prepare(
-        'SELECT id, customer_id, branch_id, total, status, points_used, points_discount '
+        'SELECT id, customer_id, branch_id, total, status, points_used, points_discount, invoice_no '
         . 'FROM invoices WHERE id = ? AND deleted_at IS NULL'
     );
     $stmt->execute([$invoiceId]);
@@ -89,6 +90,9 @@ try {
             'Points discount reversed'
         );
     }
+
+    $invoiceNo = (string) ($invoice['invoice_no'] ?? '');
+    sync_invoice_points_expense($db, $invoiceId, $invoiceNo, 0.0, $user['id'] ?? null);
 
     $db->prepare(
         'UPDATE invoices SET status = ?, paid_total = 0, due_total = 0, canceled_at = NOW(), '

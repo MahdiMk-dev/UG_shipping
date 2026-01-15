@@ -7,14 +7,14 @@ $user = internal_require_user();
 $canEdit = in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch'], true);
 $partnerId = $_GET['id'] ?? null;
 internal_page_start($user, 'partners', 'Partner Profile', 'Invoices and receipts for shippers and consignees.');
-if (!in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch', 'Warehouse'], true)) {
+if (!in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch'], true)) {
     http_response_code(403);
     ?>
     <section class="panel">
         <div class="panel-header">
             <div>
                 <h3>Access denied</h3>
-                <p>Only Admin, Owner, Main Branch, and Warehouse roles can view partners.</p>
+                <p>Only Admin, Owner, and Main Branch roles can view partners.</p>
             </div>
         </div>
     </section>
@@ -98,6 +98,12 @@ if (!in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch', 'Warehouse'
                     <select name="currency" data-partner-invoice-currency>
                         <option value="USD">USD</option>
                         <option value="LBP">LBP</option>
+                    </select>
+                </label>
+                <label>
+                    <span>Admin account</span>
+                    <select name="admin_account_id" data-partner-invoice-account required>
+                        <option value="">Select admin account</option>
                     </select>
                 </label>
                 <div class="table-wrap full">

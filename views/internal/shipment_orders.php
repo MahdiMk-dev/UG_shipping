@@ -8,6 +8,7 @@ internal_page_start($user, 'orders', 'Shipment Orders', 'Orders grouped under th
 $role = $user['role'] ?? '';
 $isWarehouse = $role === 'Warehouse';
 $showIncome = !$isWarehouse;
+$canReturn = in_array($role, ['Admin', 'Owner'], true);
 $shipmentId = $_GET['shipment_id'] ?? ($_GET['id'] ?? null);
 $shipmentNumber = $_GET['shipment_number'] ?? null;
 $backUrl = BASE_URL . '/views/internal/orders';
@@ -16,7 +17,8 @@ $shipmentUrl = $shipmentId ? BASE_URL . '/views/internal/shipment_view?id=' . ur
 <div data-shipment-orders-page
      data-shipment-id="<?= htmlspecialchars((string) $shipmentId, ENT_QUOTES) ?>"
      data-shipment-number="<?= htmlspecialchars((string) $shipmentNumber, ENT_QUOTES) ?>"
-     data-show-income="<?= $showIncome ? '1' : '0' ?>">
+     data-show-income="<?= $showIncome ? '1' : '0' ?>"
+     data-can-return="<?= $canReturn ? '1' : '0' ?>">
     <div class="app-toolbar">
         <a class="button ghost" href="<?= htmlspecialchars($backUrl, ENT_QUOTES) ?>">Back to orders</a>
         <?php if ($shipmentUrl): ?>
@@ -84,10 +86,14 @@ $shipmentUrl = $shipmentId ? BASE_URL . '/views/internal/shipment_view?id=' . ur
                         <?php endif; ?>
                         <th>Status</th>
                         <th>Created</th>
+                        <th>Media</th>
+                        <?php if ($canReturn): ?>
+                            <th>Action</th>
+                        <?php endif; ?>
                     </tr>
                 </thead>
                 <tbody data-shipment-orders-table>
-                    <tr><td colspan="<?= $showIncome ? 7 : 6 ?>" class="muted">Loading orders...</td></tr>
+                    <tr><td colspan="<?= $showIncome ? ($canReturn ? 9 : 8) : ($canReturn ? 8 : 7) ?>" class="muted">Loading orders...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -96,6 +102,54 @@ $shipmentUrl = $shipmentId ? BASE_URL . '/views/internal/shipment_view?id=' . ur
             <span class="page-label" data-shipment-orders-page>Page 1</span>
             <button class="button ghost small" type="button" data-shipment-orders-next>Next</button>
         </div>
+    </section>
+
+    <section class="panel is-hidden" data-order-media-panel>
+        <div class="panel-header">
+            <div>
+                <h3>Order media</h3>
+                <p data-order-media-title>Select an order to manage attachments.</p>
+            </div>
+        </div>
+        <form class="grid-form" data-order-media-form enctype="multipart/form-data">
+            <input type="hidden" name="entity_type" value="order">
+            <input type="hidden" name="entity_id" data-order-media-id>
+            <label>
+                <span>Title</span>
+                <input type="text" name="title" placeholder="Attachment title">
+            </label>
+            <label>
+                <span>Description</span>
+                <input type="text" name="description" placeholder="Optional notes">
+            </label>
+            <label>
+                <span>File</span>
+                <input type="file" name="file" required>
+            </label>
+            <button class="button primary" type="submit">Upload</button>
+        </form>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Title</th>
+                        <th>Type</th>
+                        <th>Uploaded</th>
+                        <th>Download</th>
+                        <th>Remove</th>
+                    </tr>
+                </thead>
+                <tbody data-order-media-table>
+                    <tr><td colspan="5" class="muted">No attachments loaded.</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="table-pagination" data-order-media-pagination>
+            <button class="button ghost small" type="button" data-order-media-prev>Previous</button>
+            <span class="page-label" data-order-media-page>Page 1</span>
+            <button class="button ghost small" type="button" data-order-media-next>Next</button>
+        </div>
+        <div class="notice-stack" data-order-media-status></div>
     </section>
 
     <div class="notice-stack" data-shipment-orders-status></div>

@@ -36,11 +36,9 @@ UG Shipping is an internal web app + API for managing shipments, orders, receivi
   - Shipments must match warehouse country.
   - Warehouse can only edit/create orders when shipment status is `active`.
   - Warehouse can view customer accounts filtered to their country (summary profiles); customer selection is search-only in order creation.
-  - Warehouse can only view partner profiles that match their country.
+- Warehouse has no access to partner profiles.
   - Warehouse cannot view or edit shipment pricing (rates, costs) or shipment income totals.
-- Customer edits:
-  - Admin/Owner/Main Branch can edit any customer.
-  - Sub Branch can edit customers in their own branch only.
+- Customer edits are Admin-only (profile code edits + customer info edits).
 - Main Branch access:
   - Can manage shipments, orders, customers, and receiving.
   - Cannot access branches, users, roles, or staff screens/APIs.
@@ -102,6 +100,7 @@ Customer profiles:
 - Profiles are grouped under `customer_accounts` by shared phone/username.
 - Each account can only have one profile per `profile_country_id`.
 - Profiles in the same account share one balance and one sub-branch assignment; profile codes stay per profile.
+- Profile edits are Admin-only and limited to code; customer info edits (name/phone/address/note/sub-branch) are Admin-only.
 - Adding a profile for an existing account requires only code + country; name/phone/portal come from the account.
 
 Invoices + Transactions:
@@ -173,6 +172,10 @@ Audit:
 - Endpoint filenames mirror actions (list/create/update/delete).
 
 ## Change Log (keep current)
+- 2026-01-23: Orders sidebar now shows view-only (no create shortcut).
+- 2026-01-23: Owner audit log now excludes create actions (edit/delete only).
+- 2026-01-22: Account adjustments allow Admin/Owner deposits/withdrawals, account activity references show branch/customer/invoice/partner/expense context, customer payments no longer affect branch balances, WhatsApp excludes delivered/picked-up, admins can return sub-branch orders to main branch, points usage logs invoice references and creates a company points expense, branch balances link to branch-to-admin payments.
+- 2026-01-21: Customer profile edits are Admin-only (code-only) with a separate Admin customer info edit flow.
 - 2026-01-20: Customer refunds are branch-only; add-profile flow now uses code + country without portal/phone inputs.
 - 2026-01-19: Clarified customer edit permissions for Admin/Owner/Main Branch and Sub Branch scoping.
 - 2026-01-18: Partner invoices support currency + line-item edits; customer invoices can be edited before payments to adjust currency/orders/points, refund reasons are required, customer view supports multi-order invoice create, and errors surface in a centered modal.

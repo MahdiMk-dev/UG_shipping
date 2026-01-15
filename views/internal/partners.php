@@ -11,14 +11,14 @@ $pageSubtitle = $createMode
     ? 'Add a new shipper or consignee profile.'
     : 'Manage shipper and consignee profiles.';
 internal_page_start($user, 'partners', $pageTitle, $pageSubtitle);
-if (!in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch', 'Warehouse'], true)) {
+if (!in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch'], true)) {
     http_response_code(403);
     ?>
     <section class="panel">
         <div class="panel-header">
             <div>
                 <h3>Access denied</h3>
-                <p>Only Admin, Owner, Main Branch, and Warehouse roles can view partners.</p>
+                <p>Only Admin, Owner, and Main Branch roles can view partners.</p>
             </div>
         </div>
     </section>

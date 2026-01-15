@@ -12,6 +12,10 @@ function audit_log(
     ?array $after = null,
     array $meta = []
 ): void {
+    if (str_ends_with($action, '.create')) {
+        return;
+    }
+
     $db = db();
     $stmt = $db->prepare(
         'INSERT INTO audit_logs '

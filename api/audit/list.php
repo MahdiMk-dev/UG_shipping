@@ -21,6 +21,9 @@ $offset = max(0, $offset ?? 0);
 $where = [];
 $params = [];
 
+$where[] = 'a.action NOT LIKE ?';
+$params[] = '%.create';
+
 if ($action) {
     $where[] = 'a.action = ?';
     $params[] = $action;

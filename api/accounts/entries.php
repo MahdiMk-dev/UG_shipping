@@ -75,13 +75,36 @@ $sql = 'SELECT e.id, e.entry_type, e.amount, e.entry_date, e.status, e.created_a
         . 'WHEN at.to_account_id = e.account_id THEN af.name '
         . 'ELSE NULL '
     . 'END AS counterparty_name, '
-    . 'c.name AS customer_name, c.code AS customer_code '
+    . 'c.name AS customer_name, c.code AS customer_code, '
+    . '(SELECT GROUP_CONCAT(DISTINCT i.invoice_no ORDER BY i.invoice_no SEPARATOR \', \') '
+        . 'FROM transaction_allocations ta '
+        . 'JOIN invoices i ON i.id = ta.invoice_id AND i.deleted_at IS NULL '
+        . 'WHERE ta.transaction_id = t.id) AS invoice_nos, '
+    . 'btbl.from_branch_id, bf.name AS from_branch_name, '
+    . 'btbl.to_branch_id, bt.name AS to_branch_name, '
+    . 'pp.name AS partner_name, pi.invoice_no AS partner_invoice_no, '
+    . 'ge.title AS expense_title, '
+    . 'sm.name AS staff_name, '
+    . 'adj.title AS adjustment_title, adj.note AS adjustment_note, '
+    . 'inv.invoice_no AS invoice_no '
     . 'FROM account_entries e '
     . 'LEFT JOIN account_transfers at ON at.id = e.transfer_id '
     . 'LEFT JOIN accounts af ON af.id = at.from_account_id '
     . 'LEFT JOIN accounts aa ON aa.id = at.to_account_id '
     . 'LEFT JOIN transactions t ON t.id = at.reference_id AND at.reference_type = \'transaction\' '
     . 'LEFT JOIN customers c ON c.id = t.customer_id '
+    . 'LEFT JOIN branch_transfers btbl ON btbl.id = at.reference_id AND at.reference_type = \'branch_transfer\' '
+    . 'LEFT JOIN branches bf ON bf.id = btbl.from_branch_id '
+    . 'LEFT JOIN branches bt ON bt.id = btbl.to_branch_id '
+    . 'LEFT JOIN partner_transactions pt ON pt.id = at.reference_id AND at.reference_type = \'partner_transaction\' '
+    . 'LEFT JOIN partner_profiles pp ON pp.id = pt.partner_id '
+    . 'LEFT JOIN partner_invoices pi ON pi.id = pt.invoice_id '
+    . 'LEFT JOIN general_expenses ge ON ge.id = at.reference_id '
+        . 'AND at.reference_type IN (\'general_expense\', \'shipment_expense\', \'invoice_points\') '
+    . 'LEFT JOIN staff_expenses se ON se.id = at.reference_id AND at.reference_type = \'staff_expense\' '
+    . 'LEFT JOIN staff_members sm ON sm.id = se.staff_id '
+    . 'LEFT JOIN account_adjustments adj ON adj.id = at.reference_id AND at.reference_type = \'account_adjustment\' '
+    . 'LEFT JOIN invoices inv ON inv.id = at.reference_id AND at.reference_type = \'invoice_points\' '
     . 'WHERE ' . implode(' AND ', $where) . ' '
     . 'ORDER BY COALESCE(e.entry_date, DATE(e.created_at)) DESC, e.id DESC '
     . 'LIMIT ? OFFSET ?';
@@ -96,5 +119,60 @@ foreach ($params as $index => $value) {
 }
 $stmt->execute();
 $rows = $stmt->fetchAll();
+
+foreach ($rows as &$row) {
+    $referenceType = $row['reference_type'] ?? '';
+    $referenceId = $row['reference_id'] ?? null;
+    $referenceLabel = null;
+    $referenceNote = null;
+
+    if ($referenceType === 'branch_transfer') {
+        $fromBranch = $row['from_branch_name'] ?? '';
+        $toBranch = $row['to_branch_name'] ?? '';
+        if ($toBranch === '' && !empty($row['to_branch_id'])) {
+            $toBranch = 'Branch #' . $row['to_branch_id'];
+        }
+        if ($toBranch === '' && empty($row['to_branch_id'])) {
+            $toBranch = 'Admin';
+        }
+        $referenceLabel = $fromBranch ? "{$fromBranch} -> {$toBranch}" : "Branch transfer #{$referenceId}";
+    } elseif ($referenceType === 'transaction') {
+        if (!empty($row['customer_name'])) {
+            $code = $row['customer_code'] ? ' (' . $row['customer_code'] . ')' : '';
+            $referenceLabel = $row['customer_name'] . $code;
+            if (!empty($row['invoice_nos'])) {
+                $referenceLabel .= ' | Invoice ' . $row['invoice_nos'];
+            }
+        }
+    } elseif ($referenceType === 'partner_transaction') {
+        if (!empty($row['partner_name'])) {
+            $referenceLabel = $row['partner_name'];
+            if (!empty($row['partner_invoice_no'])) {
+                $referenceLabel .= ' | Invoice ' . $row['partner_invoice_no'];
+            }
+        }
+    } elseif (in_array($referenceType, ['general_expense', 'shipment_expense'], true)) {
+        if (!empty($row['expense_title'])) {
+            $referenceLabel = $row['expense_title'];
+        }
+    } elseif ($referenceType === 'staff_expense') {
+        if (!empty($row['staff_name'])) {
+            $referenceLabel = $row['staff_name'];
+        }
+    } elseif ($referenceType === 'account_adjustment') {
+        if (!empty($row['adjustment_title'])) {
+            $referenceLabel = $row['adjustment_title'];
+            $referenceNote = $row['adjustment_note'] ?? null;
+        }
+    } elseif ($referenceType === 'invoice_points') {
+        if (!empty($row['invoice_no'])) {
+            $referenceLabel = 'Points deduction | Invoice ' . $row['invoice_no'];
+        }
+    }
+
+    $row['reference_label'] = $referenceLabel;
+    $row['reference_note'] = $referenceNote;
+}
+unset($row);
 
 api_json(['ok' => true, 'data' => $rows]);

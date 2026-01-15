@@ -5,6 +5,7 @@ require_once __DIR__ . '/../../app/api.php';
 require_once __DIR__ . '/../../app/permissions.php';
 require_once __DIR__ . '/../../app/audit.php';
 require_once __DIR__ . '/../../app/services/shipment_service.php';
+require_once __DIR__ . '/../../app/services/account_service.php';
 
 api_require_method('POST');
 $user = require_role(['Admin', 'Owner', 'Main Branch']);
@@ -16,9 +17,13 @@ $issuedAt = api_string($input['issued_at'] ?? null);
 $note = api_string($input['note'] ?? null);
 $currency = strtoupper(api_string($input['currency'] ?? 'USD') ?? 'USD');
 $items = $input['items'] ?? [];
+$adminAccountId = api_int($input['admin_account_id'] ?? null);
 
 if (!$partnerId) {
     api_error('partner_id is required', 422);
+}
+if (!$adminAccountId) {
+    api_error('admin_account_id is required', 422);
 }
 if (!is_array($items) || empty($items)) {
     api_error('Invoice line items are required', 422);
@@ -57,6 +62,10 @@ if ($total <= 0.0) {
 }
 
 $db = db();
+$fromAccount = fetch_account($db, $adminAccountId);
+if (($fromAccount['owner_type'] ?? '') !== 'admin') {
+    api_error('Partner invoices must be paid from an admin account', 422);
+}
 $partnerStmt = $db->prepare('SELECT id, name, type FROM partner_profiles WHERE id = ? AND deleted_at IS NULL');
 $partnerStmt->execute([$partnerId]);
 $partner = $partnerStmt->fetch();
@@ -145,25 +154,39 @@ try {
     $db->prepare('UPDATE partner_profiles SET balance = balance + ? WHERE id = ?')
         ->execute([$total, $partnerId]);
 
-    if ($shipmentId) {
-        $expenseDate = date('Y-m-d', strtotime($issuedAtValue));
-        $partnerLabel = $partner['name'] ?? 'Partner';
-        $title = sprintf('Partner invoice %s - %s', $finalInvoiceNo, $partnerLabel);
-        $expenseNote = $shipment
-            ? sprintf('Shipment %s (%s)', $shipment['shipment_number'], $partner['type'] ?? 'partner')
-            : null;
-        $insertExpense->execute([
-            null,
-            $shipmentId,
-            $title,
-            $total,
-            $expenseDate,
-            $expenseNote,
-            'partner_invoice',
-            $invoiceId,
-            $user['id'] ?? null,
-        ]);
-    }
+    $expenseDate = date('Y-m-d', strtotime($issuedAtValue));
+    $partnerLabel = $partner['name'] ?? 'Partner';
+    $title = sprintf('Partner invoice %s - %s', $finalInvoiceNo, $partnerLabel);
+    $expenseNote = $shipment
+        ? sprintf('Shipment %s (%s)', $shipment['shipment_number'], $partner['type'] ?? 'partner')
+        : null;
+    $insertExpense->execute([
+        null,
+        $shipmentId,
+        $title,
+        $total,
+        $expenseDate,
+        $expenseNote,
+        'partner_invoice',
+        $invoiceId,
+        $user['id'] ?? null,
+    ]);
+    $expenseId = (int) $db->lastInsertId();
+    $entryType = $shipmentId ? 'shipment_expense' : 'general_expense';
+    $transferId = create_account_transfer(
+        $db,
+        $adminAccountId,
+        null,
+        (float) $total,
+        $entryType,
+        $expenseDate,
+        $expenseNote,
+        'general_expense',
+        $expenseId,
+        $user['id'] ?? null
+    );
+    $db->prepare('UPDATE general_expenses SET account_transfer_id = ? WHERE id = ?')
+        ->execute([$transferId, $expenseId]);
 
     $rowStmt = $db->prepare('SELECT * FROM partner_invoices WHERE id = ?');
     $rowStmt->execute([$invoiceId]);

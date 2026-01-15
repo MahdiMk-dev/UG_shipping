@@ -5,7 +5,7 @@ require_once __DIR__ . '/../../app/api.php';
 require_once __DIR__ . '/../../app/permissions.php';
 
 api_require_method('POST');
-$user = require_role(['Admin', 'Owner', 'Main Branch', 'Sub Branch']);
+$user = require_role(['Admin']);
 $input = api_read_input();
 
 $customerId = api_int($input['customer_id'] ?? ($input['id'] ?? null));
@@ -26,21 +26,6 @@ if ((int) $customer['is_system'] === 1) {
     api_error('System customer cannot be deleted', 422);
 }
 
-$role = $user['role'] ?? '';
-$fullAccess = in_array($role, ['Admin', 'Owner', 'Main Branch'], true);
-if (!$fullAccess) {
-    if ($role === 'Warehouse') {
-        $warehouseCountryId = get_branch_country_id($user);
-        if (!$warehouseCountryId || (int) $customer['profile_country_id'] !== (int) $warehouseCountryId) {
-            api_error('Forbidden', 403);
-        }
-    } else {
-        $branchId = $user['branch_id'] ?? null;
-        if (!$branchId || (int) $customer['sub_branch_id'] !== (int) $branchId) {
-            api_error('Forbidden', 403);
-        }
-    }
-}
 
 $deleteStmt = db()->prepare(
     'UPDATE customers SET deleted_at = NOW(), updated_at = NOW(), updated_by_user_id = ? '

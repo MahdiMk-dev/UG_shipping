@@ -114,6 +114,25 @@ CREATE TABLE IF NOT EXISTS account_entries (
         FOREIGN KEY (transfer_id) REFERENCES account_transfers(id)
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS account_adjustments (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    account_id INT UNSIGNED NOT NULL,
+    type ENUM('deposit','withdrawal') NOT NULL,
+    amount DECIMAL(12,2) NOT NULL,
+    title VARCHAR(160) NOT NULL,
+    note TEXT NULL,
+    adjustment_date DATE NULL,
+    account_transfer_id INT UNSIGNED NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_user_id INT UNSIGNED NULL,
+    KEY idx_account_adjustments_account (account_id),
+    KEY idx_account_adjustments_transfer (account_transfer_id),
+    CONSTRAINT fk_account_adjustments_account
+        FOREIGN KEY (account_id) REFERENCES accounts(id),
+    CONSTRAINT fk_account_adjustments_transfer
+        FOREIGN KEY (account_transfer_id) REFERENCES account_transfers(id)
+) ENGINE=InnoDB;
+
 SET @stmt = (SELECT IF(
     EXISTS(
         SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS

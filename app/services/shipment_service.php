@@ -7,14 +7,35 @@ function compute_qty(
     ?float $actualWeight,
     ?float $w,
     ?float $d,
-    ?float $h
+    ?float $h,
+    ?string $shippingType = null
 ): float {
+    $actualWeight = (float) ($actualWeight ?? 0);
     if ($weightType === 'actual') {
-        return max(0.0, (float) $actualWeight);
+        return max(0.0, $actualWeight);
     }
 
-    $volume = (float) $w * (float) $d * (float) $h;
-    return max(0.0, $volume);
+    $w = (float) ($w ?? 0);
+    $d = (float) ($d ?? 0);
+    $h = (float) ($h ?? 0);
+    $cbmPiece = ($w * $d * $h) / 1000000;
+    $cbmPiece = ceil($cbmPiece * 1000) / 1000;
+    $lineCbm = ceil($cbmPiece * 1000) / 1000;
+
+    if ($shippingType === 'air') {
+        $lineVolumetric = ceil($cbmPiece * 167);
+        $chargeable = max($lineVolumetric, $actualWeight);
+        return max(0.0, ceil($chargeable));
+    }
+
+    if ($shippingType === 'sea') {
+        $lineTon = $actualWeight / 1000;
+        $lineChargeable = max($lineCbm, $lineTon);
+        $lineChargeable = ceil($lineChargeable * 10) / 10;
+        return max(0.0, $lineChargeable);
+    }
+
+    return max(0.0, $lineCbm);
 }
 
 function compute_base_price(float $qty, float $rate): float
@@ -50,8 +71,9 @@ function update_shipment_totals(int $shipmentId): void
     $stmt = $db->prepare(
         'SELECT '
         . "SUM(CASE WHEN weight_type = 'actual' THEN COALESCE(actual_weight, 0) ELSE 0 END) AS total_weight, "
-        . "SUM(CASE WHEN weight_type = 'volumetric' THEN COALESCE(w, 0) * COALESCE(d, 0) * COALESCE(h, 0) ELSE 0 END) "
-        . 'AS total_volume '
+        . "SUM(CASE WHEN weight_type = 'volumetric' THEN "
+        . 'CEIL(((COALESCE(w, 0) * COALESCE(d, 0) * COALESCE(h, 0)) / 1000000) * 1000) / 1000 '
+        . 'ELSE 0 END) AS total_volume '
         . 'FROM orders WHERE shipment_id = ? AND deleted_at IS NULL'
     );
     $stmt->execute([$shipmentId]);

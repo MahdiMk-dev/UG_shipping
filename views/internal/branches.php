@@ -106,7 +106,7 @@ if (!$canEdit) {
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12"></path><path d="M18 6l-12 12"></path></svg>
                     </button>
                 </div>
-                <form class="grid-form" data-branch-form>
+                <form class="grid-form branch-form" data-branch-form>
                     <input type="hidden" name="branch_id" data-branch-id>
                     <label>
                         <span>Name</span>
