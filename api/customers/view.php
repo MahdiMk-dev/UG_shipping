@@ -128,10 +128,42 @@ if (!$metaAccess) {
     unset($order);
 }
 
+$orderStatsStmt = $db->prepare(
+    'SELECT COUNT(*) AS orders_count, MAX(created_at) AS last_order_date '
+    . 'FROM orders WHERE customer_id = ? AND deleted_at IS NULL'
+);
+$orderStatsStmt->execute([$customer['id']]);
+$orderStats = $orderStatsStmt->fetch() ?: [];
+
+$invoiceStatsStmt = $db->prepare(
+    'SELECT '
+    . 'COUNT(*) AS invoices_count, '
+    . 'SUM(CASE WHEN status IN (\'open\',\'partially_paid\') THEN 1 ELSE 0 END) AS open_invoices_count, '
+    . 'COALESCE(SUM(total), 0) AS total_invoiced, '
+    . 'COALESCE(SUM(paid_total), 0) AS total_paid, '
+    . 'COALESCE(SUM(due_total), 0) AS total_due, '
+    . 'MAX(issued_at) AS last_invoice_date '
+    . 'FROM invoices WHERE customer_id = ? AND deleted_at IS NULL'
+);
+$invoiceStatsStmt->execute([$customer['id']]);
+$invoiceStats = $invoiceStatsStmt->fetch() ?: [];
+
+$paymentStatsStmt = $db->prepare(
+    'SELECT MAX(payment_date) AS last_payment_date '
+    . 'FROM transactions '
+    . 'WHERE customer_id = ? AND deleted_at IS NULL AND status = \'active\' '
+    . 'AND type IN (\'payment\',\'deposit\')'
+);
+$paymentStatsStmt->execute([$customer['id']]);
+$paymentStats = $paymentStatsStmt->fetch() ?: [];
+
+$stats = array_merge($orderStats, $invoiceStats, $paymentStats);
+
 api_json([
     'ok' => true,
     'customer' => $customer,
     'invoices' => $invoices,
     'transactions' => $transactions,
     'orders' => $orders,
+    'stats' => $stats,
 ]);

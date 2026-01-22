@@ -45,40 +45,128 @@ if (!$canEdit) {
         </form>
     </section>
 
-    <section class="panel">
+    <section class="panel" data-expenses-tabs>
         <div class="panel-header">
             <div>
-                <h3>Expense list</h3>
-                <p>Recorded operating expenses.</p>
+                <h3>Expense activity</h3>
+                <p>Track expenses, unpaid items, and payments.</p>
             </div>
             <?php if ($canEdit): ?>
                 <button class="button ghost small" type="button" data-expenses-add>Add expense</button>
             <?php endif; ?>
         </div>
-        <div class="table-wrap">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th>Title</th>
-                        <th>Branch</th>
-                        <th>Shipment</th>
-                        <th>Amount</th>
-                        <th>Note</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody data-expenses-table>
-                    <tr>
-                        <td colspan="7" class="muted">Loading expenses...</td>
-                    </tr>
-                </tbody>
-            </table>
+        <div class="tab-nav" role="tablist">
+            <button class="tab-button is-active" type="button" role="tab" data-expenses-tab="all" aria-selected="true">
+                All expenses
+            </button>
+            <button class="tab-button" type="button" role="tab" data-expenses-tab="unpaid" aria-selected="false">
+                Unpaid expenses
+            </button>
+            <button class="tab-button" type="button" role="tab" data-expenses-tab="payments" aria-selected="false">
+                Expense payments
+            </button>
         </div>
-        <div class="table-pagination" data-expenses-pagination>
-            <button class="button ghost small" type="button" data-expenses-prev>Previous</button>
-            <span class="page-label" data-expenses-page>Page 1</span>
-            <button class="button ghost small" type="button" data-expenses-next>Next</button>
+        <div class="tab-panels">
+            <div class="tab-panel is-active" data-expenses-panel="all">
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Title</th>
+                                <th>Branch</th>
+                                <th>Shipment</th>
+                                <th>Amount</th>
+                                <th>Paid</th>
+                                <th>Note</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody data-expenses-table>
+                            <tr>
+                                <td colspan="8" class="muted">Loading expenses...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="table-pagination" data-expenses-pagination>
+                    <button class="button ghost small" type="button" data-expenses-prev>Previous</button>
+                    <span class="page-label" data-expenses-page>Page 1</span>
+                    <button class="button ghost small" type="button" data-expenses-next>Next</button>
+                </div>
+            </div>
+
+            <div class="tab-panel" data-expenses-panel="unpaid">
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Title</th>
+                                <th>Branch</th>
+                                <th>Shipment</th>
+                                <th>Amount</th>
+                                <th>Note</th>
+                                <th>Pay</th>
+                            </tr>
+                        </thead>
+                        <tbody data-expenses-unpaid-table>
+                            <tr>
+                                <td colspan="7" class="muted">Loading unpaid expenses...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="table-pagination" data-expenses-unpaid-pagination>
+                    <button class="button ghost small" type="button" data-expenses-unpaid-prev>Previous</button>
+                    <span class="page-label" data-expenses-unpaid-page>Page 1</span>
+                    <button class="button ghost small" type="button" data-expenses-unpaid-next>Next</button>
+                </div>
+            </div>
+
+            <div class="tab-panel" data-expenses-panel="payments">
+                <div class="panel-title-row">
+                    <h4>Payments log</h4>
+                    <div class="inline-field">
+                        <label>
+                            <span>Type</span>
+                            <select name="payments_type" data-expenses-payments-type>
+                                <option value="">All types</option>
+                                <option value="general_expense">General expense</option>
+                                <option value="shipment_expense">Shipment expense</option>
+                                <option value="staff_expense">Staff expense</option>
+                            </select>
+                        </label>
+                        <button class="button ghost small" type="button" data-expenses-payments-refresh>Refresh</button>
+                    </div>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Type</th>
+                                <th>Source</th>
+                                <th>Amount</th>
+                                <th>Expense</th>
+                                <th>Shipment</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody data-expenses-payments-table>
+                            <tr>
+                                <td colspan="8" class="muted">Loading payments...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="table-pagination" data-expenses-payments-pagination>
+                    <button class="button ghost small" type="button" data-expenses-payments-prev>Previous</button>
+                    <span class="page-label" data-expenses-payments-page>Page 1</span>
+                    <button class="button ghost small" type="button" data-expenses-payments-next>Next</button>
+                </div>
+            </div>
         </div>
         <div class="notice-stack" data-expenses-status></div>
     </section>
@@ -111,12 +199,6 @@ if (!$canEdit) {
                     <label>
                         <span>Amount</span>
                         <input type="number" step="0.01" name="amount" placeholder="0.00" required>
-                    </label>
-                    <label>
-                        <span>From admin account</span>
-                        <select name="from_account_id" data-expenses-account required>
-                            <option value="">Select admin account</option>
-                        </select>
                     </label>
                     <label>
                         <span>Expense date</span>

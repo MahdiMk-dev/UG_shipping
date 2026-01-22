@@ -11,10 +11,10 @@ if (!in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch', 'Warehouse'
     exit;
 }
 
-$receiptId = (int) ($_GET['id'] ?? 0);
-if ($receiptId <= 0) {
+$paymentId = (int) ($_GET['id'] ?? 0);
+if ($paymentId <= 0) {
     http_response_code(400);
-    echo 'Receipt ID is required.';
+    echo 'Payment ID is required.';
     exit;
 }
 
@@ -22,39 +22,39 @@ $stmt = db()->prepare(
     'SELECT t.id, t.type, t.amount, t.payment_date, t.reason, t.note, t.created_at, '
     . 'pm.name AS payment_method, i.invoice_no, '
     . 'af.name AS from_account_name, aa.name AS to_account_name, '
-    . 'p.name AS partner_name, p.phone AS partner_phone, p.address AS partner_address, p.type AS partner_type '
-    . 'FROM partner_transactions t '
-    . 'JOIN partner_profiles p ON p.id = t.partner_id '
+    . 'p.name AS supplier_name, p.phone AS supplier_phone, p.address AS supplier_address, p.type AS supplier_type '
+    . 'FROM supplier_transactions t '
+    . 'JOIN supplier_profiles p ON p.id = t.supplier_id '
     . 'LEFT JOIN payment_methods pm ON pm.id = t.payment_method_id '
-    . 'LEFT JOIN partner_invoices i ON i.id = t.invoice_id '
+    . 'LEFT JOIN supplier_invoices i ON i.id = t.invoice_id '
     . 'LEFT JOIN account_transfers at ON at.id = t.account_transfer_id '
     . 'LEFT JOIN accounts af ON af.id = at.from_account_id '
     . 'LEFT JOIN accounts aa ON aa.id = at.to_account_id '
     . 'WHERE t.id = ? AND t.deleted_at IS NULL'
 );
-$stmt->execute([$receiptId]);
-$receipt = $stmt->fetch();
-if (!$receipt) {
+$stmt->execute([$paymentId]);
+$payment = $stmt->fetch();
+if (!$payment) {
     http_response_code(404);
-    echo 'Receipt not found.';
+    echo 'Payment not found.';
     exit;
 }
 
 $itemsStmt = db()->prepare(
-    'SELECT description, amount FROM partner_transaction_items WHERE transaction_id = ? ORDER BY id ASC'
+    'SELECT description, amount FROM supplier_transaction_items WHERE transaction_id = ? ORDER BY id ASC'
 );
-$itemsStmt->execute([$receiptId]);
+$itemsStmt->execute([$paymentId]);
 $items = $itemsStmt->fetchAll();
 
 $company = company_settings();
 
 $escape = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
-$dateValue = $receipt['payment_date'] ?: $receipt['created_at'];
+$dateValue = $payment['payment_date'] ?: $payment['created_at'];
 $dateLabel = $dateValue ? date('Y-m-d H:i', strtotime($dateValue)) : '';
-$partnerType = $receipt['partner_type'] === 'consignee' ? 'Consignee' : 'Shipper';
-$title = strtoupper((string) ($receipt['type'] ?? 'receipt'));
-$fromAccountName = (string) ($receipt['from_account_name'] ?? '');
-$toAccountName = (string) ($receipt['to_account_name'] ?? '');
+$supplierType = $payment['supplier_type'] === 'consignee' ? 'Consignee' : 'Shipper';
+$title = strtoupper((string) ($payment['type'] ?? 'payment'));
+$fromAccountName = (string) ($payment['from_account_name'] ?? '');
+$toAccountName = (string) ($payment['to_account_name'] ?? '');
 $accountLabel = '-';
 if ($fromAccountName !== '' || $toAccountName !== '') {
     $accountLabel = ($fromAccountName !== '' ? $fromAccountName : '-')
@@ -67,7 +67,7 @@ if ($fromAccountName !== '' || $toAccountName !== '') {
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Partner Receipt <?= $escape((string) $receipt['id']) ?></title>
+    <title>Supplier Payment <?= $escape((string) $payment['id']) ?></title>
     <style>
         :root { color-scheme: light; }
         body { margin: 0; padding: 32px; font-family: "Georgia", "Times New Roman", serif; color: #1b1b1b; }
@@ -119,25 +119,25 @@ if ($fromAccountName !== '' || $toAccountName !== '') {
         </div>
         <div class="doc-title">
             <h2><?= $escape($title) ?></h2>
-            <span>#<?= $escape((string) $receipt['id']) ?></span>
+            <span>#<?= $escape((string) $payment['id']) ?></span>
             <span><?= $escape($dateLabel) ?></span>
         </div>
     </header>
 
     <section class="section">
         <div class="block">
-            <h3>Received From</h3>
-            <p><strong><?= $escape($receipt['partner_name']) ?></strong></p>
-            <p>Type: <?= $escape($partnerType) ?></p>
-            <?php if (!empty($receipt['partner_phone'])): ?><p>Phone: <?= $escape($receipt['partner_phone']) ?></p><?php endif; ?>
-            <?php if (!empty($receipt['partner_address'])): ?><p><?= $escape($receipt['partner_address']) ?></p><?php endif; ?>
+            <h3>Supplier</h3>
+            <p><strong><?= $escape($payment['supplier_name']) ?></strong></p>
+            <p>Type: <?= $escape($supplierType) ?></p>
+            <?php if (!empty($payment['supplier_phone'])): ?><p>Phone: <?= $escape($payment['supplier_phone']) ?></p><?php endif; ?>
+            <?php if (!empty($payment['supplier_address'])): ?><p><?= $escape($payment['supplier_address']) ?></p><?php endif; ?>
         </div>
         <div class="block">
             <h3>Payment Details</h3>
             <p>Account: <?= $escape($accountLabel) ?></p>
-            <p>Method: <?= $escape($receipt['payment_method'] ?? '-') ?></p>
-            <?php if (!empty($receipt['invoice_no'])): ?><p>Invoice: <?= $escape($receipt['invoice_no']) ?></p><?php endif; ?>
-            <?php if (!empty($receipt['reason'])): ?><p>Reason: <?= $escape($receipt['reason']) ?></p><?php endif; ?>
+            <p>Method: <?= $escape($payment['payment_method'] ?? '-') ?></p>
+            <?php if (!empty($payment['invoice_no'])): ?><p>Invoice: <?= $escape($payment['invoice_no']) ?></p><?php endif; ?>
+            <?php if (!empty($payment['reason'])): ?><p>Reason: <?= $escape($payment['reason']) ?></p><?php endif; ?>
         </div>
     </section>
 
@@ -165,13 +165,13 @@ if ($fromAccountName !== '' || $toAccountName !== '') {
             </tbody>
         </table>
         <div class="total">
-            Total: <?= number_format((float) $receipt['amount'], 2) ?>
+            Total: <?= number_format((float) $payment['amount'], 2) ?>
         </div>
     </div>
 
-    <?php if (!empty($receipt['note'])): ?>
+    <?php if (!empty($payment['note'])): ?>
         <div class="notes">
-            <strong>Notes:</strong> <?= $escape($receipt['note']) ?>
+            <strong>Notes:</strong> <?= $escape($payment['note']) ?>
         </div>
     <?php endif; ?>
 
@@ -181,3 +181,5 @@ if ($fromAccountName !== '' || $toAccountName !== '') {
 </div>
 </body>
 </html>
+
+

@@ -60,6 +60,12 @@ internal_page_start($user, 'reports', 'Reports', 'Generate printable financial a
                                 data-description="Track shipment-linked expenses by shipment or date range.">
                             Expenses by shipment
                         </option>
+                        <option value="net_shipment"
+                                data-url="<?= BASE_URL ?>/views/internal/report_net_shipment"
+                                data-branch="none" data-shipment="optional" data-mode="0"
+                                data-description="Net per shipment using order income vs shipment expenses, plus paid/unpaid orders.">
+                            Net by shipment
+                        </option>
                         <option value="expenses_company"
                                 data-url="<?= BASE_URL ?>/views/internal/report_expenses_company"
                                 data-branch="none" data-shipment="none" data-mode="1"
@@ -98,6 +104,13 @@ internal_page_start($user, 'reports', 'Reports', 'Generate printable financial a
                 <span>Shipment (optional)</span>
                 <select name="shipment_id" data-report-shipment-select>
                     <option value="">All shipments</option>
+                </select>
+            </label>
+
+            <label data-report-field="origin" class="is-hidden">
+                <span>Origin country (optional)</span>
+                <select name="origin_country_id" data-report-origin-select>
+                    <option value="">All origins</option>
                 </select>
             </label>
 

@@ -5,8 +5,6 @@ require_once __DIR__ . '/../../app/api.php';
 require_once __DIR__ . '/../../app/permissions.php';
 require_once __DIR__ . '/../../app/audit.php';
 require_once __DIR__ . '/../../app/services/shipment_service.php';
-require_once __DIR__ . '/../../app/services/account_service.php';
-
 api_require_method('POST');
 $user = require_role(['Admin', 'Owner']);
 $input = api_read_input();
@@ -17,10 +15,8 @@ $title = api_string($input['title'] ?? null);
 $amount = api_float($input['amount'] ?? null);
 $expenseDate = api_string($input['expense_date'] ?? null);
 $note = api_string($input['note'] ?? null);
-$fromAccountId = api_int($input['from_account_id'] ?? null);
-
-if (!$title || $amount === null || !$fromAccountId) {
-    api_error('title, amount, and from_account_id are required', 422);
+if (!$title || $amount === null) {
+    api_error('title and amount are required', 422);
 }
 if ((float) $amount <= 0.0) {
     api_error('amount must be greater than zero', 422);
@@ -50,11 +46,6 @@ if ($shipmentId !== null && $shipmentId > 0) {
 }
 
 $db = db();
-$fromAccount = fetch_account($db, $fromAccountId);
-if ($fromAccount['owner_type'] !== 'admin') {
-    api_error('Expenses must be paid from an admin account', 422);
-}
-$entryType = $shipmentId ? 'shipment_expense' : 'general_expense';
 $db->beginTransaction();
 
 try {
@@ -74,20 +65,6 @@ try {
     ]);
 
     $expenseId = (int) $db->lastInsertId();
-    $transferId = create_account_transfer(
-        $db,
-        $fromAccountId,
-        null,
-        (float) $amount,
-        $entryType,
-        $expenseDate,
-        $note,
-        'general_expense',
-        $expenseId,
-        $user['id'] ?? null
-    );
-    $db->prepare('UPDATE general_expenses SET account_transfer_id = ? WHERE id = ?')
-        ->execute([$transferId, $expenseId]);
     $rowStmt = $db->prepare('SELECT * FROM general_expenses WHERE id = ?');
     $rowStmt->execute([$expenseId]);
     $after = $rowStmt->fetch();

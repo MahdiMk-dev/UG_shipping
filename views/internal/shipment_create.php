@@ -58,13 +58,13 @@ $showRates = $role !== 'Warehouse';
             <?php if (!$isWarehouse): ?>
                 <label>
                     <span>Shipper profile</span>
-                    <select name="shipper_profile_id" data-partner-select data-partner-type="shipper">
+                    <select name="shipper_profile_id" data-supplier-select data-supplier-type="shipper">
                         <option value="">Select shipper (optional)</option>
                     </select>
                 </label>
                 <label>
                     <span>Consignee profile</span>
-                    <select name="consignee_profile_id" data-partner-select data-partner-type="consignee">
+                    <select name="consignee_profile_id" data-supplier-select data-supplier-type="consignee">
                         <option value="">Select consignee (optional)</option>
                     </select>
                 </label>
@@ -94,8 +94,12 @@ $showRates = $role !== 'Warehouse';
             </label>
             <?php if ($showRates): ?>
                 <label>
-                    <span>Default rate</span>
-                    <input type="number" step="0.01" name="default_rate" placeholder="0.00">
+                    <span>Default rate (KG)</span>
+                    <input type="number" step="0.01" name="default_rate_kg" placeholder="0.00">
+                </label>
+                <label>
+                    <span>Default rate (CBM)</span>
+                    <input type="number" step="0.01" name="default_rate_cbm" placeholder="0.00">
                 </label>
             <?php endif; ?>
             <label class="full">
@@ -111,3 +115,5 @@ $showRates = $role !== 'Warehouse';
 </div>
 <?php
 internal_page_end();
+
+

@@ -9,17 +9,17 @@ api_require_method('PATCH');
 $user = require_role(['Admin', 'Owner', 'Main Branch']);
 $input = api_read_input();
 
-$partnerId = api_int($input['id'] ?? ($input['partner_id'] ?? null));
-if (!$partnerId) {
-    api_error('partner_id is required', 422);
+$supplierId = api_int($input['id'] ?? ($input['supplier_id'] ?? null));
+if (!$supplierId) {
+    api_error('supplier_id is required', 422);
 }
 
 $db = db();
-$beforeStmt = $db->prepare('SELECT * FROM partner_profiles WHERE id = ? AND deleted_at IS NULL');
-$beforeStmt->execute([$partnerId]);
+$beforeStmt = $db->prepare('SELECT * FROM supplier_profiles WHERE id = ? AND deleted_at IS NULL');
+$beforeStmt->execute([$supplierId]);
 $before = $beforeStmt->fetch();
 if (!$before) {
-    api_error('Partner profile not found', 404);
+    api_error('Supplier profile not found', 404);
 }
 
 $fields = [];
@@ -65,22 +65,24 @@ if (empty($fields)) {
 $fields[] = 'updated_at = NOW()';
 $fields[] = 'updated_by_user_id = ?';
 $params[] = $user['id'] ?? null;
-$params[] = $partnerId;
+$params[] = $supplierId;
 
-$sql = 'UPDATE partner_profiles SET ' . implode(', ', $fields) . ' WHERE id = ? AND deleted_at IS NULL';
+$sql = 'UPDATE supplier_profiles SET ' . implode(', ', $fields) . ' WHERE id = ? AND deleted_at IS NULL';
 
 $db->beginTransaction();
 try {
     $stmt = $db->prepare($sql);
     $stmt->execute($params);
-    $afterStmt = $db->prepare('SELECT * FROM partner_profiles WHERE id = ?');
-    $afterStmt->execute([$partnerId]);
+    $afterStmt = $db->prepare('SELECT * FROM supplier_profiles WHERE id = ?');
+    $afterStmt->execute([$supplierId]);
     $after = $afterStmt->fetch();
-    audit_log($user, 'partner.update', 'partner_profile', $partnerId, $before, $after);
+    audit_log($user, 'supplier.update', 'supplier_profile', $supplierId, $before, $after);
     $db->commit();
 } catch (PDOException $e) {
     $db->rollBack();
-    api_error('Failed to update partner profile', 500);
+    api_error('Failed to update Supplier profile', 500);
 }
 
 api_json(['ok' => true]);
+
+

@@ -76,14 +76,15 @@ if ($shipmentId) {
                     <h3><?= $showRates ? 'Rates & notes' : 'Notes' ?></h3>
                     <div class="detail-list">
                         <?php if ($showRates): ?>
-                            <div><span>Default rate</span><strong data-detail="default_rate">--</strong></div>
+                            <div><span>Default rate (KG)</span><strong data-detail="default_rate_kg">--</strong></div>
+                            <div><span>Default rate (CBM)</span><strong data-detail="default_rate_cbm">--</strong></div>
                             <div><span>Cost per unit</span><strong data-detail="cost_per_unit">--</strong></div>
                         <?php endif; ?>
                         <div><span>Notes</span><strong data-detail="note">--</strong></div>
                     </div>
                 </article>
                 <article class="detail-card">
-                    <h3>Partners</h3>
+                    <h3>Suppliers</h3>
                     <div class="detail-list">
                         <div><span>Shipper</span><strong data-detail="shipper_profile_name">--</strong></div>
                         <div><span>Consignee</span><strong data-detail="consignee_profile_name">--</strong></div>
@@ -99,7 +100,7 @@ if ($shipmentId) {
                 <div class="drawer-header">
                     <div>
                         <h3 id="edit-shipment-title">Edit shipment</h3>
-                        <p>Update shipment status, dates, and default rate.</p>
+                        <p>Update shipment status, dates, and default rates.</p>
                     </div>
                     <button class="icon-button" type="button" data-shipment-edit-close aria-label="Close edit panel">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12"></path><path d="M18 6l-12 12"></path></svg>
@@ -143,13 +144,13 @@ if ($shipmentId) {
                     <?php if (!$isWarehouse): ?>
                         <label>
                             <span>Shipper profile</span>
-                            <select name="shipper_profile_id" data-partner-select data-partner-type="shipper">
+                            <select name="shipper_profile_id" data-supplier-select data-supplier-type="shipper">
                                 <option value="">Select shipper (optional)</option>
                             </select>
                         </label>
                         <label>
                             <span>Consignee profile</span>
-                            <select name="consignee_profile_id" data-partner-select data-partner-type="consignee">
+                            <select name="consignee_profile_id" data-supplier-select data-supplier-type="consignee">
                                 <option value="">Select consignee (optional)</option>
                             </select>
                         </label>
@@ -175,8 +176,12 @@ if ($shipmentId) {
                     </label>
                     <?php if ($showRates): ?>
                         <label>
-                            <span>Default rate</span>
-                            <input type="number" step="0.01" name="default_rate">
+                            <span>Default rate (KG)</span>
+                            <input type="number" step="0.01" name="default_rate_kg">
+                        </label>
+                        <label>
+                            <span>Default rate (CBM)</span>
+                            <input type="number" step="0.01" name="default_rate_cbm">
                         </label>
                     <?php endif; ?>
                     <label class="full">
@@ -423,12 +428,6 @@ if ($shipmentId) {
                         <input type="number" step="0.01" name="amount" placeholder="0.00" required>
                     </label>
                     <label>
-                        <span>Admin account</span>
-                        <select name="from_account_id" data-shipment-expenses-account required>
-                            <option value="">Select admin account</option>
-                        </select>
-                    </label>
-                    <label>
                         <span>Expense date</span>
                         <input type="date" name="expense_date">
                     </label>
@@ -447,3 +446,5 @@ if ($shipmentId) {
 </div>
 <?php
 internal_page_end();
+
+

@@ -13,6 +13,16 @@ api_require_method('PATCH');
 $user = require_role(['Admin', 'Owner', 'Main Branch', 'Warehouse']);
 $input = api_read_input();
 
+$legacyRate = array_key_exists('rate', $input)
+    ? api_float($input['rate'] ?? null)
+    : null;
+if ($legacyRate !== null
+    && !array_key_exists('rate_kg', $input)
+    && !array_key_exists('rate_cbm', $input)) {
+    $input['rate_kg'] = $legacyRate;
+    $input['rate_cbm'] = $legacyRate;
+}
+
 $orderId = api_int($input['order_id'] ?? ($input['id'] ?? null));
 if (!$orderId) {
     api_error('order_id is required', 422);
@@ -40,7 +50,8 @@ $blockedKeys = [
     'w',
     'd',
     'h',
-    'rate',
+    'rate_kg',
+    'rate_cbm',
     'adjustments',
 ];
 foreach ($blockedKeys as $blockedKey) {
@@ -68,7 +79,11 @@ if ($role === 'Warehouse') {
 if ($role === 'Warehouse' && ($shipment['status'] ?? '') !== 'active') {
     api_error('Shipment must be active to edit orders', 403);
 }
-if ($role === 'Warehouse' && (array_key_exists('rate', $input) || array_key_exists('adjustments', $input))) {
+if ($role === 'Warehouse'
+    && (array_key_exists('rate', $input)
+        || array_key_exists('rate_kg', $input)
+        || array_key_exists('rate_cbm', $input)
+        || array_key_exists('adjustments', $input))) {
     api_error('Rate and adjustments are restricted for warehouse users', 403);
 }
 
@@ -81,6 +96,7 @@ $fields = [];
 $params = [];
 
 $allowedDelivery = ['pickup', 'delivery'];
+$allowedPackage = ['bag', 'box'];
 $allowedWeight = ['actual', 'volumetric'];
 $allowedFulfillment = [
     'in_shipment',
@@ -102,12 +118,14 @@ $mapFields = [
     'collection_id' => 'collection_id',
     'tracking_number' => 'tracking_number',
     'delivery_type' => 'delivery_type',
+    'package_type' => 'package_type',
     'weight_type' => 'weight_type',
     'actual_weight' => 'actual_weight',
     'w' => 'w',
     'd' => 'd',
     'h' => 'h',
-    'rate' => 'rate',
+    'rate_kg' => 'rate_kg',
+    'rate_cbm' => 'rate_cbm',
     'note' => 'note',
     'fulfillment_status' => 'fulfillment_status',
     'notification_status' => 'notification_status',
@@ -132,12 +150,17 @@ foreach ($mapFields as $inputKey => $column) {
         if (!$value || !in_array($value, $allowedDelivery, true)) {
             api_error('Invalid delivery_type', 422);
         }
+    } elseif (in_array($inputKey, ['package_type'], true)) {
+        $value = api_string($value);
+        if (!$value || !in_array($value, $allowedPackage, true)) {
+            api_error('Invalid package_type', 422);
+        }
     } elseif (in_array($inputKey, ['weight_type'], true)) {
         $value = api_string($value);
         if (!$value || !in_array($value, $allowedWeight, true)) {
             api_error('Invalid weight_type', 422);
         }
-    } elseif (in_array($inputKey, ['rate', 'actual_weight', 'w', 'd', 'h'], true)) {
+    } elseif (in_array($inputKey, ['rate_kg', 'rate_cbm', 'actual_weight', 'w', 'd', 'h'], true)) {
         $value = api_float($value);
     } elseif ($inputKey === 'note') {
         $value = api_string($value);
@@ -269,6 +292,27 @@ $actualWeight = $newValues['actual_weight'];
 $w = $newValues['w'];
 $d = $newValues['d'];
 $h = $newValues['h'];
+
+$rateKg = $newValues['rate_kg'] ?? null;
+$rateCbm = $newValues['rate_cbm'] ?? null;
+if ($rateKg === null) {
+    $rateKg = $order['rate_kg'] ?? $order['rate'];
+}
+if ($rateCbm === null) {
+    $rateCbm = $order['rate_cbm'] ?? $order['rate'];
+}
+if ($rateKg === null) {
+    $rateKg = 0.0;
+}
+if ($rateCbm === null) {
+    $rateCbm = 0.0;
+}
+$effectiveRate = $weightType === 'volumetric' ? (float) $rateCbm : (float) $rateKg;
+if (!isset($newValues['rate']) || (float) $newValues['rate'] !== $effectiveRate) {
+    $fields[] = 'rate = ?';
+    $params[] = $effectiveRate;
+    $newValues['rate'] = $effectiveRate;
+}
 
 if ($weightType === 'actual' && ($actualWeight === null || $actualWeight === '')) {
     api_error('actual_weight is required for actual weight_type', 422);
@@ -537,7 +581,7 @@ try {
 } catch (PDOException $e) {
     $db->rollBack();
     if ((int) $e->getCode() === 23000) {
-        api_error('Tracking number already exists for this shipment', 409);
+        api_error('Tracking number already exists', 409);
     }
     api_error('Failed to update order', 500);
 }

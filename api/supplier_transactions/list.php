@@ -7,20 +7,20 @@ require_once __DIR__ . '/../../app/permissions.php';
 api_require_method('GET');
 $user = require_role(['Admin', 'Owner', 'Main Branch']);
 
-$partnerId = api_int($_GET['partner_id'] ?? null);
+$SupplierId = api_int($_GET['supplier_id'] ?? null);
 $status = api_string($_GET['status'] ?? null);
 $limit = api_int($_GET['limit'] ?? 50, 50);
 $offset = api_int($_GET['offset'] ?? 0, 0);
 
-if (!$partnerId) {
-    api_error('partner_id is required', 422);
+if (!$SupplierId) {
+    api_error('supplier_id is required', 422);
 }
 
 $limit = max(1, min(200, $limit ?? 50));
 $offset = max(0, $offset ?? 0);
 
-$where = ['t.partner_id = ?', 't.deleted_at IS NULL'];
-$params = [$partnerId];
+$where = ['t.supplier_id = ?', 't.deleted_at IS NULL'];
+$params = [$SupplierId];
 
 if ($status) {
     $allowed = ['active', 'canceled'];
@@ -31,7 +31,7 @@ if ($status) {
     $params[] = $status;
 }
 
-$sql = 'SELECT t.id, t.partner_id, t.invoice_id, t.type, t.status, '
+$sql = 'SELECT t.id, t.supplier_id, t.invoice_id, t.type, t.status, '
     . 't.payment_method_id, pm.name AS payment_method_name, t.amount, t.payment_date, '
     . 't.reason, t.note, t.canceled_reason, t.created_at, i.invoice_no, '
     . 'CASE '
@@ -40,9 +40,9 @@ $sql = 'SELECT t.id, t.partner_id, t.invoice_id, t.type, t.status, '
         . 'WHEN aa.name IS NOT NULL THEN aa.name '
         . 'ELSE NULL '
     . 'END AS account_label '
-    . 'FROM partner_transactions t '
+    . 'FROM supplier_transactions t '
     . 'LEFT JOIN payment_methods pm ON pm.id = t.payment_method_id '
-    . 'LEFT JOIN partner_invoices i ON i.id = t.invoice_id '
+    . 'LEFT JOIN supplier_invoices i ON i.id = t.invoice_id '
     . 'LEFT JOIN account_transfers at ON at.id = t.account_transfer_id '
     . 'LEFT JOIN accounts af ON af.id = at.from_account_id '
     . 'LEFT JOIN accounts aa ON aa.id = at.to_account_id '
@@ -59,3 +59,5 @@ $stmt->execute();
 $rows = $stmt->fetchAll();
 
 api_json(['ok' => true, 'data' => $rows]);
+
+

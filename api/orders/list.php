@@ -89,7 +89,7 @@ if ($search) {
 }
 
 $sql = 'SELECT o.id, o.shipment_id, s.shipment_number, o.customer_id, c.name AS customer_name, c.code AS customer_code, '
-    . 'o.sub_branch_id, b.name AS sub_branch_name, o.tracking_number, o.delivery_type, '
+    . 'o.sub_branch_id, b.name AS sub_branch_name, o.tracking_number, o.delivery_type, o.package_type, '
     . 'o.unit_type, o.qty, o.total_price, o.fulfillment_status, o.notification_status, '
     . 'o.created_at, o.updated_at, cu.name AS created_by_name, uu.name AS updated_by_name '
     . 'FROM orders o '

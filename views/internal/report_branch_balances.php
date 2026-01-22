@@ -141,7 +141,7 @@ $details = $detailsStmt->fetchAll();
 $entryLabels = [
     'customer_payment' => 'Customer payment',
     'branch_transfer' => 'Branch transfer',
-    'partner_transaction' => 'Partner transaction',
+    'supplier_transaction' => 'Supplier transaction',
     'staff_expense' => 'Staff expense',
     'general_expense' => 'Company expense',
     'shipment_expense' => 'Shipment expense',
@@ -362,3 +362,5 @@ $periodLabel = $dateFrom && $dateTo ? "{$dateFrom} to {$dateTo}" : 'All dates';
 </div>
 </body>
 </html>
+
+

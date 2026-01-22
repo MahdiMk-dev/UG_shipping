@@ -19,11 +19,12 @@ if ($invoiceId <= 0) {
 }
 
 $stmt = db()->prepare(
-    'SELECT i.id, i.invoice_no, i.status, i.currency, i.total, i.paid_total, i.due_total, i.issued_at, i.note, '
+    'SELECT i.id, i.invoice_no, i.status, i.currency, i.rate_kg, i.rate_cbm, i.total_weight, i.total_volume, '
+    . 'i.total, i.paid_total, i.due_total, i.issued_at, i.note, '
     . 'i.shipment_id, s.shipment_number, c.name AS origin_country, '
-    . 'p.name AS partner_name, p.phone AS partner_phone, p.address AS partner_address, p.type AS partner_type '
-    . 'FROM partner_invoices i '
-    . 'JOIN partner_profiles p ON p.id = i.partner_id '
+    . 'p.name AS supplier_name, p.phone AS supplier_phone, p.address AS supplier_address, p.type AS supplier_type '
+    . 'FROM supplier_invoices i '
+    . 'JOIN supplier_profiles p ON p.id = i.supplier_id '
     . 'LEFT JOIN shipments s ON s.id = i.shipment_id '
     . 'LEFT JOIN countries c ON c.id = s.origin_country_id '
     . 'WHERE i.id = ? AND i.deleted_at IS NULL'
@@ -36,25 +37,25 @@ if (!$invoice) {
     exit;
 }
 
-$itemsStmt = db()->prepare(
-    'SELECT description, amount FROM partner_invoice_items WHERE invoice_id = ? ORDER BY id ASC'
-);
-$itemsStmt->execute([$invoiceId]);
-$items = $itemsStmt->fetchAll();
-
 $company = company_settings();
 
 $escape = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 $issuedAt = $invoice['issued_at'] ? date('Y-m-d H:i', strtotime($invoice['issued_at'])) : '';
-$partnerType = $invoice['partner_type'] === 'consignee' ? 'Consignee' : 'Shipper';
+$SupplierType = $invoice['supplier_type'] === 'consignee' ? 'Consignee' : 'Shipper';
 $currencyLabel = $invoice['currency'] ?: 'USD';
+$rateKg = (float) ($invoice['rate_kg'] ?? 0);
+$rateCbm = (float) ($invoice['rate_cbm'] ?? 0);
+$totalWeight = (float) ($invoice['total_weight'] ?? 0);
+$totalVolume = (float) ($invoice['total_volume'] ?? 0);
+$weightCharge = round($rateKg * $totalWeight, 2);
+$volumeCharge = round($rateCbm * $totalVolume, 2);
 ?>
 <!doctype html>
 <html lang="en">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Partner Invoice <?= $escape($invoice['invoice_no']) ?></title>
+    <title>Supplier Invoice <?= $escape($invoice['invoice_no']) ?></title>
     <style>
         :root { color-scheme: light; }
         body { margin: 0; padding: 32px; font-family: "Georgia", "Times New Roman", serif; color: #1b1b1b; }
@@ -118,10 +119,10 @@ $currencyLabel = $invoice['currency'] ?: 'USD';
     <section class="section">
         <div class="block">
             <h3>Billed To</h3>
-            <p><strong><?= $escape($invoice['partner_name']) ?></strong></p>
-            <p>Type: <?= $escape($partnerType) ?></p>
-            <?php if (!empty($invoice['partner_phone'])): ?><p>Phone: <?= $escape($invoice['partner_phone']) ?></p><?php endif; ?>
-            <?php if (!empty($invoice['partner_address'])): ?><p><?= $escape($invoice['partner_address']) ?></p><?php endif; ?>
+            <p><strong><?= $escape($invoice['supplier_name']) ?></strong></p>
+            <p>Type: <?= $escape($SupplierType) ?></p>
+            <?php if (!empty($invoice['supplier_phone'])): ?><p>Phone: <?= $escape($invoice['supplier_phone']) ?></p><?php endif; ?>
+            <?php if (!empty($invoice['supplier_address'])): ?><p><?= $escape($invoice['supplier_address']) ?></p><?php endif; ?>
         </div>
         <div class="block">
             <h3>Shipment</h3>
@@ -138,23 +139,22 @@ $currencyLabel = $invoice['currency'] ?: 'USD';
         <table>
             <thead>
                 <tr>
-                    <th>Description</th>
+                    <th>Metric</th>
+                    <th>Rate</th>
                     <th class="amount">Amount (<?= $escape($currencyLabel) ?>)</th>
                 </tr>
             </thead>
             <tbody>
-                <?php if (!empty($items)): ?>
-                    <?php foreach ($items as $item): ?>
-                        <tr>
-                            <td><?= $escape($item['description']) ?></td>
-                            <td class="amount"><?= number_format((float) $item['amount'], 2) ?></td>
-                        </tr>
-                    <?php endforeach; ?>
-                <?php else: ?>
-                    <tr>
-                        <td colspan="2">No line items recorded.</td>
-                    </tr>
-                <?php endif; ?>
+                <tr>
+                    <td>Weight (<?= number_format($totalWeight, 3) ?> kg)</td>
+                    <td><?= number_format($rateKg, 2) ?></td>
+                    <td class="amount"><?= number_format($weightCharge, 2) ?></td>
+                </tr>
+                <tr>
+                    <td>Volume (<?= number_format($totalVolume, 3) ?> cbm)</td>
+                    <td><?= number_format($rateCbm, 2) ?></td>
+                    <td class="amount"><?= number_format($volumeCharge, 2) ?></td>
+                </tr>
             </tbody>
         </table>
         <div class="totals">
@@ -187,3 +187,5 @@ $currencyLabel = $invoice['currency'] ?: 'USD';
 </div>
 </body>
 </html>
+
+

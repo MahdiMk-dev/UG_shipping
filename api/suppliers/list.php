@@ -39,7 +39,7 @@ if ($search) {
 
 $sql = 'SELECT p.id, p.type, p.name, p.phone, p.address, p.note, '
     . 'p.balance, p.created_at, p.updated_at '
-    . 'FROM partner_profiles p '
+    . 'FROM supplier_profiles p '
     . 'WHERE ' . implode(' AND ', $where) . ' '
     . 'ORDER BY p.id DESC LIMIT ? OFFSET ?';
 
@@ -55,3 +55,5 @@ $stmt->execute();
 $rows = $stmt->fetchAll();
 
 api_json(['ok' => true, 'data' => $rows]);
+
+

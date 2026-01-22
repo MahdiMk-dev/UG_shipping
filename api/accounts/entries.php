@@ -82,7 +82,7 @@ $sql = 'SELECT e.id, e.entry_type, e.amount, e.entry_date, e.status, e.created_a
         . 'WHERE ta.transaction_id = t.id) AS invoice_nos, '
     . 'btbl.from_branch_id, bf.name AS from_branch_name, '
     . 'btbl.to_branch_id, bt.name AS to_branch_name, '
-    . 'pp.name AS partner_name, pi.invoice_no AS partner_invoice_no, '
+    . 'pp.name AS supplier_name, pi.invoice_no AS supplier_invoice_no, '
     . 'ge.title AS expense_title, '
     . 'sm.name AS staff_name, '
     . 'adj.title AS adjustment_title, adj.note AS adjustment_note, '
@@ -96,9 +96,9 @@ $sql = 'SELECT e.id, e.entry_type, e.amount, e.entry_date, e.status, e.created_a
     . 'LEFT JOIN branch_transfers btbl ON btbl.id = at.reference_id AND at.reference_type = \'branch_transfer\' '
     . 'LEFT JOIN branches bf ON bf.id = btbl.from_branch_id '
     . 'LEFT JOIN branches bt ON bt.id = btbl.to_branch_id '
-    . 'LEFT JOIN partner_transactions pt ON pt.id = at.reference_id AND at.reference_type = \'partner_transaction\' '
-    . 'LEFT JOIN partner_profiles pp ON pp.id = pt.partner_id '
-    . 'LEFT JOIN partner_invoices pi ON pi.id = pt.invoice_id '
+    . 'LEFT JOIN supplier_transactions pt ON pt.id = at.reference_id AND at.reference_type = \'supplier_transaction\' '
+    . 'LEFT JOIN supplier_profiles pp ON pp.id = pt.supplier_id '
+    . 'LEFT JOIN supplier_invoices pi ON pi.id = pt.invoice_id '
     . 'LEFT JOIN general_expenses ge ON ge.id = at.reference_id '
         . 'AND at.reference_type IN (\'general_expense\', \'shipment_expense\', \'invoice_points\') '
     . 'LEFT JOIN staff_expenses se ON se.id = at.reference_id AND at.reference_type = \'staff_expense\' '
@@ -144,11 +144,11 @@ foreach ($rows as &$row) {
                 $referenceLabel .= ' | Invoice ' . $row['invoice_nos'];
             }
         }
-    } elseif ($referenceType === 'partner_transaction') {
-        if (!empty($row['partner_name'])) {
-            $referenceLabel = $row['partner_name'];
-            if (!empty($row['partner_invoice_no'])) {
-                $referenceLabel .= ' | Invoice ' . $row['partner_invoice_no'];
+    } elseif ($referenceType === 'supplier_transaction') {
+        if (!empty($row['supplier_name'])) {
+            $referenceLabel = $row['supplier_name'];
+            if (!empty($row['supplier_invoice_no'])) {
+                $referenceLabel .= ' | Invoice ' . $row['supplier_invoice_no'];
             }
         }
     } elseif (in_array($referenceType, ['general_expense', 'shipment_expense'], true)) {
@@ -176,3 +176,5 @@ foreach ($rows as &$row) {
 unset($row);
 
 api_json(['ok' => true, 'data' => $rows]);
+
+

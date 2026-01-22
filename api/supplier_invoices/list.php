@@ -7,20 +7,20 @@ require_once __DIR__ . '/../../app/permissions.php';
 api_require_method('GET');
 $user = require_role(['Admin', 'Owner', 'Main Branch']);
 
-$partnerId = api_int($_GET['partner_id'] ?? null);
+$supplierId = api_int($_GET['supplier_id'] ?? null);
 $status = api_string($_GET['status'] ?? null);
 $limit = api_int($_GET['limit'] ?? 50, 50);
 $offset = api_int($_GET['offset'] ?? 0, 0);
 
-if (!$partnerId) {
-    api_error('partner_id is required', 422);
+if (!$supplierId) {
+    api_error('supplier_id is required', 422);
 }
 
 $limit = max(1, min(200, $limit ?? 50));
 $offset = max(0, $offset ?? 0);
 
-$where = ['i.partner_id = ?', 'i.deleted_at IS NULL'];
-$params = [$partnerId];
+$where = ['i.supplier_id = ?', 'i.deleted_at IS NULL'];
+$params = [$supplierId];
 
 if ($status) {
     $allowed = ['open', 'partially_paid', 'paid', 'void'];
@@ -31,9 +31,10 @@ if ($status) {
     $params[] = $status;
 }
 
-$sql = 'SELECT i.id, i.partner_id, i.shipment_id, i.invoice_no, i.status, i.currency, i.total, i.paid_total, i.due_total, '
-    . 'i.issued_at, i.note, s.shipment_number '
-    . 'FROM partner_invoices i '
+$sql = 'SELECT i.id, i.supplier_id, i.shipment_id, i.invoice_no, i.status, i.currency, i.rate_kg, i.rate_cbm, '
+    . 'i.total_weight, i.total_volume, i.total, i.paid_total, i.due_total, i.issued_at, i.note, '
+    . 's.shipment_number '
+    . 'FROM supplier_invoices i '
     . 'LEFT JOIN shipments s ON s.id = i.shipment_id '
     . 'WHERE ' . implode(' AND ', $where) . ' '
     . 'ORDER BY i.id DESC LIMIT ? OFFSET ?';

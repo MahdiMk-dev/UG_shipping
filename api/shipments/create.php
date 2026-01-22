@@ -62,12 +62,12 @@ if (!in_array($shippingType, $allowedTypes, true)) {
     api_error('Invalid shipping_type', 422);
 }
 
-$partnerStmt = $db->prepare(
-    'SELECT id, type FROM partner_profiles WHERE id = ? AND deleted_at IS NULL'
+$SupplierStmt = $db->prepare(
+    'SELECT id, type FROM supplier_profiles WHERE id = ? AND deleted_at IS NULL'
 );
 if ($shipperProfileId) {
-    $partnerStmt->execute([$shipperProfileId]);
-    $shipperProfile = $partnerStmt->fetch();
+    $SupplierStmt->execute([$shipperProfileId]);
+    $shipperProfile = $SupplierStmt->fetch();
     if (!$shipperProfile) {
         api_error('Shipper profile not found', 404);
     }
@@ -76,8 +76,8 @@ if ($shipperProfileId) {
     }
 }
 if ($consigneeProfileId) {
-    $partnerStmt->execute([$consigneeProfileId]);
-    $consigneeProfile = $partnerStmt->fetch();
+    $SupplierStmt->execute([$consigneeProfileId]);
+    $consigneeProfile = $SupplierStmt->fetch();
     if (!$consigneeProfile) {
         api_error('Consignee profile not found', 404);
     }
@@ -130,17 +130,34 @@ $numericFields = [
     'size',
     'weight',
     'gross_weight',
-    'default_rate',
 ];
 foreach ($numericFields as $field) {
     $values[$field] = api_float($input[$field] ?? null);
 }
-if ($values['default_rate'] === null) {
-    $values['default_rate'] = 0.0;
-}
 if (!array_key_exists('cost_per_unit', $values)) {
     $values['cost_per_unit'] = null;
 }
+
+$defaultRateKg = api_float($input['default_rate_kg'] ?? null);
+$defaultRateCbm = api_float($input['default_rate_cbm'] ?? null);
+$legacyDefaultRate = api_float($input['default_rate'] ?? null);
+if ($defaultRateKg === null && $defaultRateCbm === null && $legacyDefaultRate !== null) {
+    $defaultRateKg = $legacyDefaultRate;
+    $defaultRateCbm = $legacyDefaultRate;
+}
+if ($defaultRateKg === null && $defaultRateCbm !== null) {
+    $defaultRateKg = $defaultRateCbm;
+}
+if ($defaultRateCbm === null && $defaultRateKg !== null) {
+    $defaultRateCbm = $defaultRateKg;
+}
+if ($defaultRateKg === null) {
+    $defaultRateKg = 0.0;
+}
+if ($defaultRateCbm === null) {
+    $defaultRateCbm = 0.0;
+}
+$values['default_rate'] = $legacyDefaultRate ?? $defaultRateKg;
 
 $defaultRateUnit = api_string($input['default_rate_unit'] ?? null);
 if ($defaultRateUnit !== null && !in_array($defaultRateUnit, ['kg', 'cbm'], true)) {
@@ -148,6 +165,8 @@ if ($defaultRateUnit !== null && !in_array($defaultRateUnit, ['kg', 'cbm'], true
 }
 if (($user['role'] ?? '') === 'Warehouse') {
     $values['default_rate'] = 0.0;
+    $defaultRateKg = 0.0;
+    $defaultRateCbm = 0.0;
     $values['cost_per_unit'] = null;
     $defaultRateUnit = null;
 }
@@ -157,8 +176,9 @@ $stmt = $db->prepare(
     . '(shipment_number, origin_country_id, status, shipping_type, shipper, consignee, shipper_profile_id, '
     . 'consignee_profile_id, shipment_date, '
     . 'way_of_shipment, type_of_goods, vessel_or_flight_name, departure_date, arrival_date, size, weight, '
-    . 'gross_weight, default_rate, default_rate_unit, cost_per_unit, note, created_by_user_id) '
-    . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    . 'gross_weight, default_rate, default_rate_kg, default_rate_cbm, default_rate_unit, cost_per_unit, '
+    . 'note, created_by_user_id) '
+    . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
 );
 
 try {
@@ -182,6 +202,8 @@ try {
         $values['weight'],
         $values['gross_weight'],
         $values['default_rate'],
+        $defaultRateKg,
+        $defaultRateCbm,
         $defaultRateUnit,
         $values['cost_per_unit'],
         $values['note'],
@@ -206,3 +228,5 @@ try {
 update_shipment_cost_per_unit($shipmentId);
 
 api_json(['ok' => true, 'id' => $shipmentId]);
+
+

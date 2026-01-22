@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS payment_methods (
 
 CREATE TABLE IF NOT EXISTS accounts (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    owner_type ENUM('admin','branch','staff','partner') NOT NULL,
+    owner_type ENUM('admin','branch','staff','supplier') NOT NULL,
     owner_id INT UNSIGNED NULL,
     name VARCHAR(160) NOT NULL,
     account_type VARCHAR(80) NOT NULL,
@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS account_transfers (
     entry_type ENUM(
         'customer_payment',
         'branch_transfer',
-        'partner_transaction',
+        'supplier_transaction',
         'staff_expense',
         'general_expense',
         'shipment_expense',
@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS account_entries (
     entry_type ENUM(
         'customer_payment',
         'branch_transfer',
-        'partner_transaction',
+        'supplier_transaction',
         'staff_expense',
         'general_expense',
         'shipment_expense',
@@ -132,6 +132,36 @@ CREATE TABLE IF NOT EXISTS account_adjustments (
     CONSTRAINT fk_account_adjustments_transfer
         FOREIGN KEY (account_transfer_id) REFERENCES account_transfers(id)
 ) ENGINE=InnoDB;
+
+UPDATE accounts
+SET owner_type = 'supplier'
+WHERE owner_type NOT IN ('admin', 'branch', 'staff', 'supplier');
+
+UPDATE account_transfers
+SET entry_type = 'supplier_transaction'
+WHERE entry_type NOT IN (
+    'customer_payment',
+    'branch_transfer',
+    'supplier_transaction',
+    'staff_expense',
+    'general_expense',
+    'shipment_expense',
+    'adjustment',
+    'other'
+);
+
+UPDATE account_entries
+SET entry_type = 'supplier_transaction'
+WHERE entry_type NOT IN (
+    'customer_payment',
+    'branch_transfer',
+    'supplier_transaction',
+    'staff_expense',
+    'general_expense',
+    'shipment_expense',
+    'adjustment',
+    'other'
+);
 
 SET @stmt = (SELECT IF(
     EXISTS(
@@ -280,6 +310,7 @@ CREATE TABLE IF NOT EXISTS company_settings (
     points_price DECIMAL(12,2) NULL,
     points_value DECIMAL(12,2) NULL,
     usd_to_lbp DECIMAL(12,2) NULL,
+    domain_expiry DATE NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NULL DEFAULT NULL,
     updated_by_user_id INT UNSIGNED NULL
@@ -322,6 +353,20 @@ SET @stmt = (SELECT IF(
     ),
     'SELECT 1',
     'ALTER TABLE company_settings ADD COLUMN usd_to_lbp DECIMAL(12,2) NULL'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'company_settings'
+          AND COLUMN_NAME = 'domain_expiry'
+    ),
+    'SELECT 1',
+    'ALTER TABLE company_settings ADD COLUMN domain_expiry DATE NULL'
 ));
 PREPARE stmt FROM @stmt;
 EXECUTE stmt;
@@ -400,7 +445,7 @@ CREATE TABLE IF NOT EXISTS customer_auth (
         FOREIGN KEY (customer_id) REFERENCES customers(id)
 ) ENGINE=InnoDB;
 
-CREATE TABLE IF NOT EXISTS partner_profiles (
+CREATE TABLE IF NOT EXISTS supplier_profiles (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     type ENUM('shipper','consignee') NOT NULL,
     name VARCHAR(160) NOT NULL,
@@ -413,16 +458,20 @@ CREATE TABLE IF NOT EXISTS partner_profiles (
     updated_at DATETIME NULL DEFAULT NULL,
     updated_by_user_id INT UNSIGNED NULL,
     deleted_at DATETIME NULL,
-    KEY idx_partner_profiles_type (type)
+    KEY idx_supplier_profiles_type (type)
 ) ENGINE=InnoDB;
 
-CREATE TABLE IF NOT EXISTS partner_invoices (
+CREATE TABLE IF NOT EXISTS supplier_invoices (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    partner_id INT UNSIGNED NOT NULL,
+    supplier_id INT UNSIGNED NOT NULL,
     shipment_id INT UNSIGNED NULL,
     invoice_no VARCHAR(80) NOT NULL,
     status ENUM('open','partially_paid','paid','void') NOT NULL DEFAULT 'open',
     currency CHAR(3) NOT NULL DEFAULT 'USD',
+    rate_kg DECIMAL(12,2) NOT NULL DEFAULT 0,
+    rate_cbm DECIMAL(12,2) NOT NULL DEFAULT 0,
+    total_weight DECIMAL(12,3) NOT NULL DEFAULT 0,
+    total_volume DECIMAL(12,3) NOT NULL DEFAULT 0,
     total DECIMAL(12,2) NOT NULL,
     paid_total DECIMAL(12,2) NOT NULL DEFAULT 0,
     due_total DECIMAL(12,2) NOT NULL,
@@ -437,54 +486,110 @@ CREATE TABLE IF NOT EXISTS partner_invoices (
     deleted_at DATETIME NULL,
     invoice_no_active VARCHAR(80)
         GENERATED ALWAYS AS (CASE WHEN deleted_at IS NULL THEN invoice_no ELSE NULL END) STORED,
-    partner_shipment_active VARCHAR(80)
+    supplier_shipment_active VARCHAR(80)
         GENERATED ALWAYS AS (
             CASE
-                WHEN deleted_at IS NULL AND shipment_id IS NOT NULL THEN CONCAT(partner_id, ':', shipment_id)
+                WHEN deleted_at IS NULL AND shipment_id IS NOT NULL THEN CONCAT(supplier_id, ':', shipment_id)
                 ELSE NULL
             END
         ) STORED,
-    UNIQUE KEY uk_partner_invoices_no_active (invoice_no_active),
-    UNIQUE KEY uk_partner_invoices_partner_shipment_active (partner_shipment_active),
-    KEY idx_partner_invoices_partner (partner_id),
-    KEY idx_partner_invoices_shipment (shipment_id),
-    CONSTRAINT fk_partner_invoices_partner
-        FOREIGN KEY (partner_id) REFERENCES partner_profiles(id)
+    UNIQUE KEY uk_supplier_invoices_no_active (invoice_no_active),
+    UNIQUE KEY uk_supplier_invoices_supplier_shipment_active (supplier_shipment_active),
+    KEY idx_supplier_invoices_supplier (supplier_id),
+    KEY idx_supplier_invoices_shipment (shipment_id),
+    CONSTRAINT fk_supplier_invoices_supplier
+        FOREIGN KEY (supplier_id) REFERENCES supplier_profiles(id)
 ) ENGINE=InnoDB;
 
 SET @stmt = (SELECT IF(
     EXISTS(
         SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME = 'partner_invoices'
+          AND TABLE_NAME = 'supplier_invoices'
           AND COLUMN_NAME = 'currency'
     ),
     'SELECT 1',
-    'ALTER TABLE partner_invoices ADD COLUMN currency CHAR(3) NOT NULL DEFAULT ''USD'''
+    'ALTER TABLE supplier_invoices ADD COLUMN currency CHAR(3) NOT NULL DEFAULT ''USD'''
 ));
 PREPARE stmt FROM @stmt;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
 
-CREATE TABLE IF NOT EXISTS partner_invoice_items (
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'supplier_invoices'
+          AND COLUMN_NAME = 'rate_kg'
+    ),
+    'SELECT 1',
+    'ALTER TABLE supplier_invoices ADD COLUMN rate_kg DECIMAL(12,2) NOT NULL DEFAULT 0'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'supplier_invoices'
+          AND COLUMN_NAME = 'rate_cbm'
+    ),
+    'SELECT 1',
+    'ALTER TABLE supplier_invoices ADD COLUMN rate_cbm DECIMAL(12,2) NOT NULL DEFAULT 0'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'supplier_invoices'
+          AND COLUMN_NAME = 'total_weight'
+    ),
+    'SELECT 1',
+    'ALTER TABLE supplier_invoices ADD COLUMN total_weight DECIMAL(12,3) NOT NULL DEFAULT 0'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'supplier_invoices'
+          AND COLUMN_NAME = 'total_volume'
+    ),
+    'SELECT 1',
+    'ALTER TABLE supplier_invoices ADD COLUMN total_volume DECIMAL(12,3) NOT NULL DEFAULT 0'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+CREATE TABLE IF NOT EXISTS supplier_invoice_items (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     invoice_id INT UNSIGNED NOT NULL,
     description VARCHAR(255) NOT NULL,
     amount DECIMAL(12,2) NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    KEY idx_partner_invoice_items_invoice (invoice_id),
-    CONSTRAINT fk_partner_invoice_items_invoice
-        FOREIGN KEY (invoice_id) REFERENCES partner_invoices(id)
+    KEY idx_supplier_invoice_items_invoice (invoice_id),
+    CONSTRAINT fk_supplier_invoice_items_invoice
+        FOREIGN KEY (invoice_id) REFERENCES supplier_invoices(id)
 ) ENGINE=InnoDB;
 
-CREATE TABLE IF NOT EXISTS partner_transactions (
+CREATE TABLE IF NOT EXISTS supplier_transactions (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    partner_id INT UNSIGNED NOT NULL,
+    supplier_id INT UNSIGNED NOT NULL,
     invoice_id INT UNSIGNED NULL,
     branch_id INT UNSIGNED NULL,
-    type ENUM('receipt','refund','adjustment') NOT NULL DEFAULT 'receipt',
+    type ENUM('invoice_create','invoice_regenerate','payment','refund','adjustment','charge','discount') NOT NULL DEFAULT 'payment',
     status ENUM('active','canceled') NOT NULL DEFAULT 'active',
-    payment_method_id INT UNSIGNED NOT NULL,
+    payment_method_id INT UNSIGNED NULL,
     amount DECIMAL(12,2) NOT NULL,
     payment_date DATE NULL,
     reason VARCHAR(80) NULL,
@@ -498,43 +603,86 @@ CREATE TABLE IF NOT EXISTS partner_transactions (
     canceled_by_user_id INT UNSIGNED NULL,
     account_transfer_id INT UNSIGNED NULL,
     deleted_at DATETIME NULL,
-    KEY idx_partner_transactions_partner (partner_id),
-    KEY idx_partner_transactions_invoice (invoice_id),
-    KEY idx_partner_transactions_branch (branch_id),
-    KEY idx_partner_transactions_method (payment_method_id),
-    KEY idx_partner_transactions_account_transfer (account_transfer_id),
-    CONSTRAINT fk_partner_transactions_partner
-        FOREIGN KEY (partner_id) REFERENCES partner_profiles(id),
-    CONSTRAINT fk_partner_transactions_invoice
-        FOREIGN KEY (invoice_id) REFERENCES partner_invoices(id),
-    CONSTRAINT fk_partner_transactions_branch
+    KEY idx_supplier_transactions_supplier (supplier_id),
+    KEY idx_supplier_transactions_invoice (invoice_id),
+    KEY idx_supplier_transactions_branch (branch_id),
+    KEY idx_supplier_transactions_method (payment_method_id),
+    KEY idx_supplier_transactions_account_transfer (account_transfer_id),
+    CONSTRAINT fk_supplier_transactions_supplier
+        FOREIGN KEY (supplier_id) REFERENCES supplier_profiles(id),
+    CONSTRAINT fk_supplier_transactions_invoice
+        FOREIGN KEY (invoice_id) REFERENCES supplier_invoices(id),
+    CONSTRAINT fk_supplier_transactions_branch
         FOREIGN KEY (branch_id) REFERENCES branches(id),
-    CONSTRAINT fk_partner_transactions_method
+    CONSTRAINT fk_supplier_transactions_method
         FOREIGN KEY (payment_method_id) REFERENCES payment_methods(id),
-    CONSTRAINT fk_partner_transactions_account_transfer
+    CONSTRAINT fk_supplier_transactions_account_transfer
         FOREIGN KEY (account_transfer_id) REFERENCES account_transfers(id)
 ) ENGINE=InnoDB;
 
-CREATE TABLE IF NOT EXISTS partner_transaction_items (
+UPDATE supplier_transactions
+SET type = 'payment'
+WHERE type NOT IN ('invoice_create','invoice_regenerate','payment','refund','adjustment','charge','discount');
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'supplier_transactions'
+          AND COLUMN_NAME = 'type'
+          AND COLUMN_TYPE LIKE '%receipt%'
+    ),
+    'ALTER TABLE supplier_transactions MODIFY type '
+        'ENUM('
+            '\'invoice_create\','
+            '\'invoice_regenerate\','
+            '\'payment\','
+            '\'refund\','
+            '\'adjustment\','
+            '\'charge\','
+            '\'discount\''
+        ') NOT NULL DEFAULT \'payment\'',
+    'SELECT 1'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'supplier_transactions'
+          AND COLUMN_NAME = 'payment_method_id'
+          AND IS_NULLABLE = 'NO'
+    ),
+    'ALTER TABLE supplier_transactions MODIFY payment_method_id INT UNSIGNED NULL',
+    'SELECT 1'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+CREATE TABLE IF NOT EXISTS supplier_transaction_items (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     transaction_id INT UNSIGNED NOT NULL,
     description VARCHAR(255) NOT NULL,
     amount DECIMAL(12,2) NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    KEY idx_partner_transaction_items_tx (transaction_id),
-    CONSTRAINT fk_partner_transaction_items_tx
-        FOREIGN KEY (transaction_id) REFERENCES partner_transactions(id)
+    KEY idx_supplier_transaction_items_tx (transaction_id),
+    CONSTRAINT fk_supplier_transaction_items_tx
+        FOREIGN KEY (transaction_id) REFERENCES supplier_transactions(id)
 ) ENGINE=InnoDB;
 
 SET @stmt = (SELECT IF(
     EXISTS(
         SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME = 'partner_profiles'
+          AND TABLE_NAME = 'supplier_profiles'
           AND COLUMN_NAME = 'note'
     ),
     'SELECT 1',
-    'ALTER TABLE partner_profiles ADD COLUMN note TEXT NULL'
+    'ALTER TABLE supplier_profiles ADD COLUMN note TEXT NULL'
 ));
 PREPARE stmt FROM @stmt;
 EXECUTE stmt;
@@ -544,10 +692,10 @@ SET @stmt = (SELECT IF(
     EXISTS(
         SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
         WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME = 'partner_profiles'
-          AND CONSTRAINT_NAME = 'fk_partner_profiles_country'
+          AND TABLE_NAME = 'supplier_profiles'
+          AND CONSTRAINT_NAME = 'fk_supplier_profiles_country'
     ),
-    'ALTER TABLE partner_profiles DROP FOREIGN KEY fk_partner_profiles_country',
+    'ALTER TABLE supplier_profiles DROP FOREIGN KEY fk_supplier_profiles_country',
     'SELECT 1'
 ));
 PREPARE stmt FROM @stmt;
@@ -558,10 +706,10 @@ SET @stmt = (SELECT IF(
     EXISTS(
         SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
         WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME = 'partner_profiles'
-          AND INDEX_NAME = 'idx_partner_profiles_country'
+          AND TABLE_NAME = 'supplier_profiles'
+          AND INDEX_NAME = 'idx_supplier_profiles_country'
     ),
-    'ALTER TABLE partner_profiles DROP INDEX idx_partner_profiles_country',
+    'ALTER TABLE supplier_profiles DROP INDEX idx_supplier_profiles_country',
     'SELECT 1'
 ));
 PREPARE stmt FROM @stmt;
@@ -572,10 +720,10 @@ SET @stmt = (SELECT IF(
     EXISTS(
         SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME = 'partner_profiles'
+          AND TABLE_NAME = 'supplier_profiles'
           AND COLUMN_NAME = 'country_id'
     ),
-    'ALTER TABLE partner_profiles DROP COLUMN country_id',
+    'ALTER TABLE supplier_profiles DROP COLUMN country_id',
     'SELECT 1'
 ));
 PREPARE stmt FROM @stmt;
@@ -586,13 +734,13 @@ SET @stmt = (SELECT IF(
     EXISTS(
         SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME = 'partner_invoices'
-          AND COLUMN_NAME = 'partner_shipment_active'
+          AND TABLE_NAME = 'supplier_invoices'
+          AND COLUMN_NAME = 'supplier_shipment_active'
     ),
     'SELECT 1',
-    'ALTER TABLE partner_invoices ADD COLUMN partner_shipment_active VARCHAR(80) GENERATED ALWAYS AS ('
+    'ALTER TABLE supplier_invoices ADD COLUMN supplier_shipment_active VARCHAR(80) GENERATED ALWAYS AS ('
         'CASE '
-            'WHEN deleted_at IS NULL AND shipment_id IS NOT NULL THEN CONCAT(partner_id, \':\', shipment_id) '
+            'WHEN deleted_at IS NULL AND shipment_id IS NOT NULL THEN CONCAT(supplier_id, \':\', shipment_id) '
             'ELSE NULL '
         'END'
         ') STORED'
@@ -605,11 +753,11 @@ SET @stmt = (SELECT IF(
     EXISTS(
         SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
         WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME = 'partner_invoices'
-          AND INDEX_NAME = 'uk_partner_invoices_partner_shipment_active'
+          AND TABLE_NAME = 'supplier_invoices'
+          AND INDEX_NAME = 'uk_supplier_invoices_supplier_shipment_active'
     ),
     'SELECT 1',
-    'ALTER TABLE partner_invoices ADD UNIQUE KEY uk_partner_invoices_partner_shipment_active (partner_shipment_active)'
+    'ALTER TABLE supplier_invoices ADD UNIQUE KEY uk_supplier_invoices_supplier_shipment_active (supplier_shipment_active)'
 ));
 PREPARE stmt FROM @stmt;
 EXECUTE stmt;
@@ -619,11 +767,11 @@ SET @stmt = (SELECT IF(
     EXISTS(
         SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME = 'partner_transactions'
+          AND TABLE_NAME = 'supplier_transactions'
           AND COLUMN_NAME = 'branch_id'
           AND IS_NULLABLE = 'NO'
     ),
-    'ALTER TABLE partner_transactions MODIFY branch_id INT UNSIGNED NULL',
+    'ALTER TABLE supplier_transactions MODIFY branch_id INT UNSIGNED NULL',
     'SELECT 1'
 ));
 PREPARE stmt FROM @stmt;
@@ -634,11 +782,11 @@ SET @stmt = (SELECT IF(
     EXISTS(
         SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME = 'partner_transactions'
+          AND TABLE_NAME = 'supplier_transactions'
           AND COLUMN_NAME = 'reason'
     ),
     'SELECT 1',
-    'ALTER TABLE partner_transactions ADD COLUMN reason VARCHAR(80) NULL'
+    'ALTER TABLE supplier_transactions ADD COLUMN reason VARCHAR(80) NULL'
 ));
 PREPARE stmt FROM @stmt;
 EXECUTE stmt;
@@ -648,11 +796,11 @@ SET @stmt = (SELECT IF(
     EXISTS(
         SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME = 'partner_invoices'
+          AND TABLE_NAME = 'supplier_invoices'
           AND COLUMN_NAME = 'canceled_at'
     ),
     'SELECT 1',
-    'ALTER TABLE partner_invoices ADD COLUMN canceled_at DATETIME NULL DEFAULT NULL'
+    'ALTER TABLE supplier_invoices ADD COLUMN canceled_at DATETIME NULL DEFAULT NULL'
 ));
 PREPARE stmt FROM @stmt;
 EXECUTE stmt;
@@ -662,11 +810,11 @@ SET @stmt = (SELECT IF(
     EXISTS(
         SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME = 'partner_invoices'
+          AND TABLE_NAME = 'supplier_invoices'
           AND COLUMN_NAME = 'canceled_reason'
     ),
     'SELECT 1',
-    'ALTER TABLE partner_invoices ADD COLUMN canceled_reason TEXT NULL'
+    'ALTER TABLE supplier_invoices ADD COLUMN canceled_reason TEXT NULL'
 ));
 PREPARE stmt FROM @stmt;
 EXECUTE stmt;
@@ -676,11 +824,11 @@ SET @stmt = (SELECT IF(
     EXISTS(
         SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME = 'partner_invoices'
+          AND TABLE_NAME = 'supplier_invoices'
           AND COLUMN_NAME = 'canceled_by_user_id'
     ),
     'SELECT 1',
-    'ALTER TABLE partner_invoices ADD COLUMN canceled_by_user_id INT UNSIGNED NULL'
+    'ALTER TABLE supplier_invoices ADD COLUMN canceled_by_user_id INT UNSIGNED NULL'
 ));
 PREPARE stmt FROM @stmt;
 EXECUTE stmt;
@@ -690,11 +838,11 @@ SET @stmt = (SELECT IF(
     EXISTS(
         SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME = 'partner_transactions'
+          AND TABLE_NAME = 'supplier_transactions'
           AND COLUMN_NAME = 'status'
     ),
     'SELECT 1',
-    'ALTER TABLE partner_transactions ADD COLUMN status ENUM(\'active\',\'canceled\') NOT NULL DEFAULT \'active\''
+    'ALTER TABLE supplier_transactions ADD COLUMN status ENUM(\'active\',\'canceled\') NOT NULL DEFAULT \'active\''
 ));
 PREPARE stmt FROM @stmt;
 EXECUTE stmt;
@@ -704,11 +852,11 @@ SET @stmt = (SELECT IF(
     EXISTS(
         SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME = 'partner_transactions'
+          AND TABLE_NAME = 'supplier_transactions'
           AND COLUMN_NAME = 'canceled_at'
     ),
     'SELECT 1',
-    'ALTER TABLE partner_transactions ADD COLUMN canceled_at DATETIME NULL DEFAULT NULL'
+    'ALTER TABLE supplier_transactions ADD COLUMN canceled_at DATETIME NULL DEFAULT NULL'
 ));
 PREPARE stmt FROM @stmt;
 EXECUTE stmt;
@@ -718,11 +866,11 @@ SET @stmt = (SELECT IF(
     EXISTS(
         SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME = 'partner_transactions'
+          AND TABLE_NAME = 'supplier_transactions'
           AND COLUMN_NAME = 'canceled_reason'
     ),
     'SELECT 1',
-    'ALTER TABLE partner_transactions ADD COLUMN canceled_reason TEXT NULL'
+    'ALTER TABLE supplier_transactions ADD COLUMN canceled_reason TEXT NULL'
 ));
 PREPARE stmt FROM @stmt;
 EXECUTE stmt;
@@ -732,11 +880,11 @@ SET @stmt = (SELECT IF(
     EXISTS(
         SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME = 'partner_transactions'
+          AND TABLE_NAME = 'supplier_transactions'
           AND COLUMN_NAME = 'canceled_by_user_id'
     ),
     'SELECT 1',
-    'ALTER TABLE partner_transactions ADD COLUMN canceled_by_user_id INT UNSIGNED NULL'
+    'ALTER TABLE supplier_transactions ADD COLUMN canceled_by_user_id INT UNSIGNED NULL'
 ));
 PREPARE stmt FROM @stmt;
 EXECUTE stmt;
@@ -911,6 +1059,8 @@ CREATE TABLE IF NOT EXISTS shipments (
     weight DECIMAL(12,3) NULL,
     gross_weight DECIMAL(12,3) NULL,
     default_rate DECIMAL(12,2) NULL,
+    default_rate_kg DECIMAL(12,2) NULL,
+    default_rate_cbm DECIMAL(12,2) NULL,
     default_rate_unit ENUM('kg','cbm') NULL,
     cost_per_unit DECIMAL(12,2) NULL,
     note TEXT NULL,
@@ -928,9 +1078,9 @@ CREATE TABLE IF NOT EXISTS shipments (
     CONSTRAINT fk_shipments_origin_country
         FOREIGN KEY (origin_country_id) REFERENCES countries(id),
     CONSTRAINT fk_shipments_shipper_profile
-        FOREIGN KEY (shipper_profile_id) REFERENCES partner_profiles(id),
+        FOREIGN KEY (shipper_profile_id) REFERENCES supplier_profiles(id),
     CONSTRAINT fk_shipments_consignee_profile
-        FOREIGN KEY (consignee_profile_id) REFERENCES partner_profiles(id)
+        FOREIGN KEY (consignee_profile_id) REFERENCES supplier_profiles(id)
 ) ENGINE=InnoDB;
 
 SET @stmt = (SELECT IF(
@@ -1014,6 +1164,45 @@ DEALLOCATE PREPARE stmt;
 
 SET @stmt = (SELECT IF(
     EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'shipments'
+          AND COLUMN_NAME = 'default_rate_kg'
+    ),
+    'SELECT 1',
+    'ALTER TABLE shipments ADD COLUMN default_rate_kg DECIMAL(12,2) NULL'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'shipments'
+          AND COLUMN_NAME = 'default_rate_cbm'
+    ),
+    'SELECT 1',
+    'ALTER TABLE shipments ADD COLUMN default_rate_cbm DECIMAL(12,2) NULL'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+UPDATE shipments
+SET default_rate_kg = COALESCE(default_rate_kg, default_rate, 0),
+    default_rate_cbm = COALESCE(default_rate_cbm, default_rate, 0)
+WHERE default_rate_kg IS NULL OR default_rate_cbm IS NULL;
+
+UPDATE supplier_invoices i
+LEFT JOIN shipments s ON s.id = i.shipment_id
+SET i.total_weight = COALESCE(NULLIF(i.total_weight, 0), s.weight, 0),
+    i.total_volume = COALESCE(NULLIF(i.total_volume, 0), s.size, 0)
+WHERE i.total_weight = 0 OR i.total_volume = 0;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
         SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
         WHERE TABLE_SCHEMA = DATABASE()
           AND TABLE_NAME = 'shipments'
@@ -1049,7 +1238,7 @@ SET @stmt = (SELECT IF(
     ),
     'SELECT 1',
     'ALTER TABLE shipments ADD CONSTRAINT fk_shipments_shipper_profile '
-        'FOREIGN KEY (shipper_profile_id) REFERENCES partner_profiles(id)'
+        'FOREIGN KEY (shipper_profile_id) REFERENCES supplier_profiles(id)'
 ));
 PREPARE stmt FROM @stmt;
 EXECUTE stmt;
@@ -1064,7 +1253,7 @@ SET @stmt = (SELECT IF(
     ),
     'SELECT 1',
     'ALTER TABLE shipments ADD CONSTRAINT fk_shipments_consignee_profile '
-        'FOREIGN KEY (consignee_profile_id) REFERENCES partner_profiles(id)'
+        'FOREIGN KEY (consignee_profile_id) REFERENCES supplier_profiles(id)'
 ));
 PREPARE stmt FROM @stmt;
 EXECUTE stmt;
@@ -1074,11 +1263,11 @@ SET @stmt = (SELECT IF(
     EXISTS(
         SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME = 'partner_invoices'
+          AND TABLE_NAME = 'supplier_invoices'
           AND COLUMN_NAME = 'shipment_id'
     ),
     'SELECT 1',
-    'ALTER TABLE partner_invoices ADD COLUMN shipment_id INT UNSIGNED NULL'
+    'ALTER TABLE supplier_invoices ADD COLUMN shipment_id INT UNSIGNED NULL'
 ));
 PREPARE stmt FROM @stmt;
 EXECUTE stmt;
@@ -1088,11 +1277,11 @@ SET @stmt = (SELECT IF(
     EXISTS(
         SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
         WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME = 'partner_invoices'
-          AND INDEX_NAME = 'idx_partner_invoices_shipment'
+          AND TABLE_NAME = 'supplier_invoices'
+          AND INDEX_NAME = 'idx_supplier_invoices_shipment'
     ),
     'SELECT 1',
-    'ALTER TABLE partner_invoices ADD KEY idx_partner_invoices_shipment (shipment_id)'
+    'ALTER TABLE supplier_invoices ADD KEY idx_supplier_invoices_shipment (shipment_id)'
 ));
 PREPARE stmt FROM @stmt;
 EXECUTE stmt;
@@ -1102,11 +1291,11 @@ SET @stmt = (SELECT IF(
     EXISTS(
         SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
         WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME = 'partner_invoices'
-          AND CONSTRAINT_NAME = 'fk_partner_invoices_shipment'
+          AND TABLE_NAME = 'supplier_invoices'
+          AND CONSTRAINT_NAME = 'fk_supplier_invoices_shipment'
     ),
     'SELECT 1',
-    'ALTER TABLE partner_invoices ADD CONSTRAINT fk_partner_invoices_shipment '
+    'ALTER TABLE supplier_invoices ADD CONSTRAINT fk_supplier_invoices_shipment '
         'FOREIGN KEY (shipment_id) REFERENCES shipments(id)'
 ));
 PREPARE stmt FROM @stmt;
@@ -1190,6 +1379,7 @@ CREATE TABLE IF NOT EXISTS orders (
     collection_id INT UNSIGNED NULL,
     tracking_number VARCHAR(80) NOT NULL,
     delivery_type ENUM('pickup','delivery') NOT NULL,
+    package_type ENUM('bag','box') NOT NULL DEFAULT 'bag',
     unit_type ENUM('kg','cbm') NOT NULL,
     qty DECIMAL(12,3) NOT NULL DEFAULT 0,
     weight_type ENUM('actual','volumetric') NOT NULL,
@@ -1197,6 +1387,8 @@ CREATE TABLE IF NOT EXISTS orders (
     w DECIMAL(12,3) NULL,
     d DECIMAL(12,3) NULL,
     h DECIMAL(12,3) NULL,
+    rate_kg DECIMAL(12,2) NULL,
+    rate_cbm DECIMAL(12,2) NULL,
     rate DECIMAL(12,2) NOT NULL DEFAULT 0,
     base_price DECIMAL(12,2) NOT NULL DEFAULT 0,
     adjustments_total DECIMAL(12,2) NOT NULL DEFAULT 0,
@@ -1214,7 +1406,7 @@ CREATE TABLE IF NOT EXISTS orders (
     deleted_at DATETIME NULL,
     tracking_number_active VARCHAR(80)
         GENERATED ALWAYS AS (CASE WHEN deleted_at IS NULL THEN tracking_number ELSE NULL END) STORED,
-    UNIQUE KEY uk_orders_tracking_active (shipment_id, tracking_number_active),
+    UNIQUE KEY uk_orders_tracking_active (tracking_number_active),
     KEY idx_orders_shipment (shipment_id),
     KEY idx_orders_customer (customer_id),
     KEY idx_orders_sub_branch (sub_branch_id),
@@ -1260,6 +1452,20 @@ SET @stmt = (SELECT IF(
         SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = DATABASE()
           AND TABLE_NAME = 'orders'
+          AND COLUMN_NAME = 'package_type'
+    ),
+    'SELECT 1',
+    'ALTER TABLE orders ADD COLUMN package_type ENUM(''bag'',''box'') NOT NULL DEFAULT ''bag'' AFTER delivery_type'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'orders'
           AND COLUMN_NAME = 'sub_branch_id'
           AND IS_NULLABLE = 'NO'
     ),
@@ -1279,6 +1485,67 @@ SET @stmt = (SELECT IF(
     ),
     'SELECT 1',
     'ALTER TABLE orders ADD COLUMN note TEXT NULL'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'orders'
+          AND COLUMN_NAME = 'rate_kg'
+    ),
+    'SELECT 1',
+    'ALTER TABLE orders ADD COLUMN rate_kg DECIMAL(12,2) NULL AFTER h'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'orders'
+          AND COLUMN_NAME = 'rate_cbm'
+    ),
+    'SELECT 1',
+    'ALTER TABLE orders ADD COLUMN rate_cbm DECIMAL(12,2) NULL AFTER rate_kg'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+UPDATE orders
+SET rate_kg = COALESCE(rate_kg, rate, 0),
+    rate_cbm = COALESCE(rate_cbm, rate, 0)
+WHERE rate_kg IS NULL OR rate_cbm IS NULL;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'orders'
+          AND INDEX_NAME = 'uk_orders_tracking_active'
+    ),
+    'ALTER TABLE orders DROP INDEX uk_orders_tracking_active',
+    'SELECT 1'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'orders'
+          AND INDEX_NAME = 'uk_orders_tracking_active'
+    ),
+    'SELECT 1',
+    'ALTER TABLE orders ADD UNIQUE KEY uk_orders_tracking_active (tracking_number_active)'
 ));
 PREPARE stmt FROM @stmt;
 EXECUTE stmt;
@@ -1393,9 +1660,9 @@ CREATE TABLE IF NOT EXISTS transactions (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     branch_id INT UNSIGNED NOT NULL,
     customer_id INT UNSIGNED NOT NULL,
-    type ENUM('payment','deposit','refund','adjustment','admin_settlement') NOT NULL DEFAULT 'payment',
+    type ENUM('payment','deposit','refund','adjustment','admin_settlement','charge','discount') NOT NULL DEFAULT 'payment',
     status ENUM('active','canceled') NOT NULL DEFAULT 'active',
-    payment_method_id INT UNSIGNED NOT NULL,
+    payment_method_id INT UNSIGNED NULL,
     currency CHAR(3) NOT NULL DEFAULT 'USD',
     amount DECIMAL(12,2) NOT NULL,
     payment_date DATE NULL,
@@ -1490,6 +1757,45 @@ SET @stmt = (SELECT IF(
     ),
     'SELECT 1',
     'ALTER TABLE invoices ADD COLUMN canceled_by_user_id INT UNSIGNED NULL'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'transactions'
+          AND COLUMN_NAME = 'type'
+          AND COLUMN_TYPE LIKE '%discount%'
+    ),
+    'SELECT 1',
+    'ALTER TABLE transactions MODIFY type '
+        'ENUM('
+            '\'payment\','
+            '\'deposit\','
+            '\'refund\','
+            '\'adjustment\','
+            '\'admin_settlement\','
+            '\'charge\','
+            '\'discount\''
+        ') NOT NULL DEFAULT \'payment\''
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'transactions'
+          AND COLUMN_NAME = 'payment_method_id'
+          AND IS_NULLABLE = 'NO'
+    ),
+    'ALTER TABLE transactions MODIFY payment_method_id INT UNSIGNED NULL',
+    'SELECT 1'
 ));
 PREPARE stmt FROM @stmt;
 EXECUTE stmt;
@@ -1629,6 +1935,9 @@ CREATE TABLE IF NOT EXISTS branch_receiving_scans (
     scanned_by_user_id INT UNSIGNED NULL,
     match_status ENUM('matched','unmatched') NOT NULL,
     matched_order_id INT UNSIGNED NULL,
+    reported_weight DECIMAL(12,3) NULL,
+    reported_at DATETIME NULL DEFAULT NULL,
+    reported_by_user_id INT UNSIGNED NULL,
     note TEXT NULL,
     KEY idx_receiving_scans_branch (branch_id),
     KEY idx_receiving_scans_shipment (shipment_id),
@@ -1641,6 +1950,48 @@ CREATE TABLE IF NOT EXISTS branch_receiving_scans (
     CONSTRAINT fk_receiving_scans_order
         FOREIGN KEY (matched_order_id) REFERENCES orders(id)
 ) ENGINE=InnoDB;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'branch_receiving_scans'
+          AND COLUMN_NAME = 'reported_weight'
+    ),
+    'SELECT 1',
+    'ALTER TABLE branch_receiving_scans ADD COLUMN reported_weight DECIMAL(12,3) NULL'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'branch_receiving_scans'
+          AND COLUMN_NAME = 'reported_at'
+    ),
+    'SELECT 1',
+    'ALTER TABLE branch_receiving_scans ADD COLUMN reported_at DATETIME NULL DEFAULT NULL'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'branch_receiving_scans'
+          AND COLUMN_NAME = 'reported_by_user_id'
+    ),
+    'SELECT 1',
+    'ALTER TABLE branch_receiving_scans ADD COLUMN reported_by_user_id INT UNSIGNED NULL'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 CREATE TABLE IF NOT EXISTS attachments (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -1884,6 +2235,9 @@ CREATE TABLE IF NOT EXISTS general_expenses (
     reference_type VARCHAR(40) NULL,
     reference_id INT UNSIGNED NULL,
     account_transfer_id INT UNSIGNED NULL,
+    is_paid TINYINT NOT NULL DEFAULT 0,
+    paid_at DATETIME NULL DEFAULT NULL,
+    paid_by_user_id INT UNSIGNED NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_by_user_id INT UNSIGNED NULL,
     updated_at DATETIME NULL DEFAULT NULL,
@@ -1894,6 +2248,7 @@ CREATE TABLE IF NOT EXISTS general_expenses (
     KEY idx_general_expenses_date (expense_date),
     KEY idx_general_expenses_ref (reference_type, reference_id),
     KEY idx_general_expenses_account_transfer (account_transfer_id),
+    KEY idx_general_expenses_paid (is_paid),
     CONSTRAINT fk_general_expenses_branch
         FOREIGN KEY (branch_id) REFERENCES branches(id),
     CONSTRAINT fk_general_expenses_shipment
@@ -1976,7 +2331,9 @@ CREATE TABLE IF NOT EXISTS customer_balance_entries (
         'deposit',
         'refund',
         'adjustment',
-        'admin_settlement'
+        'admin_settlement',
+        'charge',
+        'discount'
     ) NOT NULL,
     amount DECIMAL(12,2) NOT NULL,
     reference_type VARCHAR(40) NULL,
@@ -1993,6 +2350,32 @@ CREATE TABLE IF NOT EXISTS customer_balance_entries (
     CONSTRAINT fk_customer_balance_branch
         FOREIGN KEY (branch_id) REFERENCES branches(id)
 ) ENGINE=InnoDB;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'customer_balance_entries'
+          AND COLUMN_NAME = 'entry_type'
+          AND COLUMN_TYPE LIKE '%discount%'
+    ),
+    'SELECT 1',
+    'ALTER TABLE customer_balance_entries MODIFY entry_type '
+        'ENUM('
+            '\'order_charge\','
+            '\'order_reversal\','
+            '\'payment\','
+            '\'deposit\','
+            '\'refund\','
+            '\'adjustment\','
+            '\'admin_settlement\','
+            '\'charge\','
+            '\'discount\''
+        ') NOT NULL'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 SET @stmt = (SELECT IF(
     EXISTS(
@@ -2141,11 +2524,11 @@ SET @stmt = (SELECT IF(
     EXISTS(
         SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME = 'partner_transactions'
+          AND TABLE_NAME = 'supplier_transactions'
           AND COLUMN_NAME = 'account_transfer_id'
     ),
     'SELECT 1',
-    'ALTER TABLE partner_transactions ADD COLUMN account_transfer_id INT UNSIGNED NULL'
+    'ALTER TABLE supplier_transactions ADD COLUMN account_transfer_id INT UNSIGNED NULL'
 ));
 PREPARE stmt FROM @stmt;
 EXECUTE stmt;
@@ -2155,11 +2538,11 @@ SET @stmt = (SELECT IF(
     EXISTS(
         SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
         WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME = 'partner_transactions'
-          AND INDEX_NAME = 'idx_partner_transactions_account_transfer'
+          AND TABLE_NAME = 'supplier_transactions'
+          AND INDEX_NAME = 'idx_supplier_transactions_account_transfer'
     ),
     'SELECT 1',
-    'ALTER TABLE partner_transactions ADD KEY idx_partner_transactions_account_transfer (account_transfer_id)'
+    'ALTER TABLE supplier_transactions ADD KEY idx_supplier_transactions_account_transfer (account_transfer_id)'
 ));
 PREPARE stmt FROM @stmt;
 EXECUTE stmt;
@@ -2169,11 +2552,11 @@ SET @stmt = (SELECT IF(
     EXISTS(
         SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
         WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME = 'partner_transactions'
-          AND CONSTRAINT_NAME = 'fk_partner_transactions_account_transfer'
+          AND TABLE_NAME = 'supplier_transactions'
+          AND CONSTRAINT_NAME = 'fk_supplier_transactions_account_transfer'
     ),
     'SELECT 1',
-    'ALTER TABLE partner_transactions ADD CONSTRAINT fk_partner_transactions_account_transfer '
+    'ALTER TABLE supplier_transactions ADD CONSTRAINT fk_supplier_transactions_account_transfer '
         'FOREIGN KEY (account_transfer_id) REFERENCES account_transfers(id)'
 ));
 PREPARE stmt FROM @stmt;
@@ -2239,6 +2622,52 @@ DEALLOCATE PREPARE stmt;
 
 SET @stmt = (SELECT IF(
     EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'general_expenses'
+          AND COLUMN_NAME = 'is_paid'
+    ),
+    'SELECT 1',
+    'ALTER TABLE general_expenses ADD COLUMN is_paid TINYINT NOT NULL DEFAULT 0'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'general_expenses'
+          AND COLUMN_NAME = 'paid_at'
+    ),
+    'SELECT 1',
+    'ALTER TABLE general_expenses ADD COLUMN paid_at DATETIME NULL DEFAULT NULL'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'general_expenses'
+          AND COLUMN_NAME = 'paid_by_user_id'
+    ),
+    'SELECT 1',
+    'ALTER TABLE general_expenses ADD COLUMN paid_by_user_id INT UNSIGNED NULL'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+UPDATE general_expenses
+SET is_paid = CASE WHEN account_transfer_id IS NOT NULL THEN 1 ELSE 0 END
+WHERE is_paid = 0 OR is_paid IS NULL;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
         SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
         WHERE TABLE_SCHEMA = DATABASE()
           AND TABLE_NAME = 'general_expenses'
@@ -2246,6 +2675,20 @@ SET @stmt = (SELECT IF(
     ),
     'SELECT 1',
     'ALTER TABLE general_expenses ADD KEY idx_general_expenses_account_transfer (account_transfer_id)'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'general_expenses'
+          AND INDEX_NAME = 'idx_general_expenses_paid'
+    ),
+    'SELECT 1',
+    'ALTER TABLE general_expenses ADD KEY idx_general_expenses_paid (is_paid)'
 ));
 PREPARE stmt FROM @stmt;
 EXECUTE stmt;
@@ -2416,29 +2859,9 @@ INSERT IGNORE INTO payment_methods (name) VALUES
     ('Credit'),
     ('Whish');
 
-INSERT INTO accounts (owner_type, owner_id, name, account_type, payment_method_id)
-SELECT 'admin', NULL, CONCAT('Admin ', pm.name), pm.name, pm.id
-FROM payment_methods pm
-WHERE NOT EXISTS (
-    SELECT 1 FROM accounts a
-    WHERE a.owner_type = 'admin'
-      AND a.owner_id IS NULL
-      AND a.payment_method_id = pm.id
-      AND a.deleted_at IS NULL
-);
 
-INSERT INTO accounts (owner_type, owner_id, name, account_type, payment_method_id)
-SELECT 'branch', b.id, CONCAT(b.name, ' ', pm.name), pm.name, pm.id
-FROM branches b
-CROSS JOIN payment_methods pm
-WHERE b.type = 'sub'
-  AND NOT EXISTS (
-    SELECT 1 FROM accounts a
-    WHERE a.owner_type = 'branch'
-      AND a.owner_id = b.id
-      AND a.payment_method_id = pm.id
-      AND a.deleted_at IS NULL
-);
+
+
 
 INSERT IGNORE INTO goods_types (name) VALUES
     ('General cargo'),
@@ -2496,3 +2919,6 @@ SET password_hash = '$2y$10$TtfGMaNFphvf1FoDr6EfFOsgNz.gFX7ijWGe.2P6rtNFcr/Fpv6S
 
 INSERT IGNORE INTO customers (name, code, is_system)
 VALUES ('Unknown', 'UNKNOWN', 1);
+
+
+

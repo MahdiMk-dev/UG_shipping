@@ -12,6 +12,7 @@ if (!in_array($user['role'] ?? '', ['Admin', 'Owner'], true)) {
 }
 
 $shipmentId = (int) ($_GET['shipment_id'] ?? 0);
+$originCountryId = (int) ($_GET['origin_country_id'] ?? 0);
 $dateFrom = trim((string) ($_GET['date_from'] ?? ''));
 $dateTo = trim((string) ($_GET['date_to'] ?? ''));
 
@@ -38,6 +39,10 @@ if ($shipmentId > 0) {
     $where[] = 'e.shipment_id = ?';
     $params[] = $shipmentId;
 }
+if ($originCountryId > 0) {
+    $where[] = 's.origin_country_id = ?';
+    $params[] = $originCountryId;
+}
 if ($dateFrom !== '') {
     $where[] = 'COALESCE(e.expense_date, DATE(e.created_at)) >= ?';
     $params[] = $dateFrom;
@@ -60,6 +65,13 @@ $sql = 'SELECT e.id, e.title, e.amount, e.expense_date, e.note, e.created_at, '
 $stmt = db()->prepare($sql);
 $stmt->execute($params);
 $rows = $stmt->fetchAll();
+
+$originCountryName = '';
+if ($originCountryId > 0) {
+    $originStmt = db()->prepare('SELECT name FROM countries WHERE id = ?');
+    $originStmt->execute([$originCountryId]);
+    $originCountryName = (string) ($originStmt->fetchColumn() ?: '');
+}
 
 $shipments = [];
 $grandTotal = 0.0;
@@ -143,6 +155,9 @@ $periodLabel = $dateFrom && $dateTo ? "{$dateFrom} to {$dateTo}" : 'All dates';
             <div>Period: <?= $escape($periodLabel) ?></div>
             <?php if ($shipmentId > 0 && isset($shipments[$shipmentId])): ?>
                 <div>Shipment #: <?= $escape($shipments[$shipmentId]['shipment_number']) ?></div>
+            <?php endif; ?>
+            <?php if ($originCountryId > 0): ?>
+                <div>Origin: <?= $escape($originCountryName ?: 'Unknown') ?></div>
             <?php endif; ?>
         </div>
     </header>

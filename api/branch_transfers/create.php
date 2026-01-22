@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../app/api.php';
 require_once __DIR__ . '/../../app/permissions.php';
 require_once __DIR__ . '/../../app/services/account_service.php';
+require_once __DIR__ . '/../../app/services/balance_service.php';
 require_once __DIR__ . '/../../app/audit.php';
 
 api_require_method('POST');
@@ -89,6 +90,29 @@ try {
     );
     $db->prepare('UPDATE branch_transfers SET account_transfer_id = ? WHERE id = ?')
         ->execute([$transferLedgerId, $transferId]);
+
+    record_branch_balance(
+        $db,
+        $fromBranchId,
+        -$amount,
+        'transfer_out',
+        'branch_transfer',
+        $transferId,
+        $user['id'] ?? null,
+        $note
+    );
+    if ($toBranchId) {
+        record_branch_balance(
+            $db,
+            $toBranchId,
+            $amount,
+            'transfer_in',
+            'branch_transfer',
+            $transferId,
+            $user['id'] ?? null,
+            $note
+        );
+    }
 
     $rowStmt = $db->prepare('SELECT * FROM branch_transfers WHERE id = ?');
     $rowStmt->execute([$transferId]);

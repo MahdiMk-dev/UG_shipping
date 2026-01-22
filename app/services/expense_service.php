@@ -35,36 +35,25 @@ function sync_invoice_points_expense(
         return;
     }
 
-    $fromAccountId = require_admin_cash_account_id($db);
     if ($expense) {
         $expenseId = (int) $expense['id'];
         $transferId = (int) ($expense['account_transfer_id'] ?? 0);
         if ($transferId) {
             cancel_account_transfer($db, $transferId, 'Points expense updated', $userId);
         }
-        $transferId = create_account_transfer(
-            $db,
-            $fromAccountId,
-            null,
-            $amount,
-            'general_expense',
-            null,
-            $note,
-            'invoice_points',
-            $expenseId,
-            $userId
-        );
         $db->prepare(
             'UPDATE general_expenses SET title = ?, amount = ?, note = ?, updated_at = NOW(), '
-            . 'updated_by_user_id = ?, account_transfer_id = ? WHERE id = ?'
-        )->execute([$title, $amount, $note, $userId, $transferId, $expenseId]);
+            . 'updated_by_user_id = ?, account_transfer_id = NULL, is_paid = 1, paid_at = NOW(), '
+            . 'paid_by_user_id = ? WHERE id = ?'
+        )->execute([$title, $amount, $note, $userId, $userId, $expenseId]);
         return;
     }
 
     $insertStmt = $db->prepare(
         'INSERT INTO general_expenses '
-        . '(branch_id, shipment_id, title, amount, expense_date, note, reference_type, reference_id, created_by_user_id) '
-        . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        . '(branch_id, shipment_id, title, amount, expense_date, note, reference_type, reference_id, is_paid, paid_at, '
+        . 'paid_by_user_id, created_by_user_id) '
+        . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?)'
     );
     $insertStmt->execute([
         null,
@@ -75,22 +64,8 @@ function sync_invoice_points_expense(
         $note,
         'invoice_points',
         $invoiceId,
+        1,
+        $userId,
         $userId,
     ]);
-
-    $expenseId = (int) $db->lastInsertId();
-    $transferId = create_account_transfer(
-        $db,
-        $fromAccountId,
-        null,
-        $amount,
-        'general_expense',
-        null,
-        $note,
-        'invoice_points',
-        $expenseId,
-        $userId
-    );
-    $db->prepare('UPDATE general_expenses SET account_transfer_id = ? WHERE id = ?')
-        ->execute([$transferId, $expenseId]);
 }

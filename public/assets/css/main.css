@@ -713,6 +713,45 @@ body.drawer-open {
     margin-bottom: 6px;
 }
 
+.expiry-banner {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    padding: 14px 18px;
+    border-radius: 16px;
+    border: 1px solid rgba(168, 99, 32, 0.35);
+    background: linear-gradient(135deg, rgba(242, 153, 74, 0.18), rgba(255, 255, 255, 0.95));
+    color: #6b3b12;
+    box-shadow: var(--shadow-soft);
+}
+
+.expiry-banner-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(242, 153, 74, 0.25);
+    border: 1px solid rgba(168, 99, 32, 0.3);
+    flex-shrink: 0;
+}
+
+.expiry-banner-icon svg {
+    width: 18px;
+    height: 18px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.expiry-banner-text {
+    font-weight: 600;
+    line-height: 1.5;
+}
+
 .stats-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -786,6 +825,13 @@ body.drawer-open {
     padding: 24px 26px;
     border: 1px solid var(--line);
     box-shadow: var(--shadow);
+}
+
+[data-customer-view],
+[data-supplier-view],
+[data-shipment-view] {
+    display: grid;
+    gap: 26px;
 }
 
 .panel.is-collapsible {
@@ -911,6 +957,123 @@ body.drawer-open {
     display: block;
 }
 
+.panel[data-shipment-tabs] .tab-nav,
+.panel[data-customer-tabs] .tab-nav,
+.panel[data-supplier-tabs] .tab-nav {
+    gap: 6px;
+    margin: 12px 0 0;
+    padding: 10px 10px 0;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+    border-radius: 16px 16px 0 0;
+    overflow-x: auto;
+    overflow-y: visible;
+}
+
+.panel[data-shipment-tabs] .tab-button,
+.panel[data-customer-tabs] .tab-button,
+.panel[data-supplier-tabs] .tab-button {
+    position: relative;
+    border-radius: 10px 10px 0 0;
+    border: 1px solid var(--line);
+    border-bottom-color: var(--line);
+    background: var(--surface-soft);
+    color: var(--muted);
+    padding: 8px 16px;
+    margin-bottom: -1px;
+    box-shadow: none;
+    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.panel[data-shipment-tabs] .tab-button:hover,
+.panel[data-customer-tabs] .tab-button:hover,
+.panel[data-supplier-tabs] .tab-button:hover {
+    background: var(--surface);
+    color: var(--text);
+    transform: translateY(-1px);
+}
+
+.panel[data-shipment-tabs] .tab-button.is-active,
+.panel[data-customer-tabs] .tab-button.is-active,
+.panel[data-supplier-tabs] .tab-button.is-active {
+    background: var(--surface);
+    color: var(--text);
+    border-color: var(--line);
+    border-bottom-color: var(--surface);
+    z-index: 1;
+}
+
+.panel[data-shipment-tabs] .tab-button.is-active::after,
+.panel[data-customer-tabs] .tab-button.is-active::after,
+.panel[data-supplier-tabs] .tab-button.is-active::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -1px;
+    height: 1px;
+    background: var(--surface);
+}
+
+.panel[data-shipment-tabs] .tab-panels,
+.panel[data-customer-tabs] .tab-panels,
+.panel[data-supplier-tabs] .tab-panels {
+    border: 1px solid var(--line);
+    border-top: none;
+    border-radius: 0 0 16px 16px;
+    padding: 18px;
+    background: var(--surface);
+}
+
+.profile-panel .detail-grid {
+    justify-items: start;
+}
+
+.profile-panel .profile-row {
+    display: grid;
+    grid-template-columns: minmax(260px, 520px) minmax(0, 1fr);
+    gap: 18px;
+    align-items: start;
+}
+
+.profile-panel .profile-row .stats-grid {
+    align-content: start;
+}
+
+.profile-panel .profile-row .stats-grid.is-compact {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.profile-panel .detail-grid + .stats-grid {
+    margin-top: 18px;
+}
+
+.profile-panel .detail-card {
+    width: 100%;
+    max-width: 520px;
+}
+
+.profile-panel .detail-list div {
+    display: grid;
+    grid-template-columns: 160px 1fr;
+    align-items: center;
+}
+
+.profile-panel .detail-list strong {
+    justify-self: end;
+    text-align: right;
+}
+
+.stats-grid.is-compact {
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+}
+
+.stat-card.is-compact {
+    padding: 14px 16px;
+    border-radius: 16px;
+}
+
 .action-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -1012,6 +1175,31 @@ th {
 
 .muted {
     color: var(--muted);
+}
+
+.loading-cell {
+    text-align: center;
+}
+
+.loading-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--muted);
+    font-weight: 600;
+}
+
+.loading-text {
+    letter-spacing: 0.2px;
+}
+
+.spinner {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 2px solid rgba(var(--nav-rgb), 0.25);
+    border-top-color: var(--accent);
+    animation: spin 0.9s linear infinite;
 }
 
 .amount-positive {
@@ -1577,6 +1765,32 @@ th {
     text-decoration: underline;
 }
 
+.table-wrap td:has(.text-link) {
+    font-size: 0;
+}
+
+.table-wrap td:has(.text-link) .text-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    margin: 0 8px 6px 0;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--accent-strong);
+    font-size: 12px;
+    text-decoration: none;
+}
+
+.table-wrap td:has(.text-link) .text-link:hover {
+    background: var(--surface-soft);
+}
+
+.table-wrap td:has(.text-link) .text-link:last-child {
+    margin-right: 0;
+}
+
 .expand-row {
     display: none;
 }
@@ -1693,6 +1907,12 @@ th {
     }
 }
 
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 @media (max-width: 960px) {
     .login-shell {
         grid-template-columns: 1fr;
@@ -1754,6 +1974,10 @@ th {
     .adjustment-row {
         grid-template-columns: 1fr;
     }
+
+    .profile-panel .profile-row {
+        grid-template-columns: 1fr;
+    }
 }
 
 @media (max-width: 840px) {
@@ -1773,6 +1997,11 @@ th {
     .page-hero {
         padding: 18px;
         border-radius: 18px;
+    }
+
+    .expiry-banner {
+        flex-direction: column;
+        align-items: flex-start;
     }
 
     .panel {

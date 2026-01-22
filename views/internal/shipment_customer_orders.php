@@ -10,6 +10,7 @@ $shipmentId = $_GET['shipment_id'] ?? '';
 $customerId = $_GET['customer_id'] ?? '';
 $role = $user['role'] ?? '';
 $canEdit = in_array($role, ['Admin', 'Owner', 'Main Branch', 'Warehouse'], true);
+$canPrintLabel = in_array($role, ['Admin', 'Warehouse'], true);
 $isWarehouse = $role === 'Warehouse';
 $showIncome = !$isWarehouse;
 $backUrl = $shipmentId
@@ -23,6 +24,7 @@ $packingListUrl = ($shipmentId && $customerId)
 <div data-shipment-customer-orders data-shipment-id="<?= htmlspecialchars((string) $shipmentId, ENT_QUOTES) ?>"
      data-customer-id="<?= htmlspecialchars((string) $customerId, ENT_QUOTES) ?>"
      data-can-edit="<?= $canEdit ? '1' : '0' ?>"
+     data-can-print-label="<?= $canPrintLabel ? '1' : '0' ?>"
      data-show-income="<?= $showIncome ? '1' : '0' ?>">
     <div class="app-toolbar">
         <a class="button ghost" href="<?= htmlspecialchars($backUrl, ENT_QUOTES) ?>">Back to shipment</a>
@@ -95,7 +97,7 @@ $packingListUrl = ($shipmentId && $customerId)
                 <div class="drawer-header">
                     <div>
                         <h3 id="edit-order-title">Edit order</h3>
-                        <p data-order-edit-subtitle>Update weight details, rate, and adjustments.</p>
+                        <p data-order-edit-subtitle>Update weight details, rates, and adjustments.</p>
                     </div>
                     <button class="icon-button" type="button" data-order-edit-close aria-label="Close edit panel">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12"></path><path d="M18 6l-12 12"></path></svg>
@@ -103,6 +105,32 @@ $packingListUrl = ($shipmentId && $customerId)
                 </div>
                 <form class="grid-form" data-order-edit-form>
                     <input type="hidden" name="order_id" data-order-id-field>
+                    <label class="order-edit-package">
+                        <span>Package type</span>
+                        <div class="option-group option-group-equal">
+                            <label class="option-pill">
+                                <input type="radio" name="package_type" value="bag" data-order-package-type checked required>
+                                <span>
+                                    <svg class="pill-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="M7 9v-.5a5 5 0 0 1 10 0V9"></path>
+                                        <path d="M5 9h14l-1.2 10.2a2 2 0 0 1-2 1.8H8.2a2 2 0 0 1-2-1.8L5 9z"></path>
+                                    </svg>
+                                    Bag
+                                </span>
+                            </label>
+                            <label class="option-pill">
+                                <input type="radio" name="package_type" value="box" data-order-package-type>
+                                <span>
+                                    <svg class="pill-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="M3 7.5L12 3l9 4.5-9 4.5-9-4.5z"></path>
+                                        <path d="M3 7.5v9l9 4.5 9-4.5v-9"></path>
+                                        <path d="M12 12v9"></path>
+                                    </svg>
+                                    Box
+                                </span>
+                            </label>
+                        </div>
+                    </label>
                     <label class="order-edit-weight-type">
                         <span>Weight type</span>
                         <div class="option-group option-group-equal">
@@ -134,8 +162,12 @@ $packingListUrl = ($shipmentId && $customerId)
                     </label>
                     <?php if ($showIncome): ?>
                         <label>
-                            <span>Rate</span>
-                            <input type="number" step="0.01" name="rate" required>
+                            <span>Rate (KG)</span>
+                            <input type="number" step="0.01" name="rate_kg">
+                        </label>
+                        <label>
+                            <span>Rate (CBM)</span>
+                            <input type="number" step="0.01" name="rate_cbm">
                         </label>
                         <div class="adjustments-block full">
                             <div class="panel-header">

@@ -25,8 +25,8 @@ $db->beginTransaction();
 
 try {
     $txStmt = $db->prepare(
-        'SELECT id, partner_id, invoice_id, type, amount, status, account_transfer_id '
-        . 'FROM partner_transactions WHERE id = ? AND deleted_at IS NULL'
+        'SELECT id, supplier_id, invoice_id, type, amount, status, account_transfer_id '
+        . 'FROM supplier_transactions WHERE id = ? AND deleted_at IS NULL'
     );
     $txStmt->execute([$transactionId]);
     $transaction = $txStmt->fetch();
@@ -37,9 +37,12 @@ try {
     if (($transaction['status'] ?? '') !== 'active') {
         api_error('Transaction already canceled', 409);
     }
+    if (($transaction['type'] ?? '') !== 'payment') {
+        api_error('Only payment transactions can be canceled', 422);
+    }
 
     $db->prepare(
-        'UPDATE partner_transactions SET status = ?, canceled_at = NOW(), canceled_reason = ?, '
+        'UPDATE supplier_transactions SET status = ?, canceled_at = NOW(), canceled_reason = ?, '
         . 'canceled_by_user_id = ?, updated_at = NOW(), updated_by_user_id = ? WHERE id = ?'
     )->execute([
         'canceled',
@@ -50,10 +53,10 @@ try {
     ]);
 
     $amount = abs((float) ($transaction['amount'] ?? 0));
-    if (!empty($transaction['partner_id']) && $amount > 0.0001) {
-        $balanceDelta = ($transaction['type'] ?? '') === 'receipt' ? -$amount : $amount;
-        $db->prepare('UPDATE partner_profiles SET balance = balance - ? WHERE id = ?')
-            ->execute([$balanceDelta, $transaction['partner_id']]);
+    if (!empty($transaction['supplier_id']) && $amount > 0.0001) {
+        $balanceDelta = ($transaction['type'] ?? '') === 'payment' ? -$amount : $amount;
+        $db->prepare('UPDATE supplier_profiles SET balance = balance - ? WHERE id = ?')
+            ->execute([$balanceDelta, $transaction['supplier_id']]);
     }
 
     if (!empty($transaction['account_transfer_id'])) {
@@ -68,14 +71,14 @@ try {
     if (!empty($transaction['invoice_id'])) {
         $invoiceId = (int) $transaction['invoice_id'];
         $sumStmt = $db->prepare(
-            'SELECT SUM(amount) AS total_receipts FROM partner_transactions '
+            'SELECT SUM(amount) AS total_payments FROM supplier_transactions '
             . 'WHERE invoice_id = ? AND deleted_at IS NULL AND status = ? AND type = ?'
         );
-        $sumStmt->execute([$invoiceId, 'active', 'receipt']);
+        $sumStmt->execute([$invoiceId, 'active', 'payment']);
         $sumRow = $sumStmt->fetch();
-        $paidTotal = (float) ($sumRow['total_receipts'] ?? 0);
+        $paidTotal = (float) ($sumRow['total_payments'] ?? 0);
 
-        $invStmt = $db->prepare('SELECT id, total FROM partner_invoices WHERE id = ? AND deleted_at IS NULL');
+        $invStmt = $db->prepare('SELECT id, total FROM supplier_invoices WHERE id = ? AND deleted_at IS NULL');
         $invStmt->execute([$invoiceId]);
         $invoice = $invStmt->fetch();
         if ($invoice) {
@@ -84,24 +87,26 @@ try {
             $dueTotal = round($total - $paidTotal, 2);
             $status = invoice_status_from_totals($paidTotal, $total);
             $updateInvoice = $db->prepare(
-                'UPDATE partner_invoices SET paid_total = ?, due_total = ?, status = ?, '
+                'UPDATE supplier_invoices SET paid_total = ?, due_total = ?, status = ?, '
                 . 'updated_at = NOW(), updated_by_user_id = ? WHERE id = ?'
             );
             $updateInvoice->execute([$paidTotal, $dueTotal, $status, $user['id'] ?? null, $invoiceId]);
         }
     }
 
-    $afterStmt = $db->prepare('SELECT * FROM partner_transactions WHERE id = ?');
+    $afterStmt = $db->prepare('SELECT * FROM supplier_transactions WHERE id = ?');
     $afterStmt->execute([$transactionId]);
     $after = $afterStmt->fetch();
-    audit_log($user, 'partner_transactions.cancel', 'partner_transaction', $transactionId, $transaction, $after, [
+    audit_log($user, 'supplier_transactions.cancel', 'supplier_transaction', $transactionId, $transaction, $after, [
         'reason' => $reason,
     ]);
 
     $db->commit();
 } catch (Throwable $e) {
     $db->rollBack();
-    api_error('Failed to cancel partner transaction', 500);
+    api_error('Failed to cancel supplier transaction', 500);
 }
 
 api_json(['ok' => true]);
+
+

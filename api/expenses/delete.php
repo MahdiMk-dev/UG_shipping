@@ -23,6 +23,14 @@ $before = $beforeStmt->fetch();
 if (!$before) {
     api_error('Expense not found', 404);
 }
+$transferId = !empty($before['account_transfer_id']) ? (int) $before['account_transfer_id'] : 0;
+if ($transferId) {
+    $transferStatusStmt = $db->prepare('SELECT status FROM account_transfers WHERE id = ?');
+    $transferStatusStmt->execute([$transferId]);
+    if ($transferStatusStmt->fetchColumn() === 'active') {
+        api_error('Cannot delete a paid expense', 409);
+    }
+}
 $shipmentId = !empty($before['shipment_id']) ? (int) $before['shipment_id'] : null;
 
 $stmt = $db->prepare(

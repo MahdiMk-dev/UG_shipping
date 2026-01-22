@@ -44,7 +44,7 @@ if ($customerId) {
 }
 
 if ($type) {
-    $allowed = ['payment', 'deposit', 'refund', 'adjustment', 'admin_settlement'];
+    $allowed = ['payment', 'deposit', 'refund', 'adjustment', 'admin_settlement', 'charge', 'discount'];
     if (!in_array($type, $allowed, true)) {
         api_error('Invalid transaction type', 422);
     }

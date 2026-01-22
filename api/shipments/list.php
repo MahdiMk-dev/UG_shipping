@@ -14,7 +14,7 @@ $status = api_string($filters['status'] ?? null);
 $shippingType = api_string($filters['shipping_type'] ?? null);
 $originCountryId = api_int($filters['origin_country_id'] ?? null);
 $originCountry = api_string($filters['origin_country'] ?? null);
-$partnerId = api_int($filters['partner_id'] ?? null);
+$supplierId = api_int($filters['supplier_id'] ?? null);
 $search = api_string($filters['q'] ?? null);
 $limit = api_int($filters['limit'] ?? 50, 50);
 $offset = api_int($filters['offset'] ?? 0, 0);
@@ -81,15 +81,15 @@ if ($search) {
     $params[] = '%' . $search . '%';
 }
 
-if ($partnerId) {
+if ($supplierId) {
     $where[] = '(s.shipper_profile_id = ? OR s.consignee_profile_id = ?)';
-    $params[] = $partnerId;
-    $params[] = $partnerId;
+    $params[] = $supplierId;
+    $params[] = $supplierId;
 }
 
 $sql = 'SELECT s.id, s.shipment_number, s.status, s.shipping_type, s.origin_country_id, c.name AS origin_country, '
     . 's.shipment_date, s.departure_date, s.arrival_date, s.actual_departure_date, s.actual_arrival_date, '
-    . 's.default_rate, s.default_rate_unit, s.note, '
+    . 's.weight, s.size, s.default_rate_kg, s.default_rate_cbm, s.default_rate_unit, s.note, '
     . 's.created_at, s.updated_at, cu.name AS created_by_name, uu.name AS updated_by_name '
     . 'FROM shipments s '
     . 'LEFT JOIN countries c ON c.id = s.origin_country_id '
@@ -119,9 +119,11 @@ if (!$showMeta) {
 }
 if ($role === 'Warehouse') {
     foreach ($rows as &$row) {
-        unset($row['default_rate'], $row['default_rate_unit']);
+        unset($row['default_rate_kg'], $row['default_rate_cbm'], $row['default_rate_unit']);
     }
     unset($row);
 }
 
 api_json(['ok' => true, 'data' => $rows]);
+
+

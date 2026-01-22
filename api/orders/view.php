@@ -58,7 +58,14 @@ $adjStmt->execute([$orderId]);
 $adjustments = $adjStmt->fetchAll() ?: [];
 
 if ($role === 'Warehouse') {
-    unset($order['rate'], $order['base_price'], $order['adjustments_total'], $order['total_price']);
+    unset(
+        $order['rate'],
+        $order['rate_kg'],
+        $order['rate_cbm'],
+        $order['base_price'],
+        $order['adjustments_total'],
+        $order['total_price']
+    );
     $adjustments = [];
 }
 

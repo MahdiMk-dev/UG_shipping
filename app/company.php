@@ -17,11 +17,12 @@ function company_settings(): array
         'points_price' => 0.0,
         'points_value' => 0.0,
         'usd_to_lbp' => 0.0,
+        'domain_expiry' => null,
     ];
 
     try {
         $stmt = db()->query(
-            'SELECT name, address, phone, email, website, logo_url, points_price, points_value, usd_to_lbp '
+            'SELECT name, address, phone, email, website, logo_url, points_price, points_value, usd_to_lbp, domain_expiry '
             . 'FROM company_settings WHERE id = 1'
         );
         $row = $stmt->fetch();
@@ -52,6 +53,7 @@ function company_settings(): array
             'points_price' => $row['points_price'] !== null ? (float) $row['points_price'] : $fallback['points_price'],
             'points_value' => $row['points_value'] !== null ? (float) $row['points_value'] : $fallback['points_value'],
             'usd_to_lbp' => $row['usd_to_lbp'] !== null ? (float) $row['usd_to_lbp'] : $fallback['usd_to_lbp'],
+            'domain_expiry' => $row['domain_expiry'] ?? $fallback['domain_expiry'],
         ];
     } catch (Throwable $e) {
         return $fallback;

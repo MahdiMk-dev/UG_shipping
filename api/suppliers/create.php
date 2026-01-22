@@ -26,7 +26,7 @@ $db = db();
 $db->beginTransaction();
 try {
     $stmt = $db->prepare(
-        'INSERT INTO partner_profiles (type, name, phone, address, note, created_by_user_id) '
+        'INSERT INTO supplier_profiles (type, name, phone, address, note, created_by_user_id) '
         . 'VALUES (?, ?, ?, ?, ?, ?)'
     );
     $stmt->execute([
@@ -37,27 +37,29 @@ try {
         $note,
         $user['id'] ?? null,
     ]);
-    $partnerId = (int) $db->lastInsertId();
+    $supplierId = (int) $db->lastInsertId();
 
     $accountStmt = $db->prepare(
         'INSERT INTO accounts (owner_type, owner_id, name, account_type, payment_method_id, created_by_user_id) '
         . 'SELECT ?, ?, CONCAT(?, \' \', pm.name), pm.name, pm.id, ? FROM payment_methods pm'
     );
     $accountStmt->execute([
-        'partner',
-        $partnerId,
+        'supplier',
+        $supplierId,
         $name,
         $user['id'] ?? null,
     ]);
 
-    $rowStmt = $db->prepare('SELECT * FROM partner_profiles WHERE id = ?');
-    $rowStmt->execute([$partnerId]);
+    $rowStmt = $db->prepare('SELECT * FROM supplier_profiles WHERE id = ?');
+    $rowStmt->execute([$supplierId]);
     $after = $rowStmt->fetch();
-    audit_log($user, 'partner.create', 'partner_profile', $partnerId, null, $after);
+    audit_log($user, 'supplier.create', 'supplier_profile', $supplierId, null, $after);
     $db->commit();
 } catch (PDOException $e) {
     $db->rollBack();
-    api_error('Failed to create partner profile', 500);
+    api_error('Failed to create Supplier profile', 500);
 }
 
-api_json(['ok' => true, 'id' => $partnerId]);
+api_json(['ok' => true, 'id' => $supplierId]);
+
+

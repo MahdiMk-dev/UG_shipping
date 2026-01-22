@@ -55,10 +55,10 @@ function internal_page_start(array $user, string $active, string $title, string 
             'create' => BASE_URL . '/views/internal/staff_create',
             'create_roles' => ['Admin', 'Owner', 'Sub Branch'],
         ],
-        'partners' => [
-            'label' => 'Partners',
-            'view' => BASE_URL . '/views/internal/partners',
-            'create' => BASE_URL . '/views/internal/partner_create',
+        'suppliers' => [
+            'label' => 'Suppliers',
+            'view' => BASE_URL . '/views/internal/suppliers',
+            'create' => BASE_URL . '/views/internal/supplier_create',
             'create_roles' => ['Admin', 'Owner', 'Main Branch'],
         ],
         'branches' => [
@@ -126,7 +126,7 @@ function internal_page_start(array $user, string $active, string $title, string 
         unset($navItems['company']);
     }
     if (!in_array($role, ['Admin', 'Owner', 'Main Branch'], true)) {
-        unset($navGroups['partners']);
+        unset($navGroups['suppliers']);
     }
     if (in_array($role, ['Staff', 'Sub Branch', 'Warehouse', 'Main Branch'], true)) {
         unset($navGroups['branches'], $navGroups['users']);
@@ -196,7 +196,7 @@ function internal_page_start(array $user, string $active, string $title, string 
             . '<path d="M3 20a6 6 0 0112 0"></path>'
             . '<path d="M17 11h4"></path><path d="M19 9v4"></path>'
             . '</svg>',
-        'partners' => '<svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">'
+        'suppliers' => '<svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">'
             . '<circle cx="7" cy="8" r="3"></circle>'
             . '<circle cx="17" cy="8" r="3"></circle>'
             . '<path d="M2 20a5 5 0 0110 0"></path>'
@@ -253,6 +253,27 @@ function internal_page_start(array $user, string $active, string $title, string 
     echo "    <aside class=\"sidebar\" data-sidebar>\n";
     $company = company_settings();
     $logoUrl = !empty($company['logo_url']) ? $company['logo_url'] : (PUBLIC_URL . '/assets/img/ug-logo.jpg');
+    $expiryNotice = '';
+    $expiryDateRaw = $company['domain_expiry'] ?? null;
+    if ($expiryDateRaw) {
+        try {
+            $expiryDate = new DateTimeImmutable((string) $expiryDateRaw);
+            $today = new DateTimeImmutable('today');
+            $isExpired = $expiryDate < $today;
+            $daysUntil = (int) $today->diff($expiryDate)->days;
+            if ($isExpired) {
+                $expiryLabel = $expiryDate->format('F j, Y');
+                $expiryNotice = "Domain expired on {$expiryLabel}. If not renewed before the expiry date, data may be lost.";
+            } elseif ($daysUntil <= 30) {
+                $expiryLabel = $expiryDate->format('F j, Y');
+                $dayLabel = $daysUntil === 1 ? 'day' : 'days';
+                $expiryNotice = "Domain expires in {$daysUntil} {$dayLabel} on {$expiryLabel}. "
+                    . 'If not renewed before the expiry date, data may be lost.';
+            }
+        } catch (Throwable $e) {
+            $expiryNotice = '';
+        }
+    }
     $logoEsc = htmlspecialchars($logoUrl, ENT_QUOTES, 'UTF-8');
     $alt = htmlspecialchars($company['name'] ?? 'United Group', ENT_QUOTES, 'UTF-8');
     echo "        <div class=\"sidebar-header\">\n";
@@ -284,7 +305,7 @@ function internal_page_start(array $user, string $active, string $title, string 
         ['item', 'reports'],
         ['item', 'attachments'],
         ['group', 'staff'],
-        ['group', 'partners'],
+        ['group', 'suppliers'],
         ['group', 'branches'],
         ['group', 'users'],
         ['item', 'company'],
@@ -376,6 +397,19 @@ function internal_page_start(array $user, string $active, string $title, string 
     }
     echo "                </div>\n";
     echo "            </section>\n";
+    if ($expiryNotice !== '') {
+        $expirySafe = htmlspecialchars($expiryNotice, ENT_QUOTES, 'UTF-8');
+        echo "            <section class=\"expiry-banner\" role=\"alert\">\n";
+        echo "                <div class=\"expiry-banner-icon\">\n";
+        echo "                    <svg viewBox=\"0 0 24 24\" aria-hidden=\"true\">"
+            . "<path d=\"M12 8v5\"></path>"
+            . "<path d=\"M12 16h.01\"></path>"
+            . "<path d=\"M10 3h4l1 2h5v6c0 5-4 9-8 9s-8-4-8-9V5h5l1-2z\"></path>"
+            . "</svg>\n";
+        echo "                </div>\n";
+        echo "                <div class=\"expiry-banner-text\">{$expirySafe}</div>\n";
+        echo "            </section>\n";
+    }
 }
 
 function internal_page_end(): void
@@ -438,3 +472,6 @@ function internal_page_end(): void
     echo "</body>\n";
     echo "</html>\n";
 }
+
+
+

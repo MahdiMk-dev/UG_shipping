@@ -111,7 +111,7 @@ try {
 
     $normalizedAmount = abs((float) ($transaction['amount'] ?? 0));
     $balanceDelta = -$normalizedAmount;
-    if (in_array($transaction['type'] ?? '', ['refund', 'adjustment'], true)) {
+    if (in_array($transaction['type'] ?? '', ['refund', 'adjustment', 'charge'], true)) {
         $balanceDelta = $normalizedAmount;
     }
     adjust_customer_balance($db, (int) $transaction['customer_id'], -$balanceDelta);

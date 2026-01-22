@@ -16,6 +16,13 @@
     }
     const formatCustomerLabel = window.formatCustomerLabel;
 
+    if (!window.formatQty) {
+        window.formatQty = (value) => {
+            const num = Number(value ?? 0);
+            return Number.isFinite(num) ? num.toFixed(3) : '0.000';
+        };
+    }
+
     const showConfirmDialog = (options = {}) =>
         new Promise((resolve) => {
             const title = options.title || 'Confirm';
@@ -224,8 +231,8 @@
             initTransactionsPage();
             initExpensesPage();
             initReportsPage();
-            initPartnersPage();
-            initPartnerView();
+            initSuppliersPage();
+            initSupplierView();
             initCompanyPage();
             return;
         }
@@ -271,8 +278,8 @@
         initTransactionsPage();
         initExpensesPage();
         initReportsPage();
-        initPartnersPage();
-        initPartnerView();
+        initSuppliersPage();
+        initSupplierView();
         initCompanyPage();
         return;
     }
@@ -712,6 +719,8 @@ function initPortalDashboard() {
             refund: 'Refund',
             adjustment: 'Adjustment',
             admin_settlement: 'Admin settlement',
+            charge: 'Charge',
+            discount: 'Discount',
         };
         const pageRows = paginateRows(rows, transactionsPage);
         transactionsTable.innerHTML = pageRows
@@ -982,7 +991,12 @@ function initShipmentsPage() {
 
     const loadShipments = async (filters = {}) => {
         if (tableBody) {
-            tableBody.innerHTML = `<tr><td colspan="${columnCount}" class="muted">Loading shipments...</td></tr>`;
+            tableBody.innerHTML =
+                `<tr><td colspan="${columnCount}" class="loading-cell">` +
+                '<div class="loading-inline">' +
+                '<span class="spinner" aria-hidden="true"></span>' +
+                '<span class="loading-text">Shipments are loading, please wait...</span>' +
+                '</div></td></tr>';
         }
         const params = new URLSearchParams();
         Object.entries(filters).forEach(([key, value]) => {
@@ -1096,9 +1110,10 @@ function initShipmentView() {
     const collectionForm = page.querySelector('[data-collection-create-form]');
     const addOrderLink = page.querySelector('[data-add-order-link]');
     const originSelects = page.querySelectorAll('[data-origin-select]');
-    const partnerSelects = page.querySelectorAll('[data-partner-select]');
+    const SupplierSelects = page.querySelectorAll('[data-supplier-select]');
     const goodsSelects = page.querySelectorAll('[data-goods-select]');
     const details = page.querySelectorAll('[data-detail]');
+    const stats = page.querySelectorAll('[data-customer-stat]');
     const collectionsTable = page.querySelector('[data-collections-table]');
     const ordersTable = page.querySelector('[data-orders-table]');
     const attachmentsTable = page.querySelector('[data-attachments-table]');
@@ -1120,7 +1135,6 @@ function initShipmentView() {
     const shipmentExpensesPageLabel = page.querySelector('[data-shipment-expenses-page]');
     const shipmentExpensesDrawer = page.querySelector('[data-shipment-expenses-drawer]');
     const shipmentExpensesForm = page.querySelector('[data-shipment-expenses-form]');
-    const shipmentExpensesAccountSelect = page.querySelector('[data-shipment-expenses-account]');
     const shipmentExpensesTitle = page.querySelector('[data-shipment-expenses-title]');
     const shipmentExpensesSubmitLabel = page.querySelector('[data-shipment-expenses-submit-label]');
     const shipmentExpenseIdField = page.querySelector('[data-shipment-expense-id]');
@@ -1173,30 +1187,9 @@ function initShipmentView() {
         const num = Number(value ?? 0);
         return Number.isFinite(num) ? num.toFixed(2) : '0.00';
     };
-    const renderAccountOptions = (select, accounts, placeholder) => {
-        if (!select) {
-            return;
-        }
-        select.innerHTML = `<option value="">${placeholder}</option>`;
-        (accounts || []).forEach((account) => {
-            const option = document.createElement('option');
-            option.value = account.id;
-            const methodLabel = account.payment_method_name ? ` (${account.payment_method_name})` : '';
-            option.textContent = `${account.name}${methodLabel}`;
-            select.appendChild(option);
-        });
-    };
-    const loadShipmentExpenseAccounts = async () => {
-        if (!shipmentExpensesAccountSelect) {
-            return;
-        }
-        renderAccountOptions(shipmentExpensesAccountSelect, [], 'Select admin account');
-        try {
-            const adminData = await fetchJson(`${window.APP_BASE}/api/accounts/list.php?owner_type=admin&is_active=1`);
-            renderAccountOptions(shipmentExpensesAccountSelect, adminData.data || [], 'Select admin account');
-        } catch (error) {
-            showShipmentExpensesNotice(`Accounts load failed: ${error.message}`, 'error');
-        }
+    const formatQty = (value) => {
+        const num = Number(value ?? 0);
+        return Number.isFinite(num) ? num.toFixed(3) : '0.000';
     };
     const normalizeWhatsAppPhone = (value) => {
         const digits = String(value || '').replace(/\D/g, '');
@@ -1424,9 +1417,6 @@ function initShipmentView() {
         shipmentExpensesForm.querySelector('[name="amount"]').value = expense?.amount ?? '';
         shipmentExpensesForm.querySelector('[name="expense_date"]').value = expense?.expense_date || '';
         shipmentExpensesForm.querySelector('[name="note"]').value = expense?.note || '';
-        if (shipmentExpensesAccountSelect) {
-            shipmentExpensesAccountSelect.value = expense?.from_account_id ? String(expense.from_account_id) : '';
-        }
     };
 
     const renderShipmentExpenses = () => {
@@ -1537,7 +1527,7 @@ function initShipmentView() {
     let currentShipmentId = shipmentId ? parseInt(shipmentId, 10) : null;
     let currentShipment = null;
     let pendingOriginId = null;
-    const pendingPartnerIds = { shipper: null, consignee: null };
+    const pendingSupplierIds = { shipper: null, consignee: null };
 
     const paginateRows = (rows, pageIndex) => rows.slice(pageIndex * pageSize, pageIndex * pageSize + pageSize);
 
@@ -1778,13 +1768,13 @@ function initShipmentView() {
         }
     };
 
-    const applyPartnerSelection = () => {
-        if (!partnerSelects.length) {
+    const applySupplierSelection = () => {
+        if (!SupplierSelects.length) {
             return;
         }
-        partnerSelects.forEach((select) => {
-            const type = select.getAttribute('data-partner-type');
-            const pendingValue = type ? pendingPartnerIds[type] : null;
+        SupplierSelects.forEach((select) => {
+            const type = select.getAttribute('data-supplier-type');
+            const pendingValue = type ? pendingSupplierIds[type] : null;
             if (pendingValue !== null && pendingValue !== undefined && String(pendingValue) !== '') {
                 select.value = String(pendingValue);
             } else {
@@ -1793,14 +1783,14 @@ function initShipmentView() {
         });
     };
 
-    const loadPartners = async () => {
-        if (!partnerSelects.length) {
+    const loadSuppliers = async () => {
+        if (!SupplierSelects.length) {
             return;
         }
         const cache = new Map();
         const types = new Set();
-        partnerSelects.forEach((select) => {
-            const type = select.getAttribute('data-partner-type');
+        SupplierSelects.forEach((select) => {
+            const type = select.getAttribute('data-supplier-type');
             if (type) {
                 types.add(type);
             }
@@ -1808,26 +1798,26 @@ function initShipmentView() {
         for (const type of types) {
             try {
                 const params = new URLSearchParams({ type, limit: '200' });
-                const data = await fetchJson(`${window.APP_BASE}/api/partners/list.php?${params.toString()}`);
+                const data = await fetchJson(`${window.APP_BASE}/api/suppliers/list.php?${params.toString()}`);
                 cache.set(type, data.data || []);
             } catch (error) {
-                showNotice(`Partners load failed: ${error.message}`, 'error');
+                showNotice(`Suppliers load failed: ${error.message}`, 'error');
                 cache.set(type, []);
             }
         }
-        partnerSelects.forEach((select) => {
-            const type = select.getAttribute('data-partner-type');
+        SupplierSelects.forEach((select) => {
+            const type = select.getAttribute('data-supplier-type');
             select.querySelectorAll('option[data-dynamic]').forEach((option) => option.remove());
             const rows = cache.get(type) || [];
-            rows.forEach((partner) => {
+            rows.forEach((Supplier) => {
                 const option = document.createElement('option');
-                option.value = partner.id;
-                option.textContent = partner.name;
+                option.value = Supplier.id;
+                option.textContent = Supplier.name;
                 option.setAttribute('data-dynamic', 'true');
                 select.appendChild(option);
             });
         });
-        applyPartnerSelection();
+        applySupplierSelection();
     };
 
     const applyGoodsSelection = () => {
@@ -1892,26 +1882,26 @@ function initShipmentView() {
         editForm.querySelector('[name="status"]').value = shipment.status || 'active';
         editForm.querySelector('[name="departure_date"]').value = shipment.departure_date || '';
         editForm.querySelector('[name="arrival_date"]').value = shipment.arrival_date || '';
-        const defaultRateField = editForm.querySelector('[name="default_rate"]');
-        if (defaultRateField) {
-            defaultRateField.value = shipment.default_rate ?? '';
+        const defaultRateKgField = editForm.querySelector('[name="default_rate_kg"]');
+        if (defaultRateKgField) {
+            defaultRateKgField.value = shipment.default_rate_kg ?? '';
+        }
+        const defaultRateCbmField = editForm.querySelector('[name="default_rate_cbm"]');
+        if (defaultRateCbmField) {
+            defaultRateCbmField.value = shipment.default_rate_cbm ?? '';
         }
         pendingGoodsValue = shipment.type_of_goods || '';
         applyGoodsSelection();
-        const rateUnitField = editForm.querySelector('[name="default_rate_unit"]');
-        if (rateUnitField) {
-            rateUnitField.value = shipment.default_rate_unit || '';
-        }
         editForm.querySelector('[name="note"]').value = shipment.note || '';
         pendingOriginId = shipment.origin_country_id || '';
-        pendingPartnerIds.shipper = shipment.shipper_profile_id || '';
-        pendingPartnerIds.consignee = shipment.consignee_profile_id || '';
+        pendingSupplierIds.shipper = shipment.shipper_profile_id || '';
+        pendingSupplierIds.consignee = shipment.consignee_profile_id || '';
         originSelects.forEach((select) => {
             if (pendingOriginId) {
                 select.value = String(pendingOriginId);
             }
         });
-        applyPartnerSelection();
+        applySupplierSelection();
     };
 
     const buildOrderUrl = (collectionId) => {
@@ -2077,6 +2067,13 @@ function initShipmentView() {
             const formData = new FormData(editForm);
             const payload = Object.fromEntries(formData.entries());
             payload.shipment_id = currentShipmentId;
+            if (currentShipment) {
+                const originalNumber = String(currentShipment.shipment_number || '').trim();
+                const submittedNumber = String(payload.shipment_number || '').trim();
+                if (submittedNumber === originalNumber) {
+                    delete payload.shipment_number;
+                }
+            }
             try {
                 await fetchJson(`${window.APP_BASE}/api/shipments/update.php`, {
                     method: 'PATCH',
@@ -2275,10 +2272,6 @@ function initShipmentView() {
                 showShipmentExpenseFormNotice('Title and amount are required.', 'error');
                 return;
             }
-            if (!payload.from_account_id) {
-                showShipmentExpenseFormNotice('Select an admin account.', 'error');
-                return;
-            }
             try {
                 if (expenseId) {
                     payload.id = expenseId;
@@ -2347,6 +2340,22 @@ function initShipmentView() {
                         'success'
                     );
                 }
+                if (updatedCount > 0 && Array.isArray(data.branches)) {
+                    data.branches.forEach((branch) => {
+                        if (!branch?.id) {
+                            return;
+                        }
+                        const params = new URLSearchParams({
+                            shipment_id: String(currentShipmentId),
+                            sub_branch_id: String(branch.id),
+                        });
+                        window.open(
+                            `${window.APP_BASE}/views/internal/shipment_distribution_print.php?${params.toString()}`,
+                            '_blank',
+                            'noopener'
+                        );
+                    });
+                }
                 loadShipment();
             } catch (error) {
                 showNotice(`Distribution failed: ${error.message}`, 'error');
@@ -2372,8 +2381,7 @@ function initShipmentView() {
     initShipmentTabs();
     loadCountries();
     loadGoodsTypes();
-    loadPartners();
-    loadShipmentExpenseAccounts();
+    loadSuppliers();
     loadShipment();
 }
 
@@ -2399,6 +2407,12 @@ function initReceivingPage() {
     const unmatchedPageLabel = page.querySelector('[data-receiving-unmatched-page]');
     const unmatchedRefresh = page.querySelector('[data-receiving-unmatched-refresh]');
 
+    const reportedTable = page.querySelector('[data-receiving-reported-table]');
+    const reportedPrev = page.querySelector('[data-receiving-reported-prev]');
+    const reportedNext = page.querySelector('[data-receiving-reported-next]');
+    const reportedPageLabel = page.querySelector('[data-receiving-reported-page]');
+    const reportedRefresh = page.querySelector('[data-receiving-reported-refresh]');
+
     const { role, branchId } = getUserContext();
     const isMainBranch = role === 'Main Branch';
     const canManage = ['Admin', 'Owner', 'Main Branch'].includes(role || '');
@@ -2408,8 +2422,10 @@ function initReceivingPage() {
     const receivingStatus = isMainBranch ? 'in_shipment' : 'pending_receipt';
     let shipmentsPage = 0;
     let unmatchedPage = 0;
+    let reportedPage = 0;
     let shipmentsData = [];
     let unmatchedData = [];
+    let reportedData = [];
     const openShipments = new Set();
 
     const showNotice = (message, type = 'error') => {
@@ -2434,6 +2450,89 @@ function initReceivingPage() {
         container.appendChild(notice);
         setTimeout(() => notice.remove(), 6000);
     };
+
+    const showWeightReportDialog = (options = {}) =>
+        new Promise((resolve) => {
+            const tracking = options.trackingNumber || '';
+            const systemWeight = Number(options.systemWeight ?? 0);
+            const weightUnit = options.weightUnit || 'kg';
+
+            let overlay = document.querySelector('[data-weight-dialog]');
+            if (!overlay) {
+                overlay = document.createElement('div');
+                overlay.className = 'confirm-overlay';
+                overlay.setAttribute('data-weight-dialog', '');
+                overlay.innerHTML = `
+                    <div class="confirm-backdrop" data-weight-close></div>
+                    <div class="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="weight-title">
+                        <div class="confirm-header">
+                            <h3 id="weight-title">Confirm received weight</h3>
+                        </div>
+                        <div class="confirm-body">
+                            <p data-weight-message></p>
+                            <label class="confirm-field">
+                                <span>Reported weight</span>
+                                <input type="number" step="0.001" min="0" data-weight-input placeholder="Enter actual weight">
+                            </label>
+                            <p class="muted" data-weight-hint>Confirm the system weight or report a different value.</p>
+                        </div>
+                        <div class="confirm-actions">
+                            <button class="button ghost" type="button" data-weight-confirm>Confirm weight</button>
+                            <button class="button primary" type="button" data-weight-report>Report difference</button>
+                        </div>
+                    </div>`;
+                document.body.appendChild(overlay);
+            }
+
+            const messageEl = overlay.querySelector('[data-weight-message]');
+            const inputEl = overlay.querySelector('[data-weight-input]');
+            const confirmButton = overlay.querySelector('[data-weight-confirm]');
+            const reportButton = overlay.querySelector('[data-weight-report]');
+            const closeTargets = overlay.querySelectorAll('[data-weight-close]');
+
+            if (messageEl) {
+                const label = systemWeight ? formatQty(systemWeight) : '--';
+                messageEl.textContent = `Tracking ${tracking} system weight: ${label} ${weightUnit}.`;
+            }
+            if (inputEl) {
+                inputEl.value = '';
+            }
+
+            const cleanup = (result) => {
+                overlay.classList.remove('is-open');
+                overlay.querySelectorAll('[data-weight-confirm],[data-weight-report],[data-weight-close]').forEach((button) => {
+                    button.replaceWith(button.cloneNode(true));
+                });
+                resolve(result);
+            };
+
+            const handleReport = () => {
+                const rawValue = inputEl ? inputEl.value.trim() : '';
+                const value = rawValue !== '' ? Number(rawValue) : NaN;
+                if (!Number.isFinite(value) || value <= 0) {
+                    if (inputEl) {
+                        inputEl.focus();
+                    }
+                    return;
+                }
+                cleanup({ action: 'report', reportedWeight: value });
+            };
+
+            if (confirmButton) {
+                confirmButton.addEventListener('click', () => cleanup({ action: 'confirm' }));
+            }
+            if (reportButton) {
+                reportButton.addEventListener('click', handleReport);
+            }
+            closeTargets.forEach((button) => {
+                button.addEventListener('click', () => cleanup({ action: 'confirm' }));
+            });
+
+            overlay.classList.add('is-open');
+            if (inputEl) {
+                inputEl.focus();
+            }
+        });
 
     const updatePager = (prevButton, nextButton, label, pageIndex, rows) => {
         if (prevButton) {
@@ -2538,6 +2637,39 @@ function initReceivingPage() {
         updatePager(unmatchedPrev, unmatchedNext, unmatchedPageLabel, unmatchedPage, unmatchedData);
     };
 
+    const renderReported = () => {
+        if (!reportedTable) {
+            return;
+        }
+        const colspan = canManage ? 7 : 6;
+        if (!reportedData.length) {
+            reportedTable.innerHTML = `<tr><td colspan="${colspan}" class="muted">No reported orders.</td></tr>`;
+            updatePager(reportedPrev, reportedNext, reportedPageLabel, reportedPage, reportedData);
+            return;
+        }
+        reportedTable.innerHTML = reportedData
+            .map((row) => {
+                const shipmentLabel = row.shipment_number || row.shipment_id || '-';
+                const branchLabel = row.branch_name || row.branch_id || '-';
+                const systemWeight = Number(row.system_weight ?? 0);
+                const systemUnit = row.weight_unit || 'kg';
+                const systemLabel = `${formatQty(systemWeight)} ${systemUnit}`;
+                const reportedLabel = `${formatQty(row.reported_weight ?? 0)} ${systemUnit}`;
+                const reportedByCell = canManage ? `<td>${row.reported_by_name || '-'}</td>` : '';
+                return `<tr>
+                    <td>${row.tracking_number || '-'}</td>
+                    <td>${shipmentLabel}</td>
+                    <td>${branchLabel}</td>
+                    <td>${systemLabel}</td>
+                    <td>${reportedLabel}</td>
+                    <td>${row.reported_at || '-'}</td>
+                    ${reportedByCell}
+                </tr>`;
+            })
+            .join('');
+        updatePager(reportedPrev, reportedNext, reportedPageLabel, reportedPage, reportedData);
+    };
+
     const loadShipmentOrders = async (shipmentId) => {
         if (!shipmentsTable) {
             return;
@@ -2546,7 +2678,7 @@ function initReceivingPage() {
         if (!tbody) {
             return;
         }
-        tbody.innerHTML = '<tr><td colspan="5" class="muted">Loading orders...</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" class="loading-cell"><div class="loading-inline"><span class="spinner" aria-hidden="true"></span><span class="loading-text">Orders are loading, please wait...</span></div></td></tr>';
         const params = new URLSearchParams();
         params.append('fulfillment_status', receivingStatus);
         params.append('shipment_id', String(shipmentId));
@@ -2714,6 +2846,30 @@ function initReceivingPage() {
         }
     };
 
+    const loadReported = async () => {
+        if (reportedTable) {
+            const colspan = canManage ? 7 : 6;
+            reportedTable.innerHTML = `<tr><td colspan="${colspan}" class="muted">Loading reported orders...</td></tr>`;
+        }
+        const params = new URLSearchParams();
+        params.append('limit', String(limit));
+        params.append('offset', String(reportedPage * limit));
+        if (canManage && branchSelect && branchSelect.value) {
+            params.append('branch_id', branchSelect.value);
+        } else if (branchIdValue) {
+            params.append('branch_id', String(branchIdValue));
+        }
+        try {
+            const data = await fetchJson(`${window.APP_BASE}/api/receiving/reported.php?${params.toString()}`);
+            reportedData = data.data || [];
+            renderReported();
+        } catch (error) {
+            reportedData = [];
+            renderReported();
+            showNotice(`Reported orders load failed: ${error.message}`, 'error');
+        }
+    };
+
     const returnToMainBranch = async (scanId) => {
         if (!scanId) {
             return;
@@ -2771,6 +2927,28 @@ function initReceivingPage() {
             });
             if (data.matched) {
                 showScanNotice(statusEl, 'Order marked as received.', 'success');
+                if (!isMainBranch && !canManage && data.scan_id) {
+                    const result = await showWeightReportDialog({
+                        trackingNumber: data.tracking_number || payload.tracking_number || '',
+                        systemWeight: data.system_weight,
+                        weightUnit: data.weight_unit || 'kg',
+                    });
+                    if (result?.action === 'report') {
+                        try {
+                            await fetchJson(`${window.APP_BASE}/api/receiving/report.php`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    scan_id: data.scan_id,
+                                    reported_weight: result.reportedWeight,
+                                }),
+                            });
+                            showScanNotice(statusEl, 'Reported weight saved.', 'success');
+                        } catch (error) {
+                            showScanNotice(statusEl, `Report failed: ${error.message}`, 'error');
+                        }
+                    }
+                }
             } else {
                 showScanNotice(statusEl, 'Scan recorded but no order matched.', 'error');
             }
@@ -2779,6 +2957,7 @@ function initReceivingPage() {
                 await loadShipmentOrders(shipmentId);
             }
             await loadUnmatched();
+            await loadReported();
         } catch (error) {
             showScanNotice(statusEl, `Scan failed: ${error.message}`, 'error');
         } finally {
@@ -2798,9 +2977,11 @@ function initReceivingPage() {
             event.preventDefault();
             shipmentsPage = 0;
             unmatchedPage = 0;
+            reportedPage = 0;
             openShipments.clear();
             loadShipments();
             loadUnmatched();
+            loadReported();
         });
     }
 
@@ -2945,6 +3126,12 @@ function initReceivingPage() {
             loadUnmatched();
         });
     }
+    if (reportedRefresh) {
+        reportedRefresh.addEventListener('click', () => {
+            reportedPage = 0;
+            loadReported();
+        });
+    }
     if (unmatchedPrev) {
         unmatchedPrev.addEventListener('click', () => {
             if (unmatchedPage === 0) {
@@ -2964,9 +3151,29 @@ function initReceivingPage() {
         });
     }
 
+    if (reportedPrev) {
+        reportedPrev.addEventListener('click', () => {
+            if (reportedPage === 0) {
+                return;
+            }
+            reportedPage -= 1;
+            loadReported();
+        });
+    }
+    if (reportedNext) {
+        reportedNext.addEventListener('click', () => {
+            if (reportedData.length <= (reportedPage + 1) * limit) {
+                return;
+            }
+            reportedPage += 1;
+            loadReported();
+        });
+    }
+
     loadBranches();
     loadShipments();
     loadUnmatched();
+    loadReported();
 }
 
 function initShipmentCustomerOrders() {
@@ -2986,6 +3193,7 @@ function initShipmentCustomerOrders() {
     const editStatus = page.querySelector('[data-order-edit-status]');
     const editOrderIdField = page.querySelector('[data-order-id-field]');
     const editDrawerCloseButtons = page.querySelectorAll('[data-order-edit-close]');
+    const packageTypeInputs = page.querySelectorAll('[data-order-package-type]');
     const weightTypeSelect = page.querySelector('[data-order-weight-type]');
     const weightTypeInputs = page.querySelectorAll('[data-order-weight-type-input]');
     const weightActualField = page.querySelector('[data-order-weight-actual]');
@@ -2995,6 +3203,7 @@ function initShipmentCustomerOrders() {
     const shipmentId = page.getAttribute('data-shipment-id');
     const customerId = page.getAttribute('data-customer-id');
     const canEditAttr = page.getAttribute('data-can-edit') === '1';
+    const canPrintLabel = page.getAttribute('data-can-print-label') === '1';
     const canSeeIncome = page.getAttribute('data-show-income') !== '0';
     const pageSize = 5;
     let ordersPage = 0;
@@ -3025,6 +3234,19 @@ function initShipmentCustomerOrders() {
         if (target) {
             target.textContent = value !== null && value !== undefined && value !== '' ? value : '--';
         }
+    };
+
+    const openLabelPrint = (trackingNumber = '', orderId = '') => {
+        const params = new URLSearchParams();
+        if (trackingNumber) {
+            params.append('tracking_number', trackingNumber);
+        } else if (orderId) {
+            params.append('order_id', orderId);
+        } else {
+            showNotice('Tracking number is required to print a label.', 'error');
+            return;
+        }
+        window.open(`${window.APP_BASE}/views/internal/order_label_print.php?${params.toString()}`, '_blank', 'noopener');
     };
 
     const openEditDrawer = () => {
@@ -3074,6 +3296,15 @@ function initShipmentCustomerOrders() {
             });
         }
         setWeightFields(weightType);
+    };
+
+    const setPackageTypeValue = (packageType) => {
+        if (!packageTypeInputs.length) {
+            return;
+        }
+        packageTypeInputs.forEach((input) => {
+            input.checked = input.value === packageType;
+        });
     };
 
     const addAdjustmentRow = (adjustment = {}) => {
@@ -3126,7 +3357,8 @@ function initShipmentCustomerOrders() {
             const wInput = editForm.querySelector('[name="w"]');
             const dInput = editForm.querySelector('[name="d"]');
             const hInput = editForm.querySelector('[name="h"]');
-            const rateInput = editForm.querySelector('[name="rate"]');
+            const rateKgInput = editForm.querySelector('[name="rate_kg"]');
+            const rateCbmInput = editForm.querySelector('[name="rate_cbm"]');
             if (actualInput) {
                 actualInput.value = currentOrder.actual_weight ?? '';
             }
@@ -3139,8 +3371,14 @@ function initShipmentCustomerOrders() {
             if (hInput) {
                 hInput.value = currentOrder.h ?? '';
             }
-            if (rateInput) {
-                rateInput.value = currentOrder.rate ?? '';
+            if (rateKgInput) {
+                rateKgInput.value = currentOrder.rate_kg ?? '';
+            }
+            if (rateCbmInput) {
+                rateCbmInput.value = currentOrder.rate_cbm ?? '';
+            }
+            if (packageTypeInputs.length) {
+                setPackageTypeValue(currentOrder.package_type || 'bag');
             }
             if (adjustmentsList) {
                 adjustmentsList.innerHTML = '';
@@ -3196,9 +3434,21 @@ function initShipmentCustomerOrders() {
                 const qtyValue = row.qty !== null && row.qty !== undefined ? row.qty : null;
                 const unit = row.unit_type ? ` ${row.unit_type}` : '';
                 const qtyLabel = qtyValue !== null && qtyValue !== '' ? `${qtyValue}${unit}` : '-';
-                const actionCell = canEdit
-                    ? `<td><button class="button ghost small" type="button" data-order-edit-open data-order-id="${row.id}">Edit</button></td>`
-                    : '';
+                let actionCell = '';
+                if (canEdit || canPrintLabel) {
+                    const actions = [];
+                    if (canEdit) {
+                        actions.push(
+                            `<button class="button ghost small" type="button" data-order-edit-open data-order-id="${row.id}">Edit</button>`
+                        );
+                    }
+                    if (canPrintLabel) {
+                        actions.push(
+                            `<button class="button ghost small" type="button" data-order-print-label data-order-id="${row.id}" data-order-tracking="${row.tracking_number || ''}">Print label</button>`
+                        );
+                    }
+                    actionCell = `<td>${actions.join(' ')}</td>`;
+                }
                 const totalCell = canSeeIncome ? `<td>${row.total_price || '0.00'}</td>` : '';
                 return `<tr>
                     <td>${row.tracking_number || '-'}</td>
@@ -3304,6 +3554,22 @@ function initShipmentCustomerOrders() {
         });
     }
 
+    if (tableBody && canPrintLabel) {
+        tableBody.addEventListener('click', (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) {
+                return;
+            }
+            const button = target.closest('[data-order-print-label]');
+            if (!button) {
+                return;
+            }
+            const trackingNumber = button.getAttribute('data-order-tracking') || '';
+            const orderIdValue = button.getAttribute('data-order-id') || '';
+            openLabelPrint(trackingNumber, orderIdValue);
+        });
+    }
+
     if (weightTypeSelect) {
         weightTypeSelect.addEventListener('change', (event) => {
             setWeightFields(event.target.value);
@@ -3331,14 +3597,24 @@ function initShipmentCustomerOrders() {
             }
             const weightType =
                 editForm.querySelector('[name="weight_type"]:checked')?.value || 'actual';
-            const rateInput = editForm.querySelector('[name="rate"]');
-            const rateValue = rateInput?.value || '';
+            const packageType =
+                editForm.querySelector('[name="package_type"]:checked')?.value || 'bag';
+            const rateKgInput = editForm.querySelector('[name="rate_kg"]');
+            const rateCbmInput = editForm.querySelector('[name="rate_cbm"]');
+            const rateKgValue = rateKgInput?.value || '';
+            const rateCbmValue = rateCbmInput?.value || '';
             const payload = {
                 order_id: currentOrder.id,
+                package_type: packageType,
                 weight_type: weightType,
             };
-            if (canSeeIncome && rateInput) {
-                payload.rate = rateValue !== '' ? parseFloat(rateValue) : null;
+            if (canSeeIncome && rateKgInput) {
+                payload.rate_kg = rateKgValue !== '' ? parseFloat(rateKgValue) : null;
+            }
+            if (canSeeIncome && rateCbmInput) {
+                payload.rate_cbm = rateCbmValue !== '' ? parseFloat(rateCbmValue) : null;
+            }
+            if (canSeeIncome) {
                 payload.adjustments = [];
             }
             if (weightType === 'actual') {
@@ -3682,7 +3958,7 @@ function initShipmentOrdersPage() {
         }
         if (tableBody) {
             const columnCount = canSeeIncome ? 8 : 7;
-            tableBody.innerHTML = `<tr><td colspan="${columnCount}" class="muted">Loading orders...</td></tr>`;
+            tableBody.innerHTML = `<tr><td colspan="${columnCount}" class="loading-cell"><div class="loading-inline"><span class="spinner" aria-hidden="true"></span><span class="loading-text">Orders are loading, please wait...</span></div></td></tr>`;
         }
         const params = new URLSearchParams({
             shipment_id: String(resolvedShipmentId),
@@ -3907,7 +4183,7 @@ function initShipmentCreate() {
     const createForm = page.querySelector('[data-shipments-create]');
     const statusStack = page.querySelector('[data-shipments-status]');
     const originSelects = page.querySelectorAll('[data-origin-select]');
-    const partnerSelects = page.querySelectorAll('[data-partner-select]');
+    const SupplierSelects = page.querySelectorAll('[data-supplier-select]');
     const goodsSelects = page.querySelectorAll('[data-goods-select]');
     const { role, branchCountryId } = getUserContext();
 
@@ -3949,14 +4225,14 @@ function initShipmentCreate() {
         }
     };
 
-    const loadPartners = async () => {
-        if (!partnerSelects.length) {
+    const loadSuppliers = async () => {
+        if (!SupplierSelects.length) {
             return;
         }
         const cache = new Map();
         const types = new Set();
-        partnerSelects.forEach((select) => {
-            const type = select.getAttribute('data-partner-type');
+        SupplierSelects.forEach((select) => {
+            const type = select.getAttribute('data-supplier-type');
             if (type) {
                 types.add(type);
             }
@@ -3964,22 +4240,22 @@ function initShipmentCreate() {
         for (const type of types) {
             try {
                 const params = new URLSearchParams({ type, limit: '200' });
-                const data = await fetchJson(`${window.APP_BASE}/api/partners/list.php?${params.toString()}`);
+                const data = await fetchJson(`${window.APP_BASE}/api/suppliers/list.php?${params.toString()}`);
                 cache.set(type, data.data || []);
             } catch (error) {
-                showNotice(`Partners load failed: ${error.message}`, 'error');
+                showNotice(`Suppliers load failed: ${error.message}`, 'error');
                 cache.set(type, []);
             }
         }
-        partnerSelects.forEach((select) => {
-            const type = select.getAttribute('data-partner-type');
+        SupplierSelects.forEach((select) => {
+            const type = select.getAttribute('data-supplier-type');
             const current = select.value;
             select.querySelectorAll('option[data-dynamic]').forEach((option) => option.remove());
             const rows = cache.get(type) || [];
-            rows.forEach((partner) => {
+            rows.forEach((Supplier) => {
                 const option = document.createElement('option');
-                option.value = partner.id;
-                option.textContent = partner.name;
+                option.value = Supplier.id;
+                option.textContent = Supplier.name;
                 option.setAttribute('data-dynamic', 'true');
                 select.appendChild(option);
             });
@@ -4093,53 +4369,57 @@ function initShipmentCreate() {
 
     loadCountries();
     loadGoodsTypes();
-    loadPartners();
+    loadSuppliers();
 }
 
-function initPartnerView() {
-    const page = document.querySelector('[data-partner-view]');
+function initSupplierView() {
+    const page = document.querySelector('[data-supplier-view]');
     if (!page) {
         return;
     }
 
-    const partnerId = page.getAttribute('data-partner-id');
-    if (!partnerId) {
+    const supplierId = page.getAttribute('data-supplier-id');
+    if (!supplierId) {
         return;
     }
 
-    const statusStack = page.querySelector('[data-partner-status]');
-    const details = page.querySelectorAll('[data-partner-detail]');
-    const shipmentsTable = page.querySelector('[data-partner-shipments]');
-    const invoiceForm = page.querySelector('[data-partner-invoice-form]');
-    const invoiceStatus = page.querySelector('[data-partner-invoice-status]');
-    const invoicesTable = page.querySelector('[data-partner-invoices]');
-    const invoicesPrev = page.querySelector('[data-partner-invoices-prev]');
-    const invoicesNext = page.querySelector('[data-partner-invoices-next]');
-    const invoicesPageLabel = page.querySelector('[data-partner-invoices-page]');
-    const transactionForm = page.querySelector('[data-partner-transaction-form]');
-    const transactionStatus = page.querySelector('[data-partner-transaction-status]');
-    const transactionsTable = page.querySelector('[data-partner-transactions]');
-    const transactionsPrev = page.querySelector('[data-partner-transactions-prev]');
-    const transactionsNext = page.querySelector('[data-partner-transactions-next]');
-    const transactionsPageLabel = page.querySelector('[data-partner-transactions-page]');
-    const invoiceSelect = page.querySelector('[data-partner-invoice-select]');
-    const invoiceIdInput = page.querySelector('[data-partner-invoice-id]');
-    const invoiceCurrencySelect = page.querySelector('[data-partner-invoice-currency]');
-    const invoiceSubmitButton = page.querySelector('[data-partner-invoice-submit]');
-    const invoiceAccountSelect = page.querySelector('[data-partner-invoice-account]');
-    const invoiceCancelEditButton = page.querySelector('[data-partner-invoice-cancel-edit]');
+    const statusStack = page.querySelector('[data-supplier-status]');
+    const details = page.querySelectorAll('[data-supplier-detail]');
+    const stats = page.querySelectorAll('[data-supplier-stat]');
+    const shipmentsTable = page.querySelector('[data-supplier-shipments]');
+    const invoiceForm = page.querySelector('[data-supplier-invoice-form]');
+    const invoiceStatus = page.querySelector('[data-supplier-invoice-status]');
+    const invoicesTable = page.querySelector('[data-supplier-invoices]');
+    const invoicesPrev = page.querySelector('[data-supplier-invoices-prev]');
+    const invoicesNext = page.querySelector('[data-supplier-invoices-next]');
+    const invoicesPageLabel = page.querySelector('[data-supplier-invoices-page]');
+    const transactionForm = page.querySelector('[data-supplier-transaction-form]');
+    const transactionStatus = page.querySelector('[data-supplier-transaction-status]');
+    const transactionsTable = page.querySelector('[data-supplier-transactions]');
+    const transactionsPrev = page.querySelector('[data-supplier-transactions-prev]');
+    const transactionsNext = page.querySelector('[data-supplier-transactions-next]');
+    const transactionsPageLabel = page.querySelector('[data-supplier-transactions-page]');
+    const invoiceSelect = page.querySelector('[data-supplier-invoice-select]');
+    const invoiceIdInput = page.querySelector('[data-supplier-invoice-id]');
+    const invoiceCurrencySelect = page.querySelector('[data-supplier-invoice-currency]');
+    const invoiceSubmitButton = page.querySelector('[data-supplier-invoice-submit]');
+    const invoiceAccountSelect = page.querySelector('[data-supplier-invoice-account]');
+    const invoiceCancelEditButton = page.querySelector('[data-supplier-invoice-cancel-edit]');
     const shipmentSearchInput = page.querySelector('[data-shipment-search]');
     const shipmentSelect = page.querySelector('[data-shipment-select]');
-    const paymentAccountSelect = page.querySelector('[data-partner-payment-account]');
-    const invoiceItemsBody = page.querySelector('[data-partner-invoice-items]');
-    const invoiceAddButton = page.querySelector('[data-partner-add-invoice-line]');
-    const invoiceTotalInput = page.querySelector('[data-partner-invoice-total]');
-    const transactionItemsBody = page.querySelector('[data-partner-transaction-items]');
-    const transactionAddButton = page.querySelector('[data-partner-add-transaction-line]');
-    const transactionTotalInput = page.querySelector('[data-partner-transaction-total]');
+    const paymentAccountSelect = page.querySelector('[data-supplier-payment-account]');
+    const invoiceRateKgInput = page.querySelector('[data-supplier-rate-kg]');
+    const invoiceRateCbmInput = page.querySelector('[data-supplier-rate-cbm]');
+    const invoiceWeightInput = page.querySelector('[data-supplier-invoice-weight]');
+    const invoiceVolumeInput = page.querySelector('[data-supplier-invoice-volume]');
+    const invoiceTotalInput = page.querySelector('[data-supplier-invoice-total]');
+    const transactionItemsBody = page.querySelector('[data-supplier-transaction-items]');
+    const transactionAddButton = page.querySelector('[data-supplier-add-transaction-line]');
+    const transactionTotalInput = page.querySelector('[data-supplier-transaction-total]');
     const transactionTypeSelect = transactionForm?.querySelector('[name="type"]');
-    const transactionReasonField = page.querySelector('[data-partner-reason-field]');
-    const transactionReasonSelect = page.querySelector('[data-partner-transaction-reason]');
+    const transactionReasonField = page.querySelector('[data-supplier-reason-field]');
+    const transactionReasonSelect = page.querySelector('[data-supplier-transaction-reason]');
+    const transactionSubmitButton = transactionForm?.querySelector('button[type="submit"]');
     const canEdit = page.getAttribute('data-can-edit') === '1';
 
     const limit = 5;
@@ -4148,6 +4428,7 @@ function initPartnerView() {
     let shipmentSearchTimer = null;
     let editingInvoiceId = null;
     const accountMap = new Map();
+    const shipmentMap = new Map();
 
     const escapeHtml = (value) =>
         String(value)
@@ -4181,11 +4462,37 @@ function initPartnerView() {
         return normalized.length === 16 ? `${normalized}:00` : normalized;
     };
 
-    const updateTransactionReasonVisibility = () => {
+    const applyShipmentTotals = (shipment) => {
+        if (!invoiceWeightInput || !invoiceVolumeInput) {
+            return;
+        }
+        const weight = shipment ? Number(shipment.weight ?? 0) : 0;
+        const volume = shipment ? Number(shipment.size ?? 0) : 0;
+        invoiceWeightInput.value = formatQty(weight);
+        invoiceVolumeInput.value = formatQty(volume);
+    };
+
+    const updateInvoiceTotals = () => {
+        if (!invoiceTotalInput) {
+            return;
+        }
+        const rateKg = Number(invoiceRateKgInput?.value ?? 0);
+        const rateCbm = Number(invoiceRateCbmInput?.value ?? 0);
+        const weight = Number(invoiceWeightInput?.value ?? 0);
+        const volume = Number(invoiceVolumeInput?.value ?? 0);
+        const total = (Number.isFinite(rateKg) ? rateKg : 0) * (Number.isFinite(weight) ? weight : 0)
+            + (Number.isFinite(rateCbm) ? rateCbm : 0) * (Number.isFinite(volume) ? volume : 0);
+        invoiceTotalInput.value = formatAmount(total);
+    };
+
+    const updateSupplierTransactionTypeUI = () => {
         if (!transactionTypeSelect) {
             return;
         }
-        const isRefund = transactionTypeSelect.value === 'refund';
+        const typeValue = transactionTypeSelect.value;
+        const isRefund = typeValue === 'refund';
+        const isBalanceAdjust = typeValue === 'charge' || typeValue === 'discount';
+        const allowInvoice = typeValue === 'payment';
         if (transactionReasonField) {
             transactionReasonField.classList.toggle('is-hidden', !isRefund);
         }
@@ -4193,6 +4500,32 @@ function initPartnerView() {
             transactionReasonSelect.required = isRefund;
             if (!isRefund) {
                 transactionReasonSelect.value = '';
+            }
+        }
+        if (invoiceSelect) {
+            invoiceSelect.disabled = !allowInvoice;
+            if (!allowInvoice) {
+                invoiceSelect.value = '';
+            }
+        }
+        if (paymentAccountSelect) {
+            paymentAccountSelect.disabled = isBalanceAdjust;
+            paymentAccountSelect.required = !isBalanceAdjust;
+            if (isBalanceAdjust) {
+                paymentAccountSelect.value = '';
+            }
+        }
+        if (transactionSubmitButton) {
+            if (typeValue === 'refund') {
+                transactionSubmitButton.textContent = 'Add refund';
+            } else if (typeValue === 'adjustment') {
+                transactionSubmitButton.textContent = 'Add adjustment';
+            } else if (typeValue === 'charge') {
+                transactionSubmitButton.textContent = 'Add charge';
+            } else if (typeValue === 'discount') {
+                transactionSubmitButton.textContent = 'Add discount';
+            } else {
+                transactionSubmitButton.textContent = 'Add payment';
             }
         }
     };
@@ -4286,10 +4619,10 @@ function initPartnerView() {
         };
     };
 
-    const renderPartner = (partner) => {
+    const renderSupplier = (Supplier) => {
         details.forEach((el) => {
-            const key = el.getAttribute('data-partner-detail');
-            let value = partner[key];
+            const key = el.getAttribute('data-supplier-detail');
+            let value = Supplier[key];
             if (key === 'balance') {
                 value = formatAmount(value);
             }
@@ -4301,7 +4634,20 @@ function initPartnerView() {
         });
     };
 
-    const invoiceLineManager = initLineItems(invoiceItemsBody, invoiceTotalInput);
+    const renderSupplierStats = (statData) => {
+        if (!stats.length) {
+            return;
+        }
+        stats.forEach((el) => {
+            const key = el.getAttribute('data-supplier-stat');
+            let value = statData[key];
+            if (['total_invoiced', 'total_paid', 'total_due'].includes(key)) {
+                value = formatAmount(value);
+            }
+            el.textContent = value !== null && value !== undefined && value !== '' ? value : '--';
+        });
+    };
+
     const transactionLineManager = initLineItems(transactionItemsBody, transactionTotalInput);
 
     const resetInvoiceForm = () => {
@@ -4317,7 +4663,7 @@ function initPartnerView() {
         }
         if (invoiceAccountSelect) {
             invoiceAccountSelect.disabled = false;
-            invoiceAccountSelect.required = true;
+            invoiceAccountSelect.required = false;
             invoiceAccountSelect.value = '';
         }
         if (shipmentSearchInput) {
@@ -4326,10 +4672,20 @@ function initPartnerView() {
         if (shipmentSelect) {
             shipmentSelect.disabled = false;
         }
-        if (invoiceItemsBody && invoiceLineManager) {
-            invoiceItemsBody.innerHTML = '';
-            invoiceLineManager.addRow();
-            invoiceLineManager.updateTotal();
+        if (invoiceRateKgInput) {
+            invoiceRateKgInput.value = '';
+        }
+        if (invoiceRateCbmInput) {
+            invoiceRateCbmInput.value = '';
+        }
+        if (invoiceWeightInput) {
+            invoiceWeightInput.value = formatQty(0);
+        }
+        if (invoiceVolumeInput) {
+            invoiceVolumeInput.value = formatQty(0);
+        }
+        if (invoiceTotalInput) {
+            invoiceTotalInput.value = formatAmount(0);
         }
         if (invoiceSubmitButton) {
             invoiceSubmitButton.textContent = 'Add invoice';
@@ -4339,7 +4695,7 @@ function initPartnerView() {
         }
     };
 
-    const enterInvoiceEditMode = (invoice, items) => {
+    const enterInvoiceEditMode = (invoice) => {
         editingInvoiceId = Number(invoice.id || 0) || null;
         if (invoiceIdInput) {
             invoiceIdInput.value = editingInvoiceId ? String(editingInvoiceId) : '';
@@ -4382,28 +4738,19 @@ function initPartnerView() {
             shipmentSearchInput.disabled = true;
             shipmentSearchInput.value = '';
         }
-        if (invoiceItemsBody && invoiceLineManager) {
-            invoiceItemsBody.innerHTML = '';
-            (items || []).forEach((item) => {
-                invoiceLineManager.addRow();
-                const row = invoiceItemsBody.querySelector('[data-line-item]:last-child');
-                if (!row) {
-                    return;
-                }
-                const descInput = row.querySelector('[name="item_description"]');
-                const amountInput = row.querySelector('[name="item_amount"]');
-                if (descInput) {
-                    descInput.value = item.description || '';
-                }
-                if (amountInput) {
-                    amountInput.value = Number(item.amount ?? 0).toFixed(2);
-                }
-            });
-            if (!items || !items.length) {
-                invoiceLineManager.addRow();
-            }
-            invoiceLineManager.updateTotal();
+        if (invoiceRateKgInput) {
+            invoiceRateKgInput.value = formatAmount(invoice.rate_kg ?? 0);
         }
+        if (invoiceRateCbmInput) {
+            invoiceRateCbmInput.value = formatAmount(invoice.rate_cbm ?? 0);
+        }
+        if (invoiceWeightInput) {
+            invoiceWeightInput.value = formatQty(invoice.total_weight ?? 0);
+        }
+        if (invoiceVolumeInput) {
+            invoiceVolumeInput.value = formatQty(invoice.total_volume ?? 0);
+        }
+        updateInvoiceTotals();
         if (invoiceSubmitButton) {
             invoiceSubmitButton.textContent = 'Update invoice';
         }
@@ -4412,15 +4759,23 @@ function initPartnerView() {
         }
     };
 
-    if (invoiceAddButton && invoiceLineManager) {
-        invoiceAddButton.addEventListener('click', () => {
-            invoiceLineManager.addRow();
-        });
-    }
-
     if (invoiceCancelEditButton) {
         invoiceCancelEditButton.addEventListener('click', () => {
             resetInvoiceForm();
+        });
+    }
+
+    if (invoiceRateKgInput) {
+        invoiceRateKgInput.addEventListener('input', updateInvoiceTotals);
+    }
+    if (invoiceRateCbmInput) {
+        invoiceRateCbmInput.addEventListener('input', updateInvoiceTotals);
+    }
+    if (shipmentSelect) {
+        shipmentSelect.addEventListener('change', () => {
+            const shipment = shipmentMap.get(String(shipmentSelect.value || ''));
+            applyShipmentTotals(shipment);
+            updateInvoiceTotals();
         });
     }
 
@@ -4434,9 +4789,9 @@ function initPartnerView() {
         if (!invoiceSelect || !transactionTypeSelect) {
             return;
         }
-        const isReceipt = transactionTypeSelect.value === 'receipt';
-        invoiceSelect.disabled = !isReceipt;
-        if (!isReceipt) {
+        const isPayment = transactionTypeSelect.value === 'payment';
+        invoiceSelect.disabled = !isPayment;
+        if (!isPayment) {
             invoiceSelect.value = '';
         }
     };
@@ -4444,11 +4799,11 @@ function initPartnerView() {
     if (transactionTypeSelect) {
         transactionTypeSelect.addEventListener('change', () => {
             syncInvoiceSelect();
-            updateTransactionReasonVisibility();
+            updateSupplierTransactionTypeUI();
             loadPaymentAccounts();
         });
         syncInvoiceSelect();
-        updateTransactionReasonVisibility();
+        updateSupplierTransactionTypeUI();
     }
 
     const renderShipments = (rows) => {
@@ -4462,7 +4817,7 @@ function initPartnerView() {
         shipmentsTable.innerHTML = rows
             .map((row) => {
                 const roleLabel =
-                    row.partner_role === 'shipper' ? 'Shipper' : row.partner_role === 'consignee' ? 'Consignee' : '-';
+                    row.supplier_role === 'shipper' ? 'Shipper' : row.supplier_role === 'consignee' ? 'Consignee' : '-';
                 return `<tr>
                     <td>${escapeHtml(row.shipment_number || '-')}</td>
                     <td>${escapeHtml(roleLabel)}</td>
@@ -4479,22 +4834,25 @@ function initPartnerView() {
             return;
         }
           if (!rows.length) {
-              invoicesTable.innerHTML = '<tr><td colspan="8" class="muted">No invoices found.</td></tr>';
+              invoicesTable.innerHTML = '<tr><td colspan="10" class="muted">No invoices found.</td></tr>';
               return;
           }
           invoicesTable.innerHTML = rows
               .map((row) => {
                   const actions = [
-                      `<a class="text-link" href="${window.APP_BASE}/views/internal/partner_invoice_print?id=${row.id}" target="_blank" rel="noreferrer">Print</a>`,
+                      `<a class="text-link" href="${window.APP_BASE}/views/internal/supplier_invoice_print?id=${row.id}" target="_blank" rel="noreferrer">Print</a>`,
                   ];
                   if (canEdit && row.status !== 'void') {
                       actions.push(
-                          `<button class="text-link" type="button" data-partner-invoice-edit data-invoice-id="${row.id}">Edit</button>`
+                          `<button class="text-link" type="button" data-supplier-invoice-edit data-invoice-id="${row.id}">Edit</button>`
+                      );
+                      actions.push(
+                          `<button class="text-link" type="button" data-supplier-invoice-regenerate data-invoice-id="${row.id}">Regenerate</button>`
                       );
                   }
                   if (canEdit && Number(row.paid_total ?? 0) === 0 && row.status !== 'void') {
                       actions.push(
-                          `<button class="text-link" type="button" data-partner-invoice-cancel data-invoice-id="${row.id}">Cancel</button>`
+                          `<button class="text-link" type="button" data-supplier-invoice-cancel data-invoice-id="${row.id}">Cancel</button>`
                       );
                   }
                   let statusLabel = row.status || '-';
@@ -4510,6 +4868,8 @@ function initPartnerView() {
                       <td>${escapeHtml(row.shipment_number || '-')}</td>
                       <td>${escapeHtml(statusLabel)}</td>
                       <td>${escapeHtml(row.currency || 'USD')}</td>
+                      <td>${formatAmount(row.rate_kg)}</td>
+                      <td>${formatAmount(row.rate_cbm)}</td>
                       <td>${formatAmount(row.total)}</td>
                       <td>${formatAmount(row.due_total)}</td>
                       <td>${escapeHtml(row.issued_at || '-')}</td>
@@ -4518,7 +4878,7 @@ function initPartnerView() {
               })
               .join('');
 
-          invoicesTable.querySelectorAll('[data-partner-invoice-edit]').forEach((button) => {
+          invoicesTable.querySelectorAll('[data-supplier-invoice-edit]').forEach((button) => {
               button.addEventListener('click', async () => {
                   const id = button.getAttribute('data-invoice-id');
                   if (!id) {
@@ -4526,13 +4886,13 @@ function initPartnerView() {
                   }
                   try {
                       const data = await fetchJson(
-                          `${window.APP_BASE}/api/partner_invoices/view.php?id=${encodeURIComponent(id)}`
+                          `${window.APP_BASE}/api/supplier_invoices/view.php?id=${encodeURIComponent(id)}`
                       );
                       if (!data.invoice) {
                           showNotice(invoiceStatus || statusStack, 'Invoice not found.', 'error');
                           return;
                       }
-                      enterInvoiceEditMode(data.invoice, data.items || []);
+                      enterInvoiceEditMode(data.invoice);
                       if (invoiceForm) {
                           invoiceForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
                       }
@@ -4542,7 +4902,29 @@ function initPartnerView() {
               });
           });
 
-          invoicesTable.querySelectorAll('[data-partner-invoice-cancel]').forEach((button) => {
+          invoicesTable.querySelectorAll('[data-supplier-invoice-regenerate]').forEach((button) => {
+              button.addEventListener('click', async () => {
+                  const id = button.getAttribute('data-invoice-id');
+                  if (!id) {
+                      return;
+                  }
+                  try {
+                      await fetchJson(`${window.APP_BASE}/api/supplier_invoices/regenerate.php`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ id }),
+                      });
+                      showNotice(invoiceStatus || statusStack, 'Invoice totals updated.', 'success');
+                      loadSupplier();
+                      loadInvoices();
+                      loadInvoiceOptions();
+                  } catch (error) {
+                      showNotice(invoiceStatus || statusStack, `Regenerate failed: ${error.message}`, 'error');
+                  }
+              });
+          });
+
+          invoicesTable.querySelectorAll('[data-supplier-invoice-cancel]').forEach((button) => {
               button.addEventListener('click', async () => {
                 const id = button.getAttribute('data-invoice-id');
                 if (!id) {
@@ -4559,14 +4941,14 @@ function initPartnerView() {
                     return;
                 }
                 try {
-                    await fetchJson(`${window.APP_BASE}/api/partner_invoices/delete.php`, {
+                    await fetchJson(`${window.APP_BASE}/api/supplier_invoices/delete.php`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ id, reason: reason.trim() }),
                     });
                     showNotice(invoiceStatus || statusStack, 'Invoice canceled.', 'success');
                     invoicesPage = 0;
-                    loadPartner();
+                    loadSupplier();
                     loadInvoices();
                     loadInvoiceOptions();
                 } catch (error) {
@@ -4586,19 +4968,34 @@ function initPartnerView() {
         }
         transactionsTable.innerHTML = rows
             .map((row) => {
-                const typeLabel =
-                    row.type === 'refund' ? 'Refund' : row.type === 'adjustment' ? 'Adjustment' : 'Receipt';
+                let typeLabel = 'Payment';
+                if (row.type === 'invoice_create') {
+                    typeLabel = 'Invoice';
+                } else if (row.type === 'invoice_regenerate') {
+                    typeLabel = 'Invoice Regenerated';
+                } else if (row.type === 'refund') {
+                    typeLabel = 'Refund';
+                } else if (row.type === 'adjustment') {
+                    typeLabel = 'Adjustment';
+                } else if (row.type === 'charge') {
+                    typeLabel = 'Charge';
+                } else if (row.type === 'discount') {
+                    typeLabel = 'Discount';
+                }
                 const statusLabel = row.status === 'canceled' ? 'Canceled' : 'Active';
                 let noteLabel = row.note || '-';
                 if (row.status === 'canceled') {
                     noteLabel = row.canceled_reason ? `Canceled: ${row.canceled_reason}` : 'Canceled';
                 }
                 const actions = [];
-                if (canEdit && row.status === 'active') {
+                if (canEdit && row.status === 'active' && row.type === 'payment') {
                     actions.push(
-                        `<button class="text-link" type="button" data-partner-transaction-cancel data-transaction-id="${row.id}">Cancel</button>`
+                        `<button class="text-link" type="button" data-supplier-transaction-cancel data-transaction-id="${row.id}">Cancel</button>`
                     );
                 }
+                const printLink = row.type === 'payment'
+                    ? `<a class="text-link" href="${window.APP_BASE}/views/internal/supplier_payment_print?id=${row.id}" target="_blank" rel="noreferrer">Print</a>`
+                    : '-';
                 return `<tr>
                     <td>${escapeHtml(row.payment_date || row.created_at || '-')}</td>
                     <td>${escapeHtml(typeLabel)}</td>
@@ -4608,13 +5005,13 @@ function initPartnerView() {
                     <td>${escapeHtml(row.invoice_no || '-')}</td>
                     <td>${escapeHtml(row.reason || '-')}</td>
                     <td>${escapeHtml(noteLabel)}</td>
-                    <td><a class="text-link" href="${window.APP_BASE}/views/internal/partner_receipt_print?id=${row.id}" target="_blank" rel="noreferrer">Print</a></td>
+                    <td>${printLink}</td>
                     <td>${actions.length ? actions.join(' | ') : '-'}</td>
                 </tr>`;
             })
             .join('');
 
-        transactionsTable.querySelectorAll('[data-partner-transaction-cancel]').forEach((button) => {
+        transactionsTable.querySelectorAll('[data-supplier-transaction-cancel]').forEach((button) => {
             button.addEventListener('click', async () => {
                 const id = button.getAttribute('data-transaction-id');
                 if (!id) {
@@ -4631,14 +5028,14 @@ function initPartnerView() {
                     return;
                 }
                 try {
-                    await fetchJson(`${window.APP_BASE}/api/partner_transactions/delete.php`, {
+                    await fetchJson(`${window.APP_BASE}/api/supplier_transactions/delete.php`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ id, reason: reason.trim() }),
                     });
                     showNotice(transactionStatus || statusStack, 'Transaction canceled.', 'success');
                     transactionsPage = 0;
-                    loadPartner();
+                    loadSupplier();
                     loadTransactions();
                     loadInvoiceOptions();
                 } catch (error) {
@@ -4648,24 +5045,25 @@ function initPartnerView() {
         });
     };
 
-    const loadPartner = async () => {
+    const loadSupplier = async () => {
         try {
-            const data = await fetchJson(`${window.APP_BASE}/api/partners/view.php?id=${encodeURIComponent(partnerId)}`);
-            renderPartner(data.partner || {});
+            const data = await fetchJson(`${window.APP_BASE}/api/suppliers/view.php?id=${encodeURIComponent(supplierId)}`);
+            renderSupplier(data.supplier || {});
+            renderSupplierStats(data.stats || {});
             renderShipments(data.shipments || []);
         } catch (error) {
-            showNotice(statusStack, `Partner load failed: ${error.message}`, 'error');
+            showNotice(statusStack, `Supplier load failed: ${error.message}`, 'error');
         }
     };
 
     const loadInvoices = async () => {
         try {
             const params = new URLSearchParams({
-                partner_id: partnerId,
+                supplier_id: supplierId,
                 limit: String(limit),
                 offset: String(invoicesPage * limit),
             });
-            const data = await fetchJson(`${window.APP_BASE}/api/partner_invoices/list.php?${params.toString()}`);
+            const data = await fetchJson(`${window.APP_BASE}/api/supplier_invoices/list.php?${params.toString()}`);
             renderInvoices(data.data || []);
             if (invoicesPrev) {
                 invoicesPrev.disabled = invoicesPage === 0;
@@ -4687,8 +5085,8 @@ function initPartnerView() {
             return;
         }
         try {
-            const params = new URLSearchParams({ partner_id: partnerId, limit: '200' });
-            const data = await fetchJson(`${window.APP_BASE}/api/partner_invoices/list.php?${params.toString()}`);
+            const params = new URLSearchParams({ supplier_id: supplierId, limit: '200' });
+            const data = await fetchJson(`${window.APP_BASE}/api/supplier_invoices/list.php?${params.toString()}`);
             const rows = (data.data || []).filter((row) => !['paid', 'void'].includes(row.status));
             invoiceSelect.querySelectorAll('option[data-dynamic]').forEach((option) => option.remove());
             rows.forEach((row) => {
@@ -4706,11 +5104,11 @@ function initPartnerView() {
     const loadTransactions = async () => {
         try {
             const params = new URLSearchParams({
-                partner_id: partnerId,
+                supplier_id: supplierId,
                 limit: String(limit),
                 offset: String(transactionsPage * limit),
             });
-            const data = await fetchJson(`${window.APP_BASE}/api/partner_transactions/list.php?${params.toString()}`);
+            const data = await fetchJson(`${window.APP_BASE}/api/supplier_transactions/list.php?${params.toString()}`);
             renderTransactions(data.data || []);
             if (transactionsPrev) {
                 transactionsPrev.disabled = transactionsPage === 0;
@@ -4733,13 +5131,14 @@ function initPartnerView() {
         }
         const currentValue = shipmentSelect.value;
         try {
-            const params = new URLSearchParams({ limit: '50', partner_id: partnerId });
+            const params = new URLSearchParams({ limit: '50', supplier_id: supplierId });
             if (query) {
                 params.set('q', query);
             }
             const data = await fetchJson(`${window.APP_BASE}/api/shipments/list.php?${params.toString()}`);
             shipmentSelect.querySelectorAll('option[data-dynamic]').forEach((option) => option.remove());
             const rows = data.data || [];
+            shipmentMap.clear();
             if (!rows.length && query) {
                 const option = document.createElement('option');
                 option.textContent = 'No shipments found';
@@ -4749,6 +5148,7 @@ function initPartnerView() {
                 return;
             }
             rows.forEach((shipment) => {
+                shipmentMap.set(String(shipment.id), shipment);
                 const option = document.createElement('option');
                 option.value = shipment.id;
                 option.textContent = `${shipment.shipment_number || 'Shipment'} (${shipment.status || 'status'})`;
@@ -4758,6 +5158,9 @@ function initPartnerView() {
             if (currentValue) {
                 shipmentSelect.value = currentValue;
             }
+            const currentShipment = shipmentMap.get(String(shipmentSelect.value || ''));
+            applyShipmentTotals(currentShipment);
+            updateInvoiceTotals();
         } catch (error) {
             showNotice(statusStack, `Shipments load failed: ${error.message}`, 'error');
         }
@@ -4779,7 +5182,7 @@ function initPartnerView() {
     };
 
     const loadPaymentAccounts = async () => {
-        if (!paymentAccountSelect && !invoiceAccountSelect) {
+        if (!paymentAccountSelect) {
             return;
         }
         accountMap.clear();
@@ -4787,7 +5190,6 @@ function initPartnerView() {
             const adminData = await fetchJson(`${window.APP_BASE}/api/accounts/list.php?owner_type=admin&is_active=1`);
             const adminAccounts = adminData.data || [];
             renderAccountOptions(paymentAccountSelect, adminAccounts, 'Select admin account');
-            renderAccountOptions(invoiceAccountSelect, adminAccounts, 'Select admin account');
         } catch (error) {
             showNotice(statusStack, `Accounts load failed: ${error.message}`, 'error');
         }
@@ -4799,41 +5201,40 @@ function initPartnerView() {
             const shipmentValue = invoiceForm.querySelector('[name="shipment_id"]')?.value || '';
             const issuedValue = invoiceForm.querySelector('[name="issued_at"]')?.value || '';
             const noteValue = invoiceForm.querySelector('[name="note"]')?.value?.trim() || '';
-            const rawItems = invoiceLineManager ? invoiceLineManager.collect() : [];
-            const items = [];
-            for (const item of rawItems) {
-                const description = item.description ? item.description.trim() : '';
-                const amount = item.amount;
-                if (!description) {
-                    showNotice(invoiceStatus, 'Line item description is required.', 'error');
-                    return;
-                }
-                if (!Number.isFinite(amount) || amount === 0) {
-                    showNotice(invoiceStatus, 'Line item amount is required.', 'error');
-                    return;
-                }
-                items.push({ description, amount });
+            const rateKgRaw = invoiceRateKgInput ? invoiceRateKgInput.value.trim() : '';
+            const rateCbmRaw = invoiceRateCbmInput ? invoiceRateCbmInput.value.trim() : '';
+            if (rateKgRaw === '' || rateCbmRaw === '') {
+                showNotice(invoiceStatus, 'Enter both kg and cbm rates.', 'error');
+                return;
             }
-            if (!items.length) {
-                showNotice(invoiceStatus, 'Add at least one line item.', 'error');
+            const rateKg = Number(rateKgRaw);
+            const rateCbm = Number(rateCbmRaw);
+            if (!Number.isFinite(rateKg) || !Number.isFinite(rateCbm)) {
+                showNotice(invoiceStatus, 'Rates must be valid numbers.', 'error');
+                return;
+            }
+            if (rateKg < 0 || rateCbm < 0) {
+                showNotice(invoiceStatus, 'Rates must be zero or greater.', 'error');
+                return;
+            }
+            if (rateKg <= 0 && rateCbm <= 0) {
+                showNotice(invoiceStatus, 'At least one rate must be greater than zero.', 'error');
                 return;
             }
 
             const isEditing = Boolean(editingInvoiceId);
             const payload = {
-                partner_id: partnerId,
-                items,
+                supplier_id: supplierId,
                 currency: invoiceCurrencySelect ? invoiceCurrencySelect.value || 'USD' : 'USD',
+                rate_kg: rateKg,
+                rate_cbm: rateCbm,
             };
             if (!isEditing) {
-                if (!invoiceAccountSelect || !invoiceAccountSelect.value) {
-                    showNotice(invoiceStatus, 'Select an admin account.', 'error');
+                if (!shipmentValue) {
+                    showNotice(invoiceStatus, 'Select a shipment.', 'error');
                     return;
                 }
-                payload.admin_account_id = invoiceAccountSelect.value;
-                if (shipmentValue) {
-                    payload.shipment_id = shipmentValue;
-                }
+                payload.shipment_id = shipmentValue;
             }
             const normalizedIssued = normalizeDateTime(issuedValue);
             if (normalizedIssued) {
@@ -4846,18 +5247,15 @@ function initPartnerView() {
                 payload.note = noteValue;
             }
             try {
-                await fetchJson(`${window.APP_BASE}/api/partner_invoices/${isEditing ? 'update' : 'create'}.php`, {
+                await fetchJson(`${window.APP_BASE}/api/supplier_invoices/${isEditing ? 'update' : 'create'}.php`, {
                     method: isEditing ? 'PATCH' : 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload),
                 });
                 showNotice(invoiceStatus, isEditing ? 'Invoice updated.' : 'Invoice created.', 'success');
                 resetInvoiceForm();
-                if (invoiceLineManager) {
-                    invoiceLineManager.updateTotal();
-                }
                 invoicesPage = 0;
-                loadPartner();
+                loadSupplier();
                 loadInvoices();
                 loadInvoiceOptions();
             } catch (error) {
@@ -4885,7 +5283,8 @@ function initPartnerView() {
         transactionForm.addEventListener('submit', async (event) => {
             event.preventDefault();
             const invoiceValue = transactionForm.querySelector('[name="invoice_id"]')?.value || '';
-            const typeValue = transactionForm.querySelector('[name="type"]')?.value || 'receipt';
+            const typeValue = transactionForm.querySelector('[name="type"]')?.value || 'payment';
+            const isBalanceAdjust = typeValue === 'charge' || typeValue === 'discount';
             const paymentDateValue = transactionForm.querySelector('[name="payment_date"]')?.value || '';
             const noteValue = transactionForm.querySelector('[name="note"]')?.value?.trim() || '';
             const reasonValue = transactionReasonSelect ? String(transactionReasonSelect.value || '') : '';
@@ -4912,26 +5311,31 @@ function initPartnerView() {
                 showNotice(transactionStatus, 'Add at least one line item.', 'error');
                 return;
             }
-            const accountId = paymentAccountSelect ? paymentAccountSelect.value : '';
-            if (!accountId) {
-                showNotice(transactionStatus, 'Select an admin account.', 'error');
-                return;
-            }
-            const adminAccount = accountMap.get(String(accountId));
-            if (!adminAccount || !adminAccount.payment_method_id) {
-                showNotice(transactionStatus, 'Selected account is missing a payment method.', 'error');
-                return;
+            let adminAccount = null;
+            let accountId = '';
+            if (!isBalanceAdjust) {
+                accountId = paymentAccountSelect ? paymentAccountSelect.value : '';
+                if (!accountId) {
+                    showNotice(transactionStatus, 'Select an admin account.', 'error');
+                    return;
+                }
+                adminAccount = accountMap.get(String(accountId));
+                if (!adminAccount || !adminAccount.payment_method_id) {
+                    showNotice(transactionStatus, 'Selected account is missing a payment method.', 'error');
+                    return;
+                }
             }
 
             const payload = {
-                partner_id: partnerId,
-                admin_account_id: Number(accountId),
-                payment_method_id: Number(adminAccount.payment_method_id),
+                supplier_id: supplierId,
                 type: typeValue,
                 items,
             };
-            if (invoiceValue) {
+            if (invoiceValue && typeValue === 'payment') {
                 payload.invoice_id = invoiceValue;
+            } else if (invoiceValue && typeValue !== 'payment') {
+                showNotice(transactionStatus, 'Invoice can only be applied to payments.', 'error');
+                return;
             }
             if (paymentDateValue) {
                 payload.payment_date = paymentDateValue;
@@ -4942,8 +5346,12 @@ function initPartnerView() {
             if (noteValue) {
                 payload.note = noteValue;
             }
+            if (!isBalanceAdjust && adminAccount) {
+                payload.admin_account_id = Number(accountId);
+                payload.payment_method_id = Number(adminAccount.payment_method_id);
+            }
             try {
-                await fetchJson(`${window.APP_BASE}/api/partner_transactions/create.php`, {
+                await fetchJson(`${window.APP_BASE}/api/supplier_transactions/create.php`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload),
@@ -4954,8 +5362,9 @@ function initPartnerView() {
                     transactionLineManager.updateTotal();
                 }
                 syncInvoiceSelect();
+                updateSupplierTransactionTypeUI();
                 transactionsPage = 0;
-                loadPartner();
+                loadSupplier();
                 loadTransactions();
                 loadInvoiceOptions();
             } catch (error) {
@@ -4998,11 +5407,12 @@ function initPartnerView() {
     if (invoiceForm) {
         resetInvoiceForm();
     }
-    loadPartner();
+    loadSupplier();
     loadInvoices();
     loadInvoiceOptions();
     loadTransactions();
     loadShipmentOptions();
+    initSupplierTabUi();
     loadPaymentAccounts();
 }
 
@@ -5352,9 +5762,11 @@ function initOrderCreate() {
     const unitDisplay = page.querySelector('[data-unit-display]');
     const actualGroups = page.querySelectorAll('[data-weight-actual]');
     const volumeGroups = page.querySelectorAll('[data-weight-volume]');
-    const rateInput = createForm?.querySelector('[name="rate"]');
-    const rateField = rateInput ? rateInput.closest('label') : null;
+    const rateKgInput = createForm?.querySelector('[name="rate_kg"]');
+    const rateCbmInput = createForm?.querySelector('[name="rate_cbm"]');
     const trackingInput = createForm?.querySelector('[name="tracking_number"]');
+    const trackingGenerateButton = page.querySelector('[data-tracking-generate]');
+    const trackingPrintButton = page.querySelector('[data-tracking-print]');
     const submitButton = createForm?.querySelector('button[type="submit"]');
     const mediaPanel = page.querySelector('[data-order-create-media-panel]');
     const mediaTitle = page.querySelector('[data-order-create-media-title]');
@@ -5375,6 +5787,9 @@ function initOrderCreate() {
     const presetCollectionId = page.getAttribute('data-collection-id');
     let customerSelectize = null;
     let shipmentOriginCountryId = null;
+    let shipmentDefaultRates = { kg: null, cbm: null };
+    let lastAppliedRateKg = null;
+    let lastAppliedRateCbm = null;
     let mediaPage = 0;
     let mediaData = [];
 
@@ -5399,6 +5814,25 @@ function initOrderCreate() {
         notice.textContent = message;
         mediaStatus.appendChild(notice);
         setTimeout(() => notice.remove(), 7000);
+    };
+
+    const setTrackingPrintState = (enabled) => {
+        if (trackingPrintButton) {
+            trackingPrintButton.disabled = !enabled;
+        }
+    };
+
+    const openLabelPrint = (trackingNumber = '', orderId = '') => {
+        const params = new URLSearchParams();
+        if (trackingNumber) {
+            params.append('tracking_number', trackingNumber);
+        } else if (orderId) {
+            params.append('order_id', orderId);
+        } else {
+            showNotice('Tracking number is required to print a label.', 'error');
+            return;
+        }
+        window.open(`${window.APP_BASE}/views/internal/order_label_print.php?${params.toString()}`, '_blank', 'noopener');
     };
 
     const updateMediaPager = () => {
@@ -5658,6 +6092,29 @@ function initOrderCreate() {
         return selected ? selected.value : 'actual';
     };
 
+    const applyDefaultRates = () => {
+        if (!rateKgInput && !rateCbmInput) {
+            return;
+        }
+        const applyRate = (input, nextRate, lastRate) => {
+            if (!input) {
+                return lastRate;
+            }
+            if (nextRate === null || nextRate === undefined || Number.isNaN(Number(nextRate))) {
+                return lastRate;
+            }
+            const currentValue = input.value.trim();
+            const currentNumber = currentValue === '' ? null : Number(currentValue);
+            if (currentNumber === null || (lastRate !== null && currentNumber === lastRate)) {
+                input.value = nextRate;
+                return Number(nextRate);
+            }
+            return lastRate;
+        };
+        lastAppliedRateKg = applyRate(rateKgInput, shipmentDefaultRates.kg, lastAppliedRateKg);
+        lastAppliedRateCbm = applyRate(rateCbmInput, shipmentDefaultRates.cbm, lastAppliedRateCbm);
+    };
+
     const applyWeightMode = () => {
         const mode = getWeightMode();
         if (mode === 'actual') {
@@ -5703,6 +6160,7 @@ function initOrderCreate() {
                 unitDisplay.value = 'CBM';
             }
         }
+        applyDefaultRates();
     };
 
     const focusWeightField = () => {
@@ -5763,6 +6221,7 @@ function initOrderCreate() {
                 if (trackingInput) {
                     trackingInput.focus();
                 }
+                setTrackingPrintState(false);
             } catch (error) {
                 showNotice(`Create failed: ${error.message}`, 'error');
             }
@@ -5833,11 +6292,12 @@ function initOrderCreate() {
             loadCollections(resolvedId);
             fetchJson(`${window.APP_BASE}/api/shipments/view.php?shipment_id=${encodeURIComponent(resolvedId)}`)
                 .then((data) => {
-                    if (rateInput && data.shipment) {
-                        const rateValue = data.shipment.default_rate;
-                        if (rateValue !== null && rateValue !== undefined && String(rateValue) !== '') {
-                            rateInput.value = rateValue;
-                        }
+                    if (data.shipment) {
+                        shipmentDefaultRates = {
+                            kg: data.shipment.default_rate_kg ?? null,
+                            cbm: data.shipment.default_rate_cbm ?? null,
+                        };
+                        applyDefaultRates();
                     }
                     shipmentOriginCountryId = data.shipment?.origin_country_id || null;
                     if (data.shipment && role === 'Warehouse' && data.shipment.status !== 'active') {
@@ -5872,11 +6332,47 @@ function initOrderCreate() {
 
     if (trackingInput) {
         trackingInput.focus();
+        trackingInput.addEventListener('input', () => {
+            setTrackingPrintState(Boolean(trackingInput.value.trim()));
+        });
         trackingInput.addEventListener('keydown', (event) => {
             if (event.key === 'Enter' || event.key === 'Tab') {
                 event.preventDefault();
                 focusCustomerSelect();
             }
+        });
+    }
+
+    if (trackingGenerateButton) {
+        trackingGenerateButton.addEventListener('click', async () => {
+            trackingGenerateButton.disabled = true;
+            try {
+                const data = await fetchJson(`${window.APP_BASE}/api/orders/generate_tracking.php`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({}),
+                });
+                if (trackingInput) {
+                    trackingInput.value = data.tracking_number || '';
+                }
+                setTrackingPrintState(Boolean(data.tracking_number));
+                showNotice('Tracking number generated.', 'success');
+            } catch (error) {
+                showNotice(`Generate failed: ${error.message}`, 'error');
+            } finally {
+                trackingGenerateButton.disabled = false;
+            }
+        });
+    }
+
+    if (trackingPrintButton) {
+        trackingPrintButton.addEventListener('click', () => {
+            const trackingNumber = trackingInput ? trackingInput.value.trim() : '';
+            if (!trackingNumber) {
+                showNotice('Enter a tracking number first.', 'error');
+                return;
+            }
+            openLabelPrint(trackingNumber);
         });
     }
 
@@ -7631,6 +8127,10 @@ function initStaffView() {
             expensesPage = 0;
             renderExpenses(expensesData);
         } catch (error) {
+            renderInvoices([]);
+            renderUninvoiced([]);
+            renderTransactions([]);
+            renderOrders([]);
             showNotice(`Load failed: ${error.message}`, 'error');
         }
     };
@@ -9157,7 +9657,7 @@ function initAccountView() {
             admin: 'Admin',
             branch: 'Branch',
             staff: 'Staff',
-            partner: 'Partner',
+            supplier: 'Supplier',
         };
         const ownerType = account.owner_type || '';
         const ownerName = account.owner_name || '';
@@ -9176,7 +9676,7 @@ function initAccountView() {
         const labels = {
             customer_payment: 'Customer payment',
             branch_transfer: 'Branch transfer',
-            partner_transaction: 'Partner transaction',
+            supplier_transaction: 'Supplier transaction',
             staff_expense: 'Staff expense',
             general_expense: 'General expense',
             shipment_expense: 'Shipment expense',
@@ -10027,6 +10527,8 @@ function initCustomerEdit() {
         setTimeout(() => notice.remove(), 6000);
     };
 
+    initCustomerTabUi();
+
     if (!customerId) {
         showNotice('Missing customer id.', 'error');
         return;
@@ -10205,15 +10707,156 @@ function initCustomerInfoEdit() {
     }
 }
 
+function initCustomerTabUi() {
+    const tabGroups = document.querySelectorAll('[data-customer-tabs]');
+    if (!document.body.dataset.customerTabDelegated) {
+        document.body.addEventListener('click', (event) => {
+            const button = event.target.closest?.('[data-customer-tab]');
+            if (!button) {
+                return;
+            }
+            const tabs = button.closest('[data-customer-tabs]');
+            if (!tabs) {
+                return;
+            }
+            const tabId = button.getAttribute('data-customer-tab');
+            if (!tabId) {
+                return;
+            }
+            const buttons = Array.from(tabs.querySelectorAll('[data-customer-tab]'));
+            const panels = Array.from(tabs.querySelectorAll('[data-customer-tab-panel]'));
+            buttons.forEach((item) => {
+                const isActive = item.getAttribute('data-customer-tab') === tabId;
+                item.classList.toggle('is-active', isActive);
+                item.setAttribute('aria-selected', isActive ? 'true' : 'false');
+            });
+            panels.forEach((panel) => {
+                const isActive = panel.getAttribute('data-customer-tab-panel') === tabId;
+                panel.classList.toggle('is-active', isActive);
+            });
+        });
+        document.body.dataset.customerTabDelegated = 'true';
+    }
+    if (!tabGroups.length) {
+        return;
+    }
+    tabGroups.forEach((tabs) => {
+        if (tabs.dataset.tabsReady === 'true') {
+            return;
+        }
+        const buttons = Array.from(tabs.querySelectorAll('[data-customer-tab]'));
+        const panels = Array.from(tabs.querySelectorAll('[data-customer-tab-panel]'));
+        if (!buttons.length || !panels.length) {
+            return;
+        }
+        const setActive = (tabId) => {
+            if (!tabId) {
+                return;
+            }
+            buttons.forEach((button) => {
+                const isActive = button.getAttribute('data-customer-tab') === tabId;
+                button.classList.toggle('is-active', isActive);
+                button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+            });
+            panels.forEach((panel) => {
+                const isActive = panel.getAttribute('data-customer-tab-panel') === tabId;
+                panel.classList.toggle('is-active', isActive);
+            });
+        };
+        const activeButton = buttons.find((button) => button.classList.contains('is-active'));
+        const initialTab = activeButton ? activeButton.getAttribute('data-customer-tab') : buttons[0].getAttribute('data-customer-tab');
+        setActive(initialTab);
+        buttons.forEach((button) => {
+            button.addEventListener('click', () => {
+                const tabId = button.getAttribute('data-customer-tab');
+                setActive(tabId);
+            });
+        });
+        tabs.dataset.tabsReady = 'true';
+    });
+}
+
+function initSupplierTabUi() {
+    const tabGroups = document.querySelectorAll('[data-supplier-tabs]');
+    if (!document.body.dataset.supplierTabDelegated) {
+        document.body.addEventListener('click', (event) => {
+            const button = event.target.closest?.('[data-supplier-tab]');
+            if (!button) {
+                return;
+            }
+            const tabs = button.closest('[data-supplier-tabs]');
+            if (!tabs) {
+                return;
+            }
+            const tabId = button.getAttribute('data-supplier-tab');
+            if (!tabId) {
+                return;
+            }
+            const buttons = Array.from(tabs.querySelectorAll('[data-supplier-tab]'));
+            const panels = Array.from(tabs.querySelectorAll('[data-supplier-tab-panel]'));
+            buttons.forEach((item) => {
+                const isActive = item.getAttribute('data-supplier-tab') === tabId;
+                item.classList.toggle('is-active', isActive);
+                item.setAttribute('aria-selected', isActive ? 'true' : 'false');
+            });
+            panels.forEach((panel) => {
+                const isActive = panel.getAttribute('data-supplier-tab-panel') === tabId;
+                panel.classList.toggle('is-active', isActive);
+            });
+        });
+        document.body.dataset.supplierTabDelegated = 'true';
+    }
+    if (!tabGroups.length) {
+        return;
+    }
+    tabGroups.forEach((tabs) => {
+        if (tabs.dataset.tabsReady === 'true') {
+            return;
+        }
+        const buttons = Array.from(tabs.querySelectorAll('[data-supplier-tab]'));
+        const panels = Array.from(tabs.querySelectorAll('[data-supplier-tab-panel]'));
+        if (!buttons.length || !panels.length) {
+            return;
+        }
+        const setActive = (tabId) => {
+            if (!tabId) {
+                return;
+            }
+            buttons.forEach((button) => {
+                const isActive = button.getAttribute('data-supplier-tab') === tabId;
+                button.classList.toggle('is-active', isActive);
+                button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+            });
+            panels.forEach((panel) => {
+                const isActive = panel.getAttribute('data-supplier-tab-panel') === tabId;
+                panel.classList.toggle('is-active', isActive);
+            });
+        };
+        const activeButton = buttons.find((button) => button.classList.contains('is-active'));
+        const initialTab = activeButton ? activeButton.getAttribute('data-supplier-tab') : buttons[0].getAttribute('data-supplier-tab');
+        setActive(initialTab);
+        buttons.forEach((button) => {
+            button.addEventListener('click', () => {
+                const tabId = button.getAttribute('data-supplier-tab');
+                setActive(tabId);
+            });
+        });
+        tabs.dataset.tabsReady = 'true';
+    });
+}
+
 function initCustomerView() {
     const page = document.querySelector('[data-customer-view]');
     if (!page) {
         return;
     }
 
+    initCustomerTabUi();
+
     const customerId = page.getAttribute('data-customer-id');
     const statusStack = page.querySelector('[data-customer-view-status]');
     const details = page.querySelectorAll('[data-detail]');
+    const stats = page.querySelectorAll('[data-customer-stat]');
     const profilesTable = page.querySelector('[data-customer-profiles]');
     const invoicesTable = page.querySelector('[data-customer-invoices]');
     const uninvoicedTable = page.querySelector('[data-customer-uninvoiced]');
@@ -10271,7 +10914,8 @@ function initCustomerView() {
     const canEditProfile = role === 'Admin';
     const canRecordPayments = isBranchRole;
     const canRecordRefunds = isBranchRole;
-    const canRecordCustomerPayment = isBranchRole;
+    const canRecordCustomerPayment = isBranchRole || role === 'Admin' || role === 'Owner';
+    const canBalanceAdjust = role === 'Admin' || role === 'Owner' || role === 'Main Branch';
     const showMeta = hasAuditMetaAccess(role);
     const ordersColumnCount = 9;
     const metaClass = 'meta-col';
@@ -10322,6 +10966,20 @@ function initCustomerView() {
         return `${customer.name} (${customer.code})${countryLabel}${phone}`;
     };
 
+    const renderCustomerStats = (statData) => {
+        if (!stats.length) {
+            return;
+        }
+        stats.forEach((el) => {
+            const key = el.getAttribute('data-customer-stat');
+            let value = statData[key];
+            if (['total_invoiced', 'total_paid', 'total_due'].includes(key)) {
+                value = formatAmount(value);
+            }
+            el.textContent = value !== null && value !== undefined && value !== '' ? value : '--';
+        });
+    };
+
     const showNotice = (message, type = 'error') => {
         if (!statusStack) {
             return;
@@ -10364,6 +11022,7 @@ function initCustomerView() {
     const updatePaymentTypeUI = () => {
         const typeValue = getPaymentType();
         const isRefund = typeValue === 'refund';
+        const isBalanceAdjust = typeValue === 'charge' || typeValue === 'discount';
         if (paymentReasonField) {
             paymentReasonField.classList.toggle('is-hidden', !isRefund);
         }
@@ -10374,30 +11033,76 @@ function initCustomerView() {
             }
         }
         if (paymentInvoiceSelect) {
-            paymentInvoiceSelect.disabled = isRefund;
-            if (isRefund) {
+            paymentInvoiceSelect.disabled = isRefund || isBalanceAdjust;
+            if (isRefund || isBalanceAdjust) {
                 paymentInvoiceSelect.value = '';
             }
         }
+        if (paymentFromField) {
+            paymentFromField.classList.toggle('is-hidden', isBalanceAdjust);
+        }
+        if (paymentToField) {
+            paymentToField.classList.toggle('is-hidden', isBalanceAdjust);
+        }
+        if (paymentFromAccountSelect) {
+            paymentFromAccountSelect.disabled = isBalanceAdjust;
+            paymentFromAccountSelect.required = !isBalanceAdjust;
+            if (isBalanceAdjust) {
+                paymentFromAccountSelect.value = '';
+            }
+        }
+        if (paymentToAccountSelect) {
+            paymentToAccountSelect.disabled = isBalanceAdjust;
+            paymentToAccountSelect.required = false;
+            if (isBalanceAdjust) {
+                paymentToAccountSelect.value = '';
+            }
+        }
         if (paymentSubmitButton) {
-            paymentSubmitButton.textContent = isRefund ? 'Record refund' : 'Record payment';
+            if (typeValue === 'refund') {
+                paymentSubmitButton.textContent = 'Record refund';
+            } else if (typeValue === 'charge') {
+                paymentSubmitButton.textContent = 'Record charge';
+            } else if (typeValue === 'discount') {
+                paymentSubmitButton.textContent = 'Record discount';
+            } else {
+                paymentSubmitButton.textContent = 'Record payment';
+            }
         }
     };
 
     if (paymentTypeSelect) {
-        if (!canRecordRefunds) {
-            paymentTypeSelect.value = 'payment';
-            paymentTypeSelect.disabled = true;
-            if (paymentTypeField) {
-                paymentTypeField.classList.add('is-hidden');
-            }
-        }
         if (!canRecordPayments) {
             const paymentOption = paymentTypeSelect.querySelector('option[value="payment"]');
             if (paymentOption) {
                 paymentOption.remove();
             }
-            paymentTypeSelect.value = 'refund';
+        }
+        if (!canRecordRefunds) {
+            const refundOption = paymentTypeSelect.querySelector('option[value="refund"]');
+            if (refundOption) {
+                refundOption.remove();
+            }
+        }
+        if (!canBalanceAdjust) {
+            const chargeOption = paymentTypeSelect.querySelector('option[value="charge"]');
+            if (chargeOption) {
+                chargeOption.remove();
+            }
+            const discountOption = paymentTypeSelect.querySelector('option[value="discount"]');
+            if (discountOption) {
+                discountOption.remove();
+            }
+        }
+        if (!paymentTypeSelect.value) {
+            const firstOption = paymentTypeSelect.querySelector('option');
+            if (firstOption) {
+                paymentTypeSelect.value = firstOption.value;
+            }
+        }
+        if (paymentTypeSelect.options.length <= 1 && paymentTypeField) {
+            paymentTypeField.classList.add('is-hidden');
+            paymentTypeSelect.disabled = true;
         }
         updatePaymentTypeUI();
     }
@@ -10567,6 +11272,8 @@ function initCustomerView() {
                     refund: 'Refund',
                     adjustment: 'Adjustment',
                     admin_settlement: 'Admin settlement',
+                    charge: 'Charge',
+                    discount: 'Discount',
                 };
                 const typeLabel = typeLabelMap[typeKey] || typeKey;
                 const dateLabel = tx.payment_date || tx.created_at || '-';
@@ -10721,6 +11428,13 @@ function initCustomerView() {
         }
         updatePaymentTypeUI();
         const typeValue = getPaymentType();
+        const isBalanceAdjust = typeValue === 'charge' || typeValue === 'discount';
+        if (isBalanceAdjust) {
+            accountMap.clear();
+            renderAccountOptions(paymentFromAccountSelect, [], 'Select account');
+            renderAccountOptions(paymentToAccountSelect, [], 'Select account');
+            return;
+        }
         const fromBranchId = currentCustomerBranchId || branchId || null;
         if (!fromBranchId) {
             showPaymentNotice('Branch is required to record payment.', 'error');
@@ -10920,7 +11634,7 @@ function initCustomerView() {
         if (!uninvoicedTable) {
             return;
         }
-        uninvoicedTable.innerHTML = '<tr><td colspan="7" class="muted">Loading orders...</td></tr>';
+        uninvoicedTable.innerHTML = '<tr><td colspan="7" class="loading-cell"><div class="loading-inline"><span class="spinner" aria-hidden="true"></span><span class="loading-text">Orders are loading, please wait...</span></div></td></tr>';
         try {
             const params = new URLSearchParams({
                 customer_id: customerId,
@@ -10964,6 +11678,7 @@ function initCustomerView() {
                     }
                     el.textContent = value !== null && value !== undefined && value !== '' ? value : '--';
                 });
+                renderCustomerStats(data.stats || {});
               if (addProfileLink) {
                   if (customer.id) {
                       const profileParams = new URLSearchParams();
@@ -11073,12 +11788,17 @@ function initCustomerView() {
                 return;
             }
             const typeValue = getPaymentType();
+            const isBalanceAdjust = typeValue === 'charge' || typeValue === 'discount';
             if (typeValue === 'payment' && !canRecordPayments) {
                 showPaymentNotice('Customer payments can only be recorded by branch users.', 'error');
                 return;
             }
               if (typeValue === 'refund' && !canRecordRefunds) {
                   showPaymentNotice('Refunds can only be recorded by branch users.', 'error');
+                  return;
+              }
+              if (isBalanceAdjust && !canBalanceAdjust) {
+                  showPaymentNotice('Balance adjustments require Admin, Owner, or Main Branch access.', 'error');
                   return;
               }
               const amountValue = Number(paymentAmountInput ? paymentAmountInput.value : 0);
@@ -11092,21 +11812,26 @@ function initCustomerView() {
                   showPaymentNotice('Select a refund reason.', 'error');
                   return;
               }
-              const fromAccountId = paymentFromAccountSelect ? paymentFromAccountSelect.value : '';
-              const toAccountId = paymentToAccountSelect ? paymentToAccountSelect.value : '';
-              if (!fromAccountId) {
-                  showPaymentNotice('Select the branch account.', 'error');
-                  return;
+              let fromAccountId = '';
+              let toAccountId = '';
+              let fromAccount = null;
+              if (!isBalanceAdjust) {
+                  fromAccountId = paymentFromAccountSelect ? paymentFromAccountSelect.value : '';
+                  toAccountId = paymentToAccountSelect ? paymentToAccountSelect.value : '';
+                  if (!fromAccountId) {
+                      showPaymentNotice('Select the branch account.', 'error');
+                      return;
+                  }
+                  if (typeValue === 'refund' && !isBranchRole && !toAccountId) {
+                      showPaymentNotice('Select the branch account.', 'error');
+                      return;
+                  }
+                  fromAccount = accountMap.get(String(fromAccountId));
+                  if (!fromAccount || !fromAccount.payment_method_id) {
+                      showPaymentNotice('Selected account is missing a payment method.', 'error');
+                      return;
+                  }
               }
-              if (typeValue === 'refund' && !isBranchRole && !toAccountId) {
-                  showPaymentNotice('Select the branch account.', 'error');
-                  return;
-              }
-              const fromAccount = accountMap.get(String(fromAccountId));
-              if (!fromAccount || !fromAccount.payment_method_id) {
-                  showPaymentNotice('Selected account is missing a payment method.', 'error');
-                  return;
-            }
             const invoiceId = typeValue === 'payment' && paymentInvoiceSelect ? paymentInvoiceSelect.value : '';
             const invoice = invoiceId ? invoiceMap.get(String(invoiceId)) : null;
             if (invoiceId && !invoice) {
@@ -11130,18 +11855,23 @@ function initCustomerView() {
                   type: typeValue,
                   from_account_id: null,
                   to_account_id: null,
-                  payment_method_id: Number(fromAccount.payment_method_id),
+                  payment_method_id: fromAccount ? Number(fromAccount.payment_method_id) : null,
                   amount: amountValue,
                   payment_date: paymentDateInput ? paymentDateInput.value : null,
                   whish_phone: paymentWhishInput ? paymentWhishInput.value : null,
                   note: paymentNoteInput ? paymentNoteInput.value : null,
               };
-              if (isBranchRole) {
-                  payload.from_account_id = typeValue === 'refund' ? Number(fromAccountId) : null;
-                  payload.to_account_id = typeValue === 'refund' ? null : Number(fromAccountId);
-              } else {
-                  payload.from_account_id = typeValue === 'refund' ? Number(fromAccountId) : null;
-                  payload.to_account_id = typeValue === 'refund' ? Number(toAccountId) : Number(fromAccountId);
+              if (typeValue === 'payment' && invoice) {
+                  payload.invoice_id = Number(invoice.id);
+              }
+              if (!isBalanceAdjust) {
+                  if (isBranchRole) {
+                      payload.from_account_id = typeValue === 'refund' ? Number(fromAccountId) : null;
+                      payload.to_account_id = typeValue === 'refund' ? null : Number(fromAccountId);
+                  } else {
+                      payload.from_account_id = typeValue === 'refund' ? Number(fromAccountId) : null;
+                      payload.to_account_id = typeValue === 'refund' ? Number(toAccountId) : Number(fromAccountId);
+                  }
               }
               if (typeValue === 'refund') {
                   payload.reason = reasonValue;
@@ -11152,28 +11882,30 @@ function initCustomerView() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload),
                 });
-                if (typeValue === 'payment' && invoice && tx && tx.id) {
-                    try {
-                        await fetchJson(`${window.APP_BASE}/api/transactions/allocate.php`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                transaction_id: tx.id,
-                                allocations: [{ invoice_id: invoice.id, amount: amountValue }],
-                            }),
-                        });
-                    } catch (error) {
-                        showPaymentNotice(`Allocation failed: ${error.message}`, 'error');
-                    }
-                }
-                showPaymentNotice(typeValue === 'refund' ? 'Refund recorded.' : 'Payment recorded.', 'success');
+                const typeLabel =
+                    typeValue === 'refund'
+                        ? 'Refund'
+                        : typeValue === 'charge'
+                          ? 'Charge'
+                          : typeValue === 'discount'
+                            ? 'Discount'
+                            : 'Payment';
+                showPaymentNotice(`${typeLabel} recorded.`, 'success');
                 if (paymentForm) {
                     paymentForm.reset();
                     updatePaymentTypeUI();
                 }
                 await loadCustomerView();
             } catch (error) {
-                showPaymentNotice(`${typeValue === 'refund' ? 'Refund' : 'Payment'} failed: ${error.message}`, 'error');
+                const typeLabel =
+                    typeValue === 'refund'
+                        ? 'Refund'
+                        : typeValue === 'charge'
+                          ? 'Charge'
+                          : typeValue === 'discount'
+                            ? 'Discount'
+                            : 'Payment';
+                showPaymentNotice(`${typeLabel} failed: ${error.message}`, 'error');
             }
         });
     }
@@ -11572,12 +12304,25 @@ function initExpensesPage() {
 
     const filterForm = page.querySelector('[data-expenses-filter]');
     const tableBody = page.querySelector('[data-expenses-table]');
+    const unpaidTable = page.querySelector('[data-expenses-unpaid-table]');
+    const paymentsTable = page.querySelector('[data-expenses-payments-table]');
     const statusStack = page.querySelector('[data-expenses-status]');
     const refreshButton = page.querySelector('[data-expenses-refresh]');
     const branchFilter = page.querySelector('[data-branch-filter]');
     const prevButton = page.querySelector('[data-expenses-prev]');
     const nextButton = page.querySelector('[data-expenses-next]');
     const pageLabel = page.querySelector('[data-expenses-page]');
+    const unpaidPrevButton = page.querySelector('[data-expenses-unpaid-prev]');
+    const unpaidNextButton = page.querySelector('[data-expenses-unpaid-next]');
+    const unpaidPageLabel = page.querySelector('[data-expenses-unpaid-page]');
+    const paymentsPrevButton = page.querySelector('[data-expenses-payments-prev]');
+    const paymentsNextButton = page.querySelector('[data-expenses-payments-next]');
+    const paymentsPageLabel = page.querySelector('[data-expenses-payments-page]');
+    const paymentsTypeSelect = page.querySelector('[data-expenses-payments-type]');
+    const paymentsRefreshButton = page.querySelector('[data-expenses-payments-refresh]');
+    const tabs = page.querySelector('[data-expenses-tabs]');
+    const tabButtons = tabs ? Array.from(tabs.querySelectorAll('[data-expenses-tab]')) : [];
+    const tabPanels = tabs ? Array.from(tabs.querySelectorAll('[data-expenses-panel]')) : [];
     const addButton = page.querySelector('[data-expenses-add]');
     const drawer = page.querySelector('[data-expenses-drawer]');
     const form = page.querySelector('[data-expenses-form]');
@@ -11586,27 +12331,47 @@ function initExpensesPage() {
     const drawerStatus = page.querySelector('[data-expenses-form-status]');
     const expenseIdField = page.querySelector('[data-expense-id]');
     const branchSelect = page.querySelector('[data-branch-select]');
-    const accountSelect = page.querySelector('[data-expenses-account]');
     const drawerCloseButtons = page.querySelectorAll('[data-expenses-drawer-close]');
     const canEdit = page.getAttribute('data-can-edit') === '1';
     const createMode = page.getAttribute('data-create-mode') === '1';
 
     const limit = 5;
+    const paymentsLimit = 5;
     let offset = 0;
+    let unpaidOffset = 0;
+    let paymentsOffset = 0;
     let lastFilters = {};
+    let lastPaymentsFilters = {};
     const expenseMap = new Map();
+    const unpaidExpenseMap = new Map();
+    let adminAccounts = [];
 
     const escapeHtml = (value) =>
         String(value)
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;')
-            .replace(/\"/g, '&quot;')
+            .replace(/"/g, '&quot;')
             .replace(/'/g, '&#39;');
 
     const formatAmount = (value) => {
         const num = Number(value ?? 0);
         return Number.isFinite(num) ? num.toFixed(2) : '0.00';
+    };
+
+    const setActiveTab = (tabId) => {
+        if (!tabId) {
+            return;
+        }
+        tabButtons.forEach((button) => {
+            const isActive = button.getAttribute('data-expenses-tab') === tabId;
+            button.classList.toggle('is-active', isActive);
+            button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        });
+        tabPanels.forEach((panel) => {
+            const isActive = panel.getAttribute('data-expenses-panel') === tabId;
+            panel.classList.toggle('is-active', isActive);
+        });
     };
 
     const showNotice = (message, type = 'error') => {
@@ -11658,6 +12423,22 @@ function initExpensesPage() {
         select.querySelectorAll('option[data-dynamic]').forEach((option) => option.remove());
     };
 
+    const renderAccountSelect = (selectedId = '') => {
+        const options = adminAccounts
+            .map((account) => {
+                const methodLabel = account.payment_method_name ? ` (${account.payment_method_name})` : '';
+                const isSelected = String(account.id) === String(selectedId) ? ' selected' : '';
+                return `<option value="${account.id}"${isSelected}>${escapeHtml(
+                    `${account.name}${methodLabel}`
+                )}</option>`;
+            })
+            .join('');
+        return `<select data-expense-pay-account>
+            <option value="">Select account</option>
+            ${options}
+        </select>`;
+    };
+
     const loadBranches = async () => {
         try {
             const data = await fetchJson(`${window.APP_BASE}/api/branches/list.php?limit=200`);
@@ -11688,20 +12469,9 @@ function initExpensesPage() {
     };
 
     const loadAccounts = async () => {
-        if (!accountSelect) {
-            return;
-        }
         try {
             const data = await fetchJson(`${window.APP_BASE}/api/accounts/list.php?owner_type=admin&is_active=1`);
-            clearDynamicOptions(accountSelect);
-            (data.data || []).forEach((account) => {
-                const option = document.createElement('option');
-                option.value = account.id;
-                const methodLabel = account.payment_method_name ? ` (${account.payment_method_name})` : '';
-                option.textContent = `${account.name}${methodLabel}`;
-                option.setAttribute('data-dynamic', 'true');
-                accountSelect.appendChild(option);
-            });
+            adminAccounts = data.data || [];
         } catch (error) {
             showNotice(`Accounts load failed: ${error.message}`, 'error');
         }
@@ -11727,9 +12497,6 @@ function initExpensesPage() {
         if (branchSelect) {
             branchSelect.value = expense?.branch_id ? String(expense.branch_id) : '';
         }
-        if (accountSelect) {
-            accountSelect.value = expense?.from_account_id ? String(expense.from_account_id) : '';
-        }
     };
 
     const renderRows = (rows) => {
@@ -11738,7 +12505,7 @@ function initExpensesPage() {
         }
         expenseMap.clear();
         if (!rows.length) {
-            tableBody.innerHTML = '<tr><td colspan="7" class="muted">No expenses found.</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="8" class="muted">No expenses found.</td></tr>';
             return;
         }
         tableBody.innerHTML = rows
@@ -11750,8 +12517,9 @@ function initExpensesPage() {
                     : row.shipment_id
                     ? `#${row.shipment_id}`
                     : '-';
+                const paidLabel = row.is_paid ? 'Yes' : 'No';
                 const actions = [];
-                if (canEdit) {
+                if (canEdit && !row.is_paid) {
                     actions.push(
                         `<button class="text-link" type="button" data-expense-edit data-expense-id="${row.id}">Edit</button>`
                     );
@@ -11765,6 +12533,7 @@ function initExpensesPage() {
                     <td>${escapeHtml(row.branch_name || '-')}</td>
                     <td>${escapeHtml(shipmentLabel)}</td>
                     <td>${formatAmount(row.amount)}</td>
+                    <td>${escapeHtml(paidLabel)}</td>
                     <td>${escapeHtml(row.note || '-')}</td>
                     <td>${actions.length ? actions.join(' | ') : '-'}</td>
                 </tr>`;
@@ -11806,9 +12575,90 @@ function initExpensesPage() {
         });
     };
 
+    const renderUnpaidRows = (rows) => {
+        if (!unpaidTable) {
+            return;
+        }
+        unpaidExpenseMap.clear();
+        if (!rows.length) {
+            unpaidTable.innerHTML = '<tr><td colspan="7" class="muted">No unpaid expenses found.</td></tr>';
+            return;
+        }
+        unpaidTable.innerHTML = rows
+            .map((row) => {
+                unpaidExpenseMap.set(String(row.id), row);
+                const dateLabel = row.expense_date || row.created_at || '-';
+                const shipmentLabel = row.shipment_number
+                    ? row.shipment_number
+                    : row.shipment_id
+                    ? `#${row.shipment_id}`
+                    : '-';
+                const payControls = canEdit
+                    ? `${renderAccountSelect()}<button class="button ghost small" type="button" data-expense-pay data-expense-id="${row.id}">Pay</button>`
+                    : '-';
+                return `<tr>
+                    <td>${escapeHtml(dateLabel)}</td>
+                    <td>${escapeHtml(row.title || '-')}</td>
+                    <td>${escapeHtml(row.branch_name || '-')}</td>
+                    <td>${escapeHtml(shipmentLabel)}</td>
+                    <td>${formatAmount(row.amount)}</td>
+                    <td>${escapeHtml(row.note || '-')}</td>
+                    <td>${payControls}</td>
+                </tr>`;
+            })
+            .join('');
+    };
+
+    const renderPayments = (rows) => {
+        if (!paymentsTable) {
+            return;
+        }
+        if (!rows.length) {
+            paymentsTable.innerHTML = '<tr><td colspan="8" class="muted">No payments found.</td></tr>';
+            return;
+        }
+        const typeLabels = {
+            general_expense: 'General expense',
+            shipment_expense: 'Shipment expense',
+            staff_expense: 'Staff expense',
+        };
+        paymentsTable.innerHTML = rows
+            .map((row) => {
+                const dateLabel = row.transfer_date || row.created_at || '-';
+                const typeLabel = typeLabels[row.entry_type] || row.entry_type || '-';
+                const sourceLabel = row.from_account_name || '-';
+                let expenseLabel = row.expense_title || '-';
+                if (row.entry_type === 'staff_expense') {
+                    const staffLabel = row.staff_name ? `${row.staff_name}` : 'Staff expense';
+                    expenseLabel = row.staff_expense_type
+                        ? `${staffLabel} (${row.staff_expense_type})`
+                        : staffLabel;
+                }
+                const shipmentLabel = row.shipment_number || '-';
+                const statusLabel = row.status || '-';
+                let actions = '-';
+                if (canEdit && row.status === 'active' && row.entry_type !== 'staff_expense') {
+                    if (row.reference_type === 'general_expense' && row.reference_id) {
+                        actions = `<button class="text-link" type="button" data-expense-payment-cancel data-expense-id="${row.reference_id}">Cancel</button>`;
+                    }
+                }
+                return `<tr>
+                    <td>${escapeHtml(dateLabel)}</td>
+                    <td>${escapeHtml(typeLabel)}</td>
+                    <td>${escapeHtml(sourceLabel)}</td>
+                    <td>${formatAmount(row.amount)}</td>
+                    <td>${escapeHtml(expenseLabel)}</td>
+                    <td>${escapeHtml(shipmentLabel)}</td>
+                    <td>${escapeHtml(statusLabel)}</td>
+                    <td>${actions}</td>
+                </tr>`;
+            })
+            .join('');
+    };
+
     const loadExpenses = async (filters = {}) => {
         if (tableBody) {
-            tableBody.innerHTML = '<tr><td colspan="6" class="muted">Loading expenses...</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="8" class="muted">Loading expenses...</td></tr>';
         }
         const params = new URLSearchParams();
         Object.entries(filters).forEach(([key, value]) => {
@@ -11836,13 +12686,76 @@ function initExpensesPage() {
         }
     };
 
+    const loadUnpaidExpenses = async (filters = {}) => {
+        if (unpaidTable) {
+            unpaidTable.innerHTML = '<tr><td colspan="7" class="muted">Loading unpaid expenses...</td></tr>';
+        }
+        const params = new URLSearchParams();
+        Object.entries(filters).forEach(([key, value]) => {
+            if (value !== null && value !== undefined && String(value).trim() !== '') {
+                params.append(key, String(value));
+            }
+        });
+        params.append('is_paid', '0');
+        params.append('limit', String(limit));
+        params.append('offset', String(unpaidOffset));
+        try {
+            const data = await fetchJson(`${window.APP_BASE}/api/expenses/list.php?${params.toString()}`);
+            renderUnpaidRows(data.data || []);
+            if (unpaidPrevButton) {
+                unpaidPrevButton.disabled = unpaidOffset === 0;
+            }
+            if (unpaidNextButton) {
+                unpaidNextButton.disabled = (data.data || []).length < limit;
+            }
+            if (unpaidPageLabel) {
+                unpaidPageLabel.textContent = `Page ${Math.floor(unpaidOffset / limit) + 1}`;
+            }
+        } catch (error) {
+            renderUnpaidRows([]);
+            showNotice(`Unpaid expenses load failed: ${error.message}`, 'error');
+        }
+    };
+
+    const loadPayments = async (filters = {}) => {
+        if (paymentsTable) {
+            paymentsTable.innerHTML = '<tr><td colspan="8" class="muted">Loading payments...</td></tr>';
+        }
+        const params = new URLSearchParams();
+        Object.entries(filters).forEach(([key, value]) => {
+            if (value !== null && value !== undefined && String(value).trim() !== '') {
+                params.append(key, String(value));
+            }
+        });
+        params.append('limit', String(paymentsLimit));
+        params.append('offset', String(paymentsOffset));
+        try {
+            const data = await fetchJson(`${window.APP_BASE}/api/expenses/payments.php?${params.toString()}`);
+            renderPayments(data.data || []);
+            if (paymentsPrevButton) {
+                paymentsPrevButton.disabled = paymentsOffset === 0;
+            }
+            if (paymentsNextButton) {
+                paymentsNextButton.disabled = (data.data || []).length < paymentsLimit;
+            }
+            if (paymentsPageLabel) {
+                paymentsPageLabel.textContent = `Page ${Math.floor(paymentsOffset / paymentsLimit) + 1}`;
+            }
+        } catch (error) {
+            renderPayments([]);
+            showNotice(`Payments load failed: ${error.message}`, 'error');
+        }
+    };
+
     if (filterForm) {
         filterForm.addEventListener('submit', (event) => {
             event.preventDefault();
             const formData = new FormData(filterForm);
             offset = 0;
+            unpaidOffset = 0;
             lastFilters = Object.fromEntries(formData.entries());
             loadExpenses(lastFilters);
+            loadUnpaidExpenses(lastFilters);
         });
     }
 
@@ -11851,12 +12764,16 @@ function initExpensesPage() {
             if (filterForm) {
                 const formData = new FormData(filterForm);
                 offset = 0;
+                unpaidOffset = 0;
                 lastFilters = Object.fromEntries(formData.entries());
                 loadExpenses(lastFilters);
+                loadUnpaidExpenses(lastFilters);
             } else {
                 offset = 0;
+                unpaidOffset = 0;
                 lastFilters = {};
                 loadExpenses();
+                loadUnpaidExpenses();
             }
         });
     }
@@ -11878,6 +12795,51 @@ function initExpensesPage() {
         });
     }
 
+    if (unpaidPrevButton) {
+        unpaidPrevButton.addEventListener('click', () => {
+            if (unpaidOffset === 0) {
+                return;
+            }
+            unpaidOffset = Math.max(0, unpaidOffset - limit);
+            loadUnpaidExpenses(lastFilters);
+        });
+    }
+
+    if (unpaidNextButton) {
+        unpaidNextButton.addEventListener('click', () => {
+            unpaidOffset += limit;
+            loadUnpaidExpenses(lastFilters);
+        });
+    }
+
+    if (paymentsRefreshButton) {
+        paymentsRefreshButton.addEventListener('click', () => {
+            paymentsOffset = 0;
+            const filters = {
+                type: paymentsTypeSelect ? paymentsTypeSelect.value : '',
+            };
+            lastPaymentsFilters = filters;
+            loadPayments(filters);
+        });
+    }
+
+    if (paymentsPrevButton) {
+        paymentsPrevButton.addEventListener('click', () => {
+            if (paymentsOffset === 0) {
+                return;
+            }
+            paymentsOffset = Math.max(0, paymentsOffset - paymentsLimit);
+            loadPayments(lastPaymentsFilters);
+        });
+    }
+
+    if (paymentsNextButton) {
+        paymentsNextButton.addEventListener('click', () => {
+            paymentsOffset += paymentsLimit;
+            loadPayments(lastPaymentsFilters);
+        });
+    }
+
     if (addButton) {
         addButton.addEventListener('click', () => {
             setFormValues(null);
@@ -11885,25 +12847,11 @@ function initExpensesPage() {
         });
     }
 
-      if (drawerCloseButtons.length) {
-          drawerCloseButtons.forEach((button) => {
-              button.addEventListener('click', closeDrawer);
-          });
-      }
-
-      if (invoiceEditCancelButton) {
-          invoiceEditCancelButton.addEventListener('click', () => {
-              editingInvoiceId = null;
-              setInvoiceFormMode(false);
-              resetInvoiceOrders('Select a customer to load orders.');
-              if (form) {
-                  form.reset();
-              }
-              if (invoiceCurrencySelect) {
-                  invoiceCurrencySelect.value = 'USD';
-              }
-          });
-      }
+    if (drawerCloseButtons.length) {
+        drawerCloseButtons.forEach((button) => {
+            button.addEventListener('click', closeDrawer);
+        });
+    }
 
     if (form) {
         form.addEventListener('submit', async (event) => {
@@ -11913,10 +12861,6 @@ function initExpensesPage() {
             const expenseId = payload.expense_id || '';
             if (!payload.title || !payload.amount) {
                 showFormNotice('Title and amount are required.', 'error');
-                return;
-            }
-            if (!payload.from_account_id) {
-                showFormNotice('Select an admin account.', 'error');
                 return;
             }
             try {
@@ -11937,9 +12881,93 @@ function initExpensesPage() {
                 }
                 closeDrawer();
                 loadExpenses(lastFilters);
+                loadUnpaidExpenses(lastFilters);
             } catch (error) {
                 showFormNotice(`Save failed: ${error.message}`, 'error');
             }
+        });
+    }
+
+    if (unpaidTable) {
+        unpaidTable.addEventListener('click', async (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) {
+                return;
+            }
+            const payButton = target.closest('[data-expense-pay]');
+            if (!payButton) {
+                return;
+            }
+            const expenseId = payButton.getAttribute('data-expense-id');
+            if (!expenseId) {
+                return;
+            }
+            const row = payButton.closest('tr');
+            const accountSelect = row ? row.querySelector('[data-expense-pay-account]') : null;
+            const accountId = accountSelect ? accountSelect.value : '';
+            if (!accountId) {
+                showNotice('Select an admin account to pay this expense.', 'error');
+                return;
+            }
+            try {
+                await fetchJson(`${window.APP_BASE}/api/expenses/pay.php`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        expense_id: expenseId,
+                        from_account_id: accountId,
+                        payment_date: new Date().toISOString().slice(0, 10),
+                    }),
+                });
+                showNotice('Expense paid.', 'success');
+                loadExpenses(lastFilters);
+                loadUnpaidExpenses(lastFilters);
+                loadPayments(lastPaymentsFilters);
+            } catch (error) {
+                showNotice(`Payment failed: ${error.message}`, 'error');
+            }
+        });
+    }
+
+    if (paymentsTable) {
+        paymentsTable.addEventListener('click', async (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) {
+                return;
+            }
+            const cancelButton = target.closest('[data-expense-payment-cancel]');
+            if (!cancelButton) {
+                return;
+            }
+            const expenseId = cancelButton.getAttribute('data-expense-id');
+            if (!expenseId) {
+                return;
+            }
+            try {
+                await fetchJson(`${window.APP_BASE}/api/expenses/cancel_payment.php`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ expense_id: expenseId }),
+                });
+                showNotice('Expense payment canceled.', 'success');
+                loadExpenses(lastFilters);
+                loadUnpaidExpenses(lastFilters);
+                loadPayments(lastPaymentsFilters);
+            } catch (error) {
+                showNotice(`Cancel failed: ${error.message}`, 'error');
+            }
+        });
+    }
+
+    if (tabButtons.length) {
+        const activeButton = tabButtons.find((button) => button.classList.contains('is-active'));
+        const initialTab = activeButton ? activeButton.getAttribute('data-expenses-tab') : tabButtons[0].getAttribute('data-expenses-tab');
+        setActiveTab(initialTab);
+        tabButtons.forEach((button) => {
+            button.addEventListener('click', () => {
+                const tabId = button.getAttribute('data-expenses-tab');
+                setActiveTab(tabId);
+            });
         });
     }
 
@@ -11950,6 +12978,8 @@ function initExpensesPage() {
     loadBranches();
     loadAccounts();
     loadExpenses();
+    loadUnpaidExpenses();
+    loadPayments();
 }
 
 function initInvoicesPage() {
@@ -12144,11 +13174,15 @@ function initInvoicesPage() {
           }
       };
 
-    const setInvoiceOrdersPlaceholder = (message) => {
+    const setInvoiceOrdersPlaceholder = (message, withSpinner = false) => {
         if (!invoiceOrdersTable) {
             return;
         }
-        invoiceOrdersTable.innerHTML = `<tr><td colspan="6" class="muted">${escapeHtml(message)}</td></tr>`;
+        if (!withSpinner) {
+            invoiceOrdersTable.innerHTML = `<tr><td colspan="6" class="muted">${escapeHtml(message)}</td></tr>`;
+            return;
+        }
+        invoiceOrdersTable.innerHTML = `<tr><td colspan="6" class="loading-cell"><div class="loading-inline"><span class="spinner" aria-hidden="true"></span><span class="loading-text">${escapeHtml(message)}</span></div></td></tr>`;
     };
 
     const updateSelectedTotal = () => {
@@ -12710,7 +13744,7 @@ function initInvoicesPage() {
           if (!invoiceOrdersTable) {
               return;
           }
-          setInvoiceOrdersPlaceholder('Loading orders...');
+          setInvoiceOrdersPlaceholder('Orders are loading, please wait...', true);
           try {
               const params = new URLSearchParams({ customer_id: String(customerIdValue), limit: '200' });
               if (includeInvoiceId) {
@@ -13269,11 +14303,13 @@ function initReportsPage() {
     const branchSelect = page.querySelector('[data-report-branch-select]');
     const branchFixedInput = page.querySelector('[data-report-branch-fixed]');
     const shipmentField = page.querySelector('[data-report-field="shipment"]');
+    const originField = page.querySelector('[data-report-field="origin"]');
     const branchField = page.querySelector('[data-report-field="branch"]');
     const modeField = page.querySelector('[data-report-field="mode"]');
     const modeSelect = page.querySelector('[data-report-mode]');
     const dateFrom = page.querySelector('[data-report-date-from]');
     const dateTo = page.querySelector('[data-report-date-to]');
+    const originSelect = page.querySelector('[data-report-origin-select]');
     const frame = page.querySelector('[data-report-frame]');
     const openLink = page.querySelector('[data-report-open]');
     const printButton = page.querySelector('[data-report-print]');
@@ -13354,6 +14390,28 @@ function initReportsPage() {
         }
     };
 
+    let originsLoaded = false;
+    const loadOrigins = async () => {
+        if (!originSelect) {
+            return;
+        }
+        try {
+            const data = await fetchJson(`${window.APP_BASE}/api/shipments/origins.php`);
+            const rows = data.data || [];
+            clearDynamicOptions(originSelect);
+            rows.forEach((origin) => {
+                const option = document.createElement('option');
+                option.value = origin.id;
+                option.textContent = origin.name;
+                option.setAttribute('data-dynamic', 'true');
+                originSelect.appendChild(option);
+            });
+            originsLoaded = true;
+        } catch (error) {
+            console.warn('Origins load failed', error);
+        }
+    };
+
     const getMeta = () => {
         const option = reportSelect?.selectedOptions?.[0];
         return {
@@ -13367,8 +14425,12 @@ function initReportsPage() {
 
     const updateFields = () => {
         const meta = getMeta();
+        const isShipmentExpenses = reportSelect?.value === 'expenses_shipment';
         if (shipmentField) {
             shipmentField.classList.toggle('is-hidden', meta.shipment === 'none');
+        }
+        if (originField) {
+            originField.classList.toggle('is-hidden', !isShipmentExpenses);
         }
         if (branchField) {
             branchField.classList.toggle('is-hidden', meta.branch === 'none');
@@ -13384,6 +14446,9 @@ function initReportsPage() {
         }
         if (descriptionEl) {
             descriptionEl.textContent = meta.description || 'Choose a report to preview it here.';
+        }
+        if (isShipmentExpenses && !originsLoaded) {
+            loadOrigins();
         }
     };
 
@@ -13401,6 +14466,9 @@ function initReportsPage() {
         }
         if (meta.shipment !== 'none' && shipmentSelect?.value) {
             params.append('shipment_id', shipmentSelect.value);
+        }
+        if (reportSelect?.value === 'expenses_shipment' && originSelect?.value) {
+            params.append('origin_country_id', originSelect.value);
         }
         if (meta.branch !== 'none') {
             const branchValue = branchSelect?.value || branchFixedInput?.value || '';
@@ -13853,38 +14921,38 @@ function initCompanyPage() {
     }
 }
 
-function initPartnersPage() {
-    const page = document.querySelector('[data-partners-page]');
+function initSuppliersPage() {
+    const page = document.querySelector('[data-suppliers-page]');
     if (!page) {
         return;
     }
 
-    const filterForm = page.querySelector('[data-partners-filter]');
-    const tableShippers = page.querySelector('[data-partners-table-shipper]');
-    const tableConsignees = page.querySelector('[data-partners-table-consignee]');
-    const statusStack = page.querySelector('[data-partners-status]');
-    const refreshButton = page.querySelector('[data-partners-refresh]');
-    const prevShipper = page.querySelector('[data-partners-prev-shipper]');
-    const nextShipper = page.querySelector('[data-partners-next-shipper]');
-    const pageLabelShipper = page.querySelector('[data-partners-page-shipper]');
-    const prevConsignee = page.querySelector('[data-partners-prev-consignee]');
-    const nextConsignee = page.querySelector('[data-partners-next-consignee]');
-    const pageLabelConsignee = page.querySelector('[data-partners-page-consignee]');
-    const addButton = page.querySelector('[data-partners-add]');
-    const drawer = page.querySelector('[data-partners-drawer]');
-    const form = page.querySelector('[data-partners-form]');
-    const formTitle = page.querySelector('[data-partners-form-title]');
-    const submitLabel = page.querySelector('[data-partners-submit-label]');
-    const drawerStatus = page.querySelector('[data-partners-form-status]');
-    const partnerIdField = page.querySelector('[data-partner-id]');
-    const drawerCloseButtons = page.querySelectorAll('[data-partners-drawer-close]');
+    const filterForm = page.querySelector('[data-suppliers-filter]');
+    const tableShippers = page.querySelector('[data-suppliers-table-shipper]');
+    const tableConsignees = page.querySelector('[data-suppliers-table-consignee]');
+    const statusStack = page.querySelector('[data-suppliers-status]');
+    const refreshButton = page.querySelector('[data-suppliers-refresh]');
+    const prevShipper = page.querySelector('[data-suppliers-prev-shipper]');
+    const nextShipper = page.querySelector('[data-suppliers-next-shipper]');
+    const pageLabelShipper = page.querySelector('[data-suppliers-page-shipper]');
+    const prevConsignee = page.querySelector('[data-suppliers-prev-consignee]');
+    const nextConsignee = page.querySelector('[data-suppliers-next-consignee]');
+    const pageLabelConsignee = page.querySelector('[data-suppliers-page-consignee]');
+    const addButton = page.querySelector('[data-suppliers-add]');
+    const drawer = page.querySelector('[data-suppliers-drawer]');
+    const form = page.querySelector('[data-suppliers-form]');
+    const formTitle = page.querySelector('[data-suppliers-form-title]');
+    const submitLabel = page.querySelector('[data-suppliers-submit-label]');
+    const drawerStatus = page.querySelector('[data-suppliers-form-status]');
+    const SupplierIdField = page.querySelector('[data-supplier-id]');
+    const drawerCloseButtons = page.querySelectorAll('[data-suppliers-drawer-close]');
     const canEdit = page.getAttribute('data-can-edit') === '1';
     const createMode = page.getAttribute('data-create-mode') === '1';
 
     const limit = 5;
     const offsets = { shipper: 0, consignee: 0 };
     let lastFilters = {};
-    const partnerMap = new Map();
+    const SupplierMap = new Map();
 
     const escapeHtml = (value) =>
         String(value)
@@ -13941,26 +15009,26 @@ function initPartnersPage() {
         }
     };
 
-    const setFormValues = (partner) => {
+    const setFormValues = (Supplier) => {
         if (!form) {
             return;
         }
-        if (partnerIdField) {
-            partnerIdField.value = partner?.id ? String(partner.id) : '';
+        if (SupplierIdField) {
+            SupplierIdField.value = Supplier?.id ? String(Supplier.id) : '';
         }
         if (formTitle) {
-            formTitle.textContent = partner ? 'Edit partner' : 'Add partner';
+            formTitle.textContent = Supplier ? 'Edit Supplier' : 'Add Supplier';
         }
         if (submitLabel) {
-            submitLabel.textContent = partner ? 'Save changes' : 'Add partner';
+            submitLabel.textContent = Supplier ? 'Save changes' : 'Add Supplier';
         }
-        form.querySelector('[name="type"]').value = partner?.type || '';
-        form.querySelector('[name="name"]').value = partner?.name || '';
-        form.querySelector('[name="phone"]').value = partner?.phone || '';
-        form.querySelector('[name="address"]').value = partner?.address || '';
+        form.querySelector('[name="type"]').value = Supplier?.type || '';
+        form.querySelector('[name="name"]').value = Supplier?.name || '';
+        form.querySelector('[name="phone"]').value = Supplier?.phone || '';
+        form.querySelector('[name="address"]').value = Supplier?.address || '';
         const noteField = form.querySelector('[name="note"]');
         if (noteField) {
-            noteField.value = partner?.note || '';
+            noteField.value = Supplier?.note || '';
         }
     };
 
@@ -13970,21 +15038,21 @@ function initPartnersPage() {
         }
         if (!rows.length) {
             tableBody.innerHTML =
-                '<tr><td colspan="4" class="muted">No partners found.</td></tr>';
+                '<tr><td colspan="4" class="muted">No Suppliers found.</td></tr>';
             return;
         }
         tableBody.innerHTML = rows
             .map((row) => {
-                partnerMap.set(String(row.id), row);
+                SupplierMap.set(String(row.id), row);
                 const actions = [
-                    `<a class="text-link" href="${window.APP_BASE}/views/internal/partner_view?id=${row.id}">Open</a>`,
+                    `<a class="text-link" href="${window.APP_BASE}/views/internal/supplier_view?id=${row.id}">Open</a>`,
                 ];
                 if (canEdit) {
                     actions.push(
-                        `<button class="text-link" type="button" data-partner-edit data-partner-id="${row.id}">Edit</button>`
+                        `<button class="text-link" type="button" data-supplier-edit data-supplier-id="${row.id}">Edit</button>`
                     );
                     actions.push(
-                        `<button class="text-link" type="button" data-partner-delete data-partner-id="${row.id}">Delete</button>`
+                        `<button class="text-link" type="button" data-supplier-delete data-supplier-id="${row.id}">Delete</button>`
                     );
                 }
                 return `<tr>
@@ -13996,34 +15064,34 @@ function initPartnersPage() {
             })
             .join('');
 
-        tableBody.querySelectorAll('[data-partner-edit]').forEach((button) => {
+        tableBody.querySelectorAll('[data-supplier-edit]').forEach((button) => {
             button.addEventListener('click', () => {
-                const id = button.getAttribute('data-partner-id');
-                if (!id || !partnerMap.has(id)) {
+                const id = button.getAttribute('data-supplier-id');
+                if (!id || !SupplierMap.has(id)) {
                     return;
                 }
-                setFormValues(partnerMap.get(id));
+                setFormValues(SupplierMap.get(id));
                 openDrawer();
             });
         });
 
-        tableBody.querySelectorAll('[data-partner-delete]').forEach((button) => {
+        tableBody.querySelectorAll('[data-supplier-delete]').forEach((button) => {
             button.addEventListener('click', async () => {
-                const id = button.getAttribute('data-partner-id');
+                const id = button.getAttribute('data-supplier-id');
                 if (!id) {
                     return;
                 }
                 try {
-                    await fetchJson(`${window.APP_BASE}/api/partners/delete.php`, {
+                    await fetchJson(`${window.APP_BASE}/api/suppliers/delete.php`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ id }),
                     });
-                    showNotice('Partner removed.', 'success');
+                    showNotice('Supplier removed.', 'success');
                     if (rows.length === 1 && offsets[type] > 0) {
                         offsets[type] = Math.max(0, offsets[type] - limit);
                     }
-                    loadPartners(type, lastFilters);
+                    loadSuppliers(type, lastFilters);
                 } catch (error) {
                     showNotice(`Delete failed: ${error.message}`, 'error');
                 }
@@ -14031,10 +15099,10 @@ function initPartnersPage() {
         });
     };
 
-    const loadPartners = async (type, filters = {}) => {
+    const loadSuppliers = async (type, filters = {}) => {
         const tableBody = type === 'shipper' ? tableShippers : tableConsignees;
         if (tableBody) {
-            tableBody.innerHTML = '<tr><td colspan="4" class="muted">Loading partners...</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="4" class="muted">Loading Suppliers...</td></tr>';
         }
         const params = new URLSearchParams({ type });
         Object.entries(filters).forEach(([key, value]) => {
@@ -14045,7 +15113,7 @@ function initPartnersPage() {
         params.append('limit', String(limit));
         params.append('offset', String(offsets[type] || 0));
         try {
-            const data = await fetchJson(`${window.APP_BASE}/api/partners/list.php?${params.toString()}`);
+            const data = await fetchJson(`${window.APP_BASE}/api/suppliers/list.php?${params.toString()}`);
             renderRows(data.data || [], type, tableBody);
             if (type === 'shipper') {
                 if (prevShipper) {
@@ -14070,7 +15138,7 @@ function initPartnersPage() {
             }
         } catch (error) {
             renderRows([], type, tableBody);
-            showNotice(`Partners load failed: ${error.message}`, 'error');
+            showNotice(`Suppliers load failed: ${error.message}`, 'error');
         }
     };
 
@@ -14081,8 +15149,8 @@ function initPartnersPage() {
             offsets.shipper = 0;
             offsets.consignee = 0;
             lastFilters = Object.fromEntries(formData.entries());
-            loadPartners('shipper', lastFilters);
-            loadPartners('consignee', lastFilters);
+            loadSuppliers('shipper', lastFilters);
+            loadSuppliers('consignee', lastFilters);
         });
     }
 
@@ -14093,14 +15161,14 @@ function initPartnersPage() {
                 offsets.shipper = 0;
                 offsets.consignee = 0;
                 lastFilters = Object.fromEntries(formData.entries());
-                loadPartners('shipper', lastFilters);
-                loadPartners('consignee', lastFilters);
+                loadSuppliers('shipper', lastFilters);
+                loadSuppliers('consignee', lastFilters);
             } else {
                 offsets.shipper = 0;
                 offsets.consignee = 0;
                 lastFilters = {};
-                loadPartners('shipper');
-                loadPartners('consignee');
+                loadSuppliers('shipper');
+                loadSuppliers('consignee');
             }
         });
     }
@@ -14111,14 +15179,14 @@ function initPartnersPage() {
                 return;
             }
             offsets.shipper = Math.max(0, offsets.shipper - limit);
-            loadPartners('shipper', lastFilters);
+            loadSuppliers('shipper', lastFilters);
         });
     }
 
     if (nextShipper) {
         nextShipper.addEventListener('click', () => {
             offsets.shipper += limit;
-            loadPartners('shipper', lastFilters);
+            loadSuppliers('shipper', lastFilters);
         });
     }
 
@@ -14128,14 +15196,14 @@ function initPartnersPage() {
                 return;
             }
             offsets.consignee = Math.max(0, offsets.consignee - limit);
-            loadPartners('consignee', lastFilters);
+            loadSuppliers('consignee', lastFilters);
         });
     }
 
     if (nextConsignee) {
         nextConsignee.addEventListener('click', () => {
             offsets.consignee += limit;
-            loadPartners('consignee', lastFilters);
+            loadSuppliers('consignee', lastFilters);
         });
     }
 
@@ -14157,30 +15225,30 @@ function initPartnersPage() {
             event.preventDefault();
             const formData = new FormData(form);
             const payload = Object.fromEntries(formData.entries());
-            const partnerId = payload.partner_id || '';
+            const SupplierId = payload.supplier_id || '';
             if (!payload.type || !payload.name) {
                 showFormNotice('Type and name are required.', 'error');
                 return;
             }
             try {
-                if (partnerId) {
-                    await fetchJson(`${window.APP_BASE}/api/partners/update.php`, {
+                if (SupplierId) {
+                    await fetchJson(`${window.APP_BASE}/api/suppliers/update.php`, {
                         method: 'PATCH',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(payload),
                     });
-                    showNotice('Partner updated.', 'success');
+                    showNotice('Supplier updated.', 'success');
                 } else {
-                    await fetchJson(`${window.APP_BASE}/api/partners/create.php`, {
+                    await fetchJson(`${window.APP_BASE}/api/suppliers/create.php`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(payload),
                     });
-                    showNotice('Partner added.', 'success');
+                    showNotice('Supplier added.', 'success');
                 }
                 closeDrawer();
-                loadPartners('shipper', lastFilters);
-                loadPartners('consignee', lastFilters);
+                loadSuppliers('shipper', lastFilters);
+                loadSuppliers('consignee', lastFilters);
             } catch (error) {
                 showFormNotice(`Save failed: ${error.message}`, 'error');
             }
@@ -14192,6 +15260,9 @@ function initPartnersPage() {
         openDrawer();
     }
 
-    loadPartners('shipper');
-    loadPartners('consignee');
+    loadSuppliers('shipper');
+    loadSuppliers('consignee');
 }
+
+
+

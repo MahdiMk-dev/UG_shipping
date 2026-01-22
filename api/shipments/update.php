@@ -12,6 +12,16 @@ api_require_method('PATCH');
 $user = require_role(['Admin', 'Owner', 'Main Branch', 'Warehouse']);
 $input = api_read_input();
 
+$legacyDefaultRate = array_key_exists('default_rate', $input)
+    ? api_float($input['default_rate'] ?? null)
+    : null;
+if ($legacyDefaultRate !== null
+    && !array_key_exists('default_rate_kg', $input)
+    && !array_key_exists('default_rate_cbm', $input)) {
+    $input['default_rate_kg'] = $legacyDefaultRate;
+    $input['default_rate_cbm'] = $legacyDefaultRate;
+}
+
 $shipmentId = api_int($input['shipment_id'] ?? ($input['id'] ?? null));
 if (!$shipmentId) {
     api_error('shipment_id is required', 422);
@@ -39,22 +49,60 @@ if ($role === 'Warehouse' && ($before['status'] ?? '') !== 'active') {
     api_error('Shipment must be active to edit', 403);
 }
 if ($role === 'Warehouse') {
-    $blockedFields = ['default_rate', 'default_rate_unit', 'cost_per_unit'];
+    $blockedFields = [
+        'default_rate',
+        'default_rate_kg',
+        'default_rate_cbm',
+        'default_rate_unit',
+        'cost_per_unit',
+    ];
     foreach ($blockedFields as $blockedField) {
         if (array_key_exists($blockedField, $input)) {
             api_error('Rate fields are restricted for warehouse users', 403);
         }
     }
-    $blockedPartnerFields = ['shipper_profile_id', 'consignee_profile_id', 'shipper', 'consignee'];
-    foreach ($blockedPartnerFields as $blockedField) {
+    $blockedSupplierFields = ['shipper_profile_id', 'consignee_profile_id', 'shipper', 'consignee'];
+    foreach ($blockedSupplierFields as $blockedField) {
         if (array_key_exists($blockedField, $input)) {
             api_error('Shipper/consignee fields are restricted for warehouse users', 403);
         }
     }
 }
 
-$rateFieldsRequested = array_key_exists('default_rate', $input) || array_key_exists('default_rate_unit', $input);
-if ($rateFieldsRequested) {
+$rateChangeRequested = false;
+if (array_key_exists('default_rate', $input)) {
+    $newRate = api_float($input['default_rate'] ?? null);
+    $oldRate = $before['default_rate'] !== null ? (float) $before['default_rate'] : null;
+    if ($newRate !== null || $oldRate !== null) {
+        $rateChangeRequested = $rateChangeRequested || $newRate === null || $oldRate === null
+            || abs($newRate - $oldRate) > 0.0001;
+    }
+}
+if (array_key_exists('default_rate_kg', $input)) {
+    $newRate = api_float($input['default_rate_kg'] ?? null);
+    $oldRate = $before['default_rate_kg'] !== null ? (float) $before['default_rate_kg'] : null;
+    if ($newRate !== null || $oldRate !== null) {
+        $rateChangeRequested = $rateChangeRequested || $newRate === null || $oldRate === null
+            || abs($newRate - $oldRate) > 0.0001;
+    }
+}
+if (array_key_exists('default_rate_cbm', $input)) {
+    $newRate = api_float($input['default_rate_cbm'] ?? null);
+    $oldRate = $before['default_rate_cbm'] !== null ? (float) $before['default_rate_cbm'] : null;
+    if ($newRate !== null || $oldRate !== null) {
+        $rateChangeRequested = $rateChangeRequested || $newRate === null || $oldRate === null
+            || abs($newRate - $oldRate) > 0.0001;
+    }
+}
+if (array_key_exists('default_rate_unit', $input)) {
+    $newUnit = api_string($input['default_rate_unit'] ?? null);
+    $oldUnit = $before['default_rate_unit'] !== null ? (string) $before['default_rate_unit'] : null;
+    if ($newUnit !== null || $oldUnit !== null) {
+        $rateChangeRequested = $rateChangeRequested || $newUnit !== $oldUnit;
+    }
+}
+
+if ($rateChangeRequested) {
     $rateLockStmt = $db->prepare(
         'SELECT 1 FROM invoice_items ii '
         . 'JOIN invoices i ON i.id = ii.invoice_id '
@@ -109,14 +157,22 @@ if (array_key_exists('shipment_number', $input)) {
     if (!$shipmentNumber) {
         api_error('shipment_number cannot be empty', 422);
     }
-    $fields[] = 'shipment_number = ?';
-    $params[] = $shipmentNumber;
+    $beforeShipmentNumber = api_string($before['shipment_number'] ?? null) ?? '';
+    if ($shipmentNumber !== $beforeShipmentNumber) {
+        $fields[] = 'shipment_number = ?';
+        $params[] = $shipmentNumber;
+    }
 }
 
 if (array_key_exists('origin_country_id', $input)) {
     $originCountryId = api_int($input['origin_country_id'] ?? null);
     if (!$originCountryId) {
         api_error('origin_country_id is invalid', 422);
+    }
+    $countryStmt = $db->prepare('SELECT id FROM countries WHERE id = ?');
+    $countryStmt->execute([$originCountryId]);
+    if (!$countryStmt->fetch()) {
+        api_error('Origin country not found', 422);
     }
     if ($role === 'Warehouse') {
         $warehouseCountryId = get_branch_country_id($user);
@@ -160,14 +216,17 @@ if (array_key_exists('shipping_type', $input)) {
     $params[] = $shippingType;
 }
 
-$partnerStmt = $db->prepare(
-    'SELECT id, type FROM partner_profiles WHERE id = ? AND deleted_at IS NULL'
+$SupplierStmt = $db->prepare(
+    'SELECT id, type FROM supplier_profiles WHERE id = ? AND deleted_at IS NULL'
 );
 if (array_key_exists('shipper_profile_id', $input)) {
-    $shipperProfileId = api_int($input['shipper_profile_id'] ?? null);
-    if ($shipperProfileId) {
-        $partnerStmt->execute([$shipperProfileId]);
-        $shipperProfile = $partnerStmt->fetch();
+    $rawShipperProfileId = $input['shipper_profile_id'] ?? null;
+    $shipperProfileId = ($rawShipperProfileId === '' || $rawShipperProfileId === null)
+        ? null
+        : api_int($rawShipperProfileId);
+    if ($shipperProfileId !== null) {
+        $SupplierStmt->execute([$shipperProfileId]);
+        $shipperProfile = $SupplierStmt->fetch();
         if (!$shipperProfile) {
             api_error('Shipper profile not found', 404);
         }
@@ -180,10 +239,13 @@ if (array_key_exists('shipper_profile_id', $input)) {
 }
 
 if (array_key_exists('consignee_profile_id', $input)) {
-    $consigneeProfileId = api_int($input['consignee_profile_id'] ?? null);
-    if ($consigneeProfileId) {
-        $partnerStmt->execute([$consigneeProfileId]);
-        $consigneeProfile = $partnerStmt->fetch();
+    $rawConsigneeProfileId = $input['consignee_profile_id'] ?? null;
+    $consigneeProfileId = ($rawConsigneeProfileId === '' || $rawConsigneeProfileId === null)
+        ? null
+        : api_int($rawConsigneeProfileId);
+    if ($consigneeProfileId !== null) {
+        $SupplierStmt->execute([$consigneeProfileId]);
+        $consigneeProfile = $SupplierStmt->fetch();
         if (!$consigneeProfile) {
             api_error('Consignee profile not found', 404);
         }
@@ -234,6 +296,8 @@ $optionalNumbers = [
     'weight',
     'gross_weight',
     'default_rate',
+    'default_rate_kg',
+    'default_rate_cbm',
 ];
 foreach ($optionalNumbers as $field) {
     if (array_key_exists($field, $input)) {
@@ -251,18 +315,46 @@ if (array_key_exists('default_rate_unit', $input)) {
     $params[] = $unit;
 }
 
-if (array_key_exists('default_rate', $input)) {
-    $newDefaultRate = api_float($input['default_rate'] ?? null);
-    $oldDefaultRate = $before['default_rate'] !== null ? (float) $before['default_rate'] : null;
-    $formattedOldRate = $oldDefaultRate !== null ? number_format($oldDefaultRate, 2, '.', '') : null;
-    $formattedNewRate = $newDefaultRate !== null ? number_format($newDefaultRate, 2, '.', '') : null;
-    $syncOrderRates = $formattedOldRate !== null
-        && $formattedNewRate !== null
-        && $formattedOldRate !== $formattedNewRate;
-} else {
-    $syncOrderRates = false;
-    $newDefaultRate = null;
-    $formattedOldRate = null;
+$syncRates = [];
+$newDefaultRateKg = null;
+$newDefaultRateCbm = null;
+$formattedOldRateKg = null;
+$formattedOldRateCbm = null;
+$formattedNewRateKg = null;
+$formattedNewRateCbm = null;
+
+if (array_key_exists('default_rate_kg', $input)) {
+    $newDefaultRateKg = api_float($input['default_rate_kg'] ?? null);
+    $oldDefaultRateKg = $before['default_rate_kg'] !== null ? (float) $before['default_rate_kg'] : null;
+    $formattedOldRateKg = $oldDefaultRateKg !== null ? number_format($oldDefaultRateKg, 2, '.', '') : null;
+    $formattedNewRateKg = $newDefaultRateKg !== null ? number_format($newDefaultRateKg, 2, '.', '') : null;
+    if ($formattedOldRateKg !== null
+        && $formattedNewRateKg !== null
+        && $formattedOldRateKg !== $formattedNewRateKg) {
+        $syncRates[] = [
+            'rate_field' => 'rate_kg',
+            'weight_type' => 'actual',
+            'old_rate' => $formattedOldRateKg,
+            'new_rate' => $formattedNewRateKg,
+        ];
+    }
+}
+
+if (array_key_exists('default_rate_cbm', $input)) {
+    $newDefaultRateCbm = api_float($input['default_rate_cbm'] ?? null);
+    $oldDefaultRateCbm = $before['default_rate_cbm'] !== null ? (float) $before['default_rate_cbm'] : null;
+    $formattedOldRateCbm = $oldDefaultRateCbm !== null ? number_format($oldDefaultRateCbm, 2, '.', '') : null;
+    $formattedNewRateCbm = $newDefaultRateCbm !== null ? number_format($newDefaultRateCbm, 2, '.', '') : null;
+    if ($formattedOldRateCbm !== null
+        && $formattedNewRateCbm !== null
+        && $formattedOldRateCbm !== $formattedNewRateCbm) {
+        $syncRates[] = [
+            'rate_field' => 'rate_cbm',
+            'weight_type' => 'volumetric',
+            'old_rate' => $formattedOldRateCbm,
+            'new_rate' => $formattedNewRateCbm,
+        ];
+    }
 }
 
 if (empty($fields)) {
@@ -284,36 +376,71 @@ try {
     $stmt = $db->prepare($sql);
     $stmt->execute($params);
 
-    if ($syncOrderRates) {
-        $ordersStmt = $db->prepare(
-            'SELECT o.id, o.qty, o.total_price, o.customer_id, o.sub_branch_id, o.fulfillment_status '
-            . 'FROM orders o '
-            . 'WHERE o.shipment_id = ? AND o.deleted_at IS NULL AND o.rate = ? '
-            . 'AND NOT EXISTS ('
-            . 'SELECT 1 FROM invoice_items ii '
-            . 'JOIN invoices i ON i.id = ii.invoice_id '
-            . 'WHERE ii.order_id = o.id AND i.deleted_at IS NULL AND i.status <> \'void\''
-            . ')'
+    if (!empty($syncRates)) {
+        $adjStmt = $db->prepare(
+            'SELECT id, kind, calc_type, value FROM order_adjustments '
+            . 'WHERE order_id = ? AND deleted_at IS NULL'
         );
-        $ordersStmt->execute([$shipmentId, $formattedOldRate]);
-        $orders = $ordersStmt->fetchAll() ?: [];
+        $updateOrder = $db->prepare(
+            'UPDATE orders SET rate = ?, base_price = ?, adjustments_total = ?, total_price = ?, '
+            . 'updated_at = NOW(), updated_by_user_id = ? WHERE id = ? AND deleted_at IS NULL'
+        );
+        $updateAdjustment = $db->prepare(
+            'UPDATE order_adjustments SET computed_amount = ? WHERE id = ?'
+        );
 
-        if (!empty($orders)) {
-            $adjStmt = $db->prepare(
-                'SELECT id, kind, calc_type, value FROM order_adjustments '
-                . 'WHERE order_id = ? AND deleted_at IS NULL'
+        foreach ($syncRates as $sync) {
+            $rateField = $sync['rate_field'];
+            $ordersStmt = $db->prepare(
+                'SELECT o.id, o.qty, o.total_price, o.customer_id, o.sub_branch_id, '
+                . 'o.fulfillment_status, o.weight_type, o.rate_kg, o.rate_cbm '
+                . 'FROM orders o '
+                . 'WHERE o.shipment_id = ? AND o.deleted_at IS NULL AND o.' . $rateField . ' = ? '
+                . 'AND NOT EXISTS ('
+                . 'SELECT 1 FROM invoice_items ii '
+                . 'JOIN invoices i ON i.id = ii.invoice_id '
+                . 'WHERE ii.order_id = o.id AND i.deleted_at IS NULL AND i.status <> \'void\''
+                . ')'
             );
-            $updateOrder = $db->prepare(
-                'UPDATE orders SET rate = ?, base_price = ?, adjustments_total = ?, total_price = ?, '
-                . 'updated_at = NOW(), updated_by_user_id = ? WHERE id = ? AND deleted_at IS NULL'
-            );
-            $updateAdjustment = $db->prepare(
-                'UPDATE order_adjustments SET computed_amount = ? WHERE id = ?'
-            );
+            $ordersStmt->execute([$shipmentId, $sync['old_rate']]);
+            $orders = $ordersStmt->fetchAll() ?: [];
 
             foreach ($orders as $order) {
+                $rateKg = $order['rate_kg'] !== null ? (float) $order['rate_kg'] : null;
+                $rateCbm = $order['rate_cbm'] !== null ? (float) $order['rate_cbm'] : null;
+                if ($rateKg === null && $order['rate'] !== null) {
+                    $rateKg = (float) $order['rate'];
+                }
+                if ($rateCbm === null && $order['rate'] !== null) {
+                    $rateCbm = (float) $order['rate'];
+                }
+                if ($rateField === 'rate_kg') {
+                    $rateKg = (float) $sync['new_rate'];
+                }
+                if ($rateField === 'rate_cbm') {
+                    $rateCbm = (float) $sync['new_rate'];
+                }
+
+                $updateRateSql = sprintf(
+                    'UPDATE orders SET %s = ?, updated_at = NOW(), updated_by_user_id = ? '
+                    . 'WHERE id = ? AND deleted_at IS NULL',
+                    $rateField
+                );
+                $db->prepare($updateRateSql)->execute([
+                    $sync['new_rate'],
+                    $user['id'] ?? null,
+                    $order['id'],
+                ]);
+
+                if (($order['weight_type'] ?? '') !== $sync['weight_type']) {
+                    continue;
+                }
+
+                $effectiveRate = ($order['weight_type'] ?? '') === 'volumetric'
+                    ? (float) ($rateCbm ?? 0)
+                    : (float) ($rateKg ?? 0);
                 $qty = (float) ($order['qty'] ?? 0);
-                $basePrice = compute_base_price($qty, (float) $formattedNewRate);
+                $basePrice = compute_base_price($qty, $effectiveRate);
                 $adjStmt->execute([$order['id']]);
                 $adjustments = $adjStmt->fetchAll() ?: [];
 
@@ -342,7 +469,7 @@ try {
                 $totalPrice = round($basePrice + $adjustmentsTotal, 2);
 
                 $updateOrder->execute([
-                    $formattedNewRate,
+                    $effectiveRate,
                     $basePrice,
                     $adjustmentsTotal,
                     $totalPrice,
@@ -458,10 +585,34 @@ try {
     if ($db->inTransaction()) {
         $db->rollBack();
     }
-    if ((int) $e->getCode() === 23000) {
-        api_error('Shipment number already exists', 409);
+    $errorInfo = $e->errorInfo ?? [];
+    $sqlState = $errorInfo[0] ?? null;
+    $driverCode = isset($errorInfo[1]) ? (int) $errorInfo[1] : null;
+    if ($sqlState === '23000') {
+        if ($driverCode === 1062) {
+            api_error('Shipment number already exists', 409);
+        }
+        if ($driverCode === 1452) {
+            $detail = $errorInfo[2] ?? '';
+            $constraint = null;
+            if ($detail && preg_match('/CONSTRAINT `([^`]+)`/', $detail, $matches)) {
+                $constraint = $matches[1];
+            }
+            $fkMessages = [
+                'fk_shipments_origin_country' => 'origin_country_id does not exist',
+                'fk_shipments_shipper_profile' => 'shipper_profile_id does not exist',
+                'fk_shipments_consignee_profile' => 'consignee_profile_id does not exist',
+            ];
+            if ($constraint && isset($fkMessages[$constraint])) {
+                api_error($fkMessages[$constraint], 422);
+            }
+            api_error('Invalid reference data for shipment update', 422);
+        }
+        api_error('Shipment update violates a database constraint', 409);
     }
     api_error('Failed to update shipment', 500);
 }
 
 api_json(['ok' => true]);
+
+

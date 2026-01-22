@@ -36,7 +36,7 @@ UG Shipping is an internal web app + API for managing shipments, orders, receivi
   - Shipments must match warehouse country.
   - Warehouse can only edit/create orders when shipment status is `active`.
   - Warehouse can view customer accounts filtered to their country (summary profiles); customer selection is search-only in order creation.
-- Warehouse has no access to partner profiles.
+- Warehouse has no access to Supplier profiles.
   - Warehouse cannot view or edit shipment pricing (rates, costs) or shipment income totals.
 - Customer edits are Admin-only (profile code edits + customer info edits).
 - Main Branch access:
@@ -54,8 +54,8 @@ UG Shipping is an internal web app + API for managing shipments, orders, receivi
 - Shopping orders: `pending`, `distributed`, `received_subbranch`, `closed`, `canceled`.
 - Staff: `active`, `inactive`.
 - Staff expenses: `salary_adjustment`, `advance`, `bonus`.
-- Partner profiles: `shipper`, `consignee`.
-- Partner transactions: `receipt`, `refund`, `adjustment` (status: `active`, `canceled`).
+- Supplier profiles: `shipper`, `consignee`.
+- Supplier transactions: `receipt`, `refund`, `adjustment` (status: `active`, `canceled`).
 - Customer transactions status: `active`, `canceled`.
 - Soft deletes: most tables use `deleted_at`; `roles`, `countries`, `payment_methods` are hard delete.
 
@@ -111,9 +111,9 @@ Invoices + Transactions:
 - Customer invoices can be edited (currency + order selection) only when no payments are linked; edits can move orders
   back to `received_subbranch`.
 - Sub Branch users can create invoices for customers in their branch; customer payments and refunds are recorded by Main/Sub Branch only.
-- Admin/Owner can refund branches or partners (not customers).
+- Admin/Owner can refund branches or Suppliers (not customers).
 - Invoice/receipt cancellations require a reason, keep records via status, and invoices cannot be canceled while active receipts exist.
-- Refund receipts for customers and partners require a reason; notes remain optional.
+- Refund receipts for customers and Suppliers require a reason; notes remain optional.
 - Transactions require from/to accounts; payment method is derived from the account type, and each transaction creates an
   `account_transfer` entry.
 
@@ -123,12 +123,12 @@ Accounts + Ledger:
 - All money movements create `account_transfers` + `account_entries` and update account balances
   (negative = outgoing, positive = incoming).
 - Accounts can be deleted only when the balance is zero; otherwise deactivate them.
-- Admin accounts capture company-level inflows/outflows (branch payments in, staff/partner/expenses out).
+- Admin accounts capture company-level inflows/outflows (branch payments in, staff/Supplier/expenses out).
 
 Balances + Transfers:
 - Customer balance increases when orders reach `received_subbranch`/`with_delivery`/`picked_up`,
   and decreases when payments are recorded.
-- Customer and partner balances treat positive values as unpaid amounts; payments reduce balance (negative entries).
+- Customer and Supplier balances treat positive values as unpaid amounts; payments reduce balance (negative entries).
 - Price updates adjust customer balance by the delta for `received_subbranch`/`with_delivery`/`picked_up` orders;
   shipment default-rate sync skips invoiced orders and is blocked once any order is invoiced.
 - Customer balance activity is logged in `customer_balance_entries` (order charges/reversals and payments).
@@ -145,8 +145,10 @@ Staff + Expenses:
 - Staff records live in `staff_members`.
 - Staff members can optionally link to a `users` login; Admin/Owner can create/update logins from the staff screen.
 - Salary adjustments, advances, and bonuses are logged in `staff_expenses` and treated as expenses for reporting.
-- General operational expenses are stored in `general_expenses` with optional `branch_id`.
-- Shipment-linked expenses are stored in `general_expenses` with `shipment_id` and are Admin/Owner only.
+- General operational expenses are stored in `general_expenses` with optional `branch_id` and default to unpaid.
+- Shipment-linked expenses are stored in `general_expenses` with `shipment_id` and are Admin/Owner only; default to unpaid.
+- Company expenses are paid later via account transfers; paid expenses lock edits/deletes unless the payment is canceled.
+- Points expenses are auto-marked paid without account transfers.
 - Company expense reports include monthly salary payouts; advances in the prior month reduce the next month's salary.
 
 Company settings:
@@ -155,8 +157,8 @@ Company settings:
 
 Shipper/Consignee profiles:
 - Shipments can optionally link to shipper and consignee profiles.
-- Partner invoices increase profile balance; receipts decrease balance.
-- Partner invoices can optionally link to shipments.
+- Supplier invoices increase profile balance; receipts decrease balance.
+- Supplier invoices can optionally link to shipments.
 
 Audit:
 - `audit_logs` captures before/after JSON + meta for key actions, with IP and user agent.
@@ -172,13 +174,16 @@ Audit:
 - Endpoint filenames mirror actions (list/create/update/delete).
 
 ## Change Log (keep current)
+- 2026-01-25: Added net-by-shipment report with paid/unpaid order breakdown.
+- 2026-01-25: Company and shipment expenses default to unpaid; payments use account transfers and lock edits/deletes until canceled; points expenses auto-mark paid without transfers.
+- 2026-01-24: Customer profile sections use tabbed view, order labels support barcode generation/printing, tracking numbers are unique across all shipments, and orders store package type (bag/box).
 - 2026-01-23: Orders sidebar now shows view-only (no create shortcut).
 - 2026-01-23: Owner audit log now excludes create actions (edit/delete only).
-- 2026-01-22: Account adjustments allow Admin/Owner deposits/withdrawals, account activity references show branch/customer/invoice/partner/expense context, customer payments no longer affect branch balances, WhatsApp excludes delivered/picked-up, admins can return sub-branch orders to main branch, points usage logs invoice references and creates a company points expense, branch balances link to branch-to-admin payments.
+- 2026-01-22: Account adjustments allow Admin/Owner deposits/withdrawals, account activity references show branch/customer/invoice/Supplier/expense context, customer payments no longer affect branch balances, WhatsApp excludes delivered/picked-up, admins can return sub-branch orders to main branch, points usage logs invoice references and creates a company points expense, branch balances link to branch-to-admin payments.
 - 2026-01-21: Customer profile edits are Admin-only (code-only) with a separate Admin customer info edit flow.
 - 2026-01-20: Customer refunds are branch-only; add-profile flow now uses code + country without portal/phone inputs.
 - 2026-01-19: Clarified customer edit permissions for Admin/Owner/Main Branch and Sub Branch scoping.
-- 2026-01-18: Partner invoices support currency + line-item edits; customer invoices can be edited before payments to adjust currency/orders/points, refund reasons are required, customer view supports multi-order invoice create, and errors surface in a centered modal.
+- 2026-01-18: Supplier invoices support currency + line-item edits; customer invoices can be edited before payments to adjust currency/orders/points, refund reasons are required, customer view supports multi-order invoice create, and errors surface in a centered modal.
 - 2026-01-17: Sub Branch customer payments now post to branch accounts; admin records branch-to-admin transfers; points discounts reduce customer + branch balances.
 - 2026-01-16: Added shipment actual departure/arrival dates plus customer gift points with company settings and invoice discounts.
 - 2026-01-15: Staff can optionally link to user logins (managed from staff screen), users can change their own passwords,
@@ -186,7 +191,7 @@ Audit:
 - 2026-01-14: Accounts limited to admin + sub-branch owners, sub-branch payments recorded by admin/main, invoicing
   captures delivery mode and sets `with_delivery`/`picked_up`, and shipment default-rate updates are locked once invoiced.
 - 2026-01-13: Added Admin/Owner accounts screen for creating, editing, deactivating, and deleting payment accounts.
-- 2026-01-12: Moved money flows to account transfers with admin/branch/staff/partner accounts and account-linked payments.
+- 2026-01-12: Moved money flows to account transfers with admin/branch/staff/Supplier accounts and account-linked payments.
 - 2026-01-11: Mobile responsiveness improved for toolbar, panels, and scrollable tables.
 - 2026-01-10: Dashboard now shows role-specific charts/insights for admin, main branch, sub branch, and warehouse.
 - 2026-01-09: Branch list shows balances, branch payments can be recorded with printable receipts, transactions page
@@ -194,7 +199,7 @@ Audit:
 - 2026-01-08: Packing list orders display sub-branch, sub-branch packing lists/media are scoped to their own orders,
   and warehouse customer list hides balances.
 - 2026-01-08: Invoice/receipt cancellations now record reasons, keep records (status-based), reverse balances, and
-  shipment-linked partner invoice cancellations reverse expense totals; reports exclude canceled receipts.
+  shipment-linked Supplier invoice cancellations reverse expense totals; reports exclude canceled receipts.
 - 2026-01-07: Customer list now shows account summaries (profile count + countries), profile drawer shows country/order count/created date,
   add-profile links prefill account logins, and balances sync across profiles in the same account.
 - 2026-01-07: Packing lists show media per order, plus shipment/collection media tables, and attachments support collections.
@@ -214,10 +219,10 @@ Audit:
 - 2025-12-26: Added customer accounts with multi-country profiles and portal aggregation.
 - 2025-12-26: Added staff management with salary adjustments, advances, bonuses, and expense logging.
 - 2025-12-26: Main branch receives arrived shipments via scans; arrived orders stay `in_shipment` until scanned to `main_branch`.
-- 2025-12-27: Added shipper/consignee partner profiles with invoices and receipts, plus shipment profile linking.
+- 2025-12-27: Added shipper/consignee Supplier profiles with invoices and receipts, plus shipment profile linking.
 - 2025-12-27: Added general expense tracking for operational costs.
-- 2025-12-27: Partner invoices can optionally link to shipments with searchable selection.
-- 2025-12-27: Added company settings for printable invoices/receipts and partner print views.
+- 2025-12-27: Supplier invoices can optionally link to shipments with searchable selection.
+- 2025-12-27: Added company settings for printable invoices/receipts and Supplier print views.
 - 2025-12-27: Added company logo upload/delete with fallback to default icon.
 - 2025-12-28: Shipment expenses can be tracked per shipment (Admin/Owner only), and branch is optional for expenses.
 - 2025-12-28: Added printable reports for shipment expenses, company expenses, net totals, and transaction in/out.
@@ -225,3 +230,4 @@ Audit:
 - 2025-12-30: Company expenses and net reports include monthly salaries with prior-month advance deductions.
 - 2025-12-31: Added `partially_distributed` shipment status, distribution stays partial while main-branch/in-shipment orders remain,
   order creation allows missing sub-branch, and packing lists hide qty/rate/price.
+

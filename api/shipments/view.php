@@ -22,8 +22,8 @@ if ($shipmentId) {
         . 'cp.name AS consignee_profile_name, cu.name AS created_by_name, uu.name AS updated_by_name '
         . 'FROM shipments s '
         . 'LEFT JOIN countries c ON c.id = s.origin_country_id '
-        . 'LEFT JOIN partner_profiles sp ON sp.id = s.shipper_profile_id '
-        . 'LEFT JOIN partner_profiles cp ON cp.id = s.consignee_profile_id '
+        . 'LEFT JOIN supplier_profiles sp ON sp.id = s.shipper_profile_id '
+        . 'LEFT JOIN supplier_profiles cp ON cp.id = s.consignee_profile_id '
         . 'LEFT JOIN users cu ON cu.id = s.created_by_user_id '
         . 'LEFT JOIN users uu ON uu.id = s.updated_by_user_id '
         . 'WHERE s.id = ? AND s.deleted_at IS NULL'
@@ -35,8 +35,8 @@ if ($shipmentId) {
         . 'cp.name AS consignee_profile_name, cu.name AS created_by_name, uu.name AS updated_by_name '
         . 'FROM shipments s '
         . 'LEFT JOIN countries c ON c.id = s.origin_country_id '
-        . 'LEFT JOIN partner_profiles sp ON sp.id = s.shipper_profile_id '
-        . 'LEFT JOIN partner_profiles cp ON cp.id = s.consignee_profile_id '
+        . 'LEFT JOIN supplier_profiles sp ON sp.id = s.shipper_profile_id '
+        . 'LEFT JOIN supplier_profiles cp ON cp.id = s.consignee_profile_id '
         . 'LEFT JOIN users cu ON cu.id = s.created_by_user_id '
         . 'LEFT JOIN users uu ON uu.id = s.updated_by_user_id '
         . 'WHERE s.shipment_number = ? AND s.deleted_at IS NULL'
@@ -85,7 +85,7 @@ if (!$showMeta) {
     unset($shipment['created_by_name'], $shipment['updated_by_name']);
 }
 if ($hideRates) {
-    unset($shipment['default_rate'], $shipment['cost_per_unit'], $shipment['default_rate_unit']);
+    unset($shipment['default_rate_kg'], $shipment['default_rate_cbm'], $shipment['cost_per_unit'], $shipment['default_rate_unit']);
 }
 
 if ($readOnly) {
@@ -209,3 +209,5 @@ api_json([
     'customer_orders' => $customerOrders,
     'attachments' => $attachments,
 ]);
+
+

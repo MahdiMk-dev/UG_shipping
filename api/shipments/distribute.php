@@ -61,6 +61,15 @@ try {
     );
     $updateShipment->execute([$newStatus, $user['id'] ?? null, $shipmentId]);
 
+    $branchesStmt = $db->prepare(
+        'SELECT DISTINCT b.id, b.name FROM orders o '
+        . 'JOIN branches b ON b.id = o.sub_branch_id '
+        . 'WHERE o.shipment_id = ? AND o.deleted_at IS NULL AND o.fulfillment_status = ? '
+        . 'ORDER BY b.name'
+    );
+    $branchesStmt->execute([$shipmentId, 'pending_receipt']);
+    $branches = $branchesStmt->fetchAll();
+
     $afterStmt = $db->prepare('SELECT * FROM shipments WHERE id = ?');
     $afterStmt->execute([$shipmentId]);
     $after = $afterStmt->fetch();
@@ -70,6 +79,7 @@ try {
         'remaining_in_shipment' => $remainingInShipment,
         'shipment_status' => $newStatus,
         'shipment_distributed' => $shipmentDistributed,
+        'branches' => $branches,
     ]);
 
     $db->commit();
@@ -87,4 +97,5 @@ api_json([
     'remaining_in_shipment' => $remainingInShipment,
     'shipment_status' => $newStatus,
     'shipment_distributed' => $shipmentDistributed,
+    'branches' => $branches ?? [],
 ]);

@@ -13,6 +13,7 @@ $branchId = api_int($filters['branch_id'] ?? null);
 $shipmentId = api_int($filters['shipment_id'] ?? null);
 $dateFrom = api_string($filters['date_from'] ?? null);
 $dateTo = api_string($filters['date_to'] ?? null);
+$isPaid = api_int($filters['is_paid'] ?? null);
 $limit = api_int($filters['limit'] ?? 50, 50);
 $offset = api_int($filters['offset'] ?? 0, 0);
 
@@ -57,15 +58,23 @@ if ($dateTo) {
     $params[] = $dateTo;
 }
 
+$isPaidFilter = $isPaid !== null ? (int) $isPaid : null;
+if ($isPaidFilter === 0 || $isPaidFilter === 1) {
+    $where[] = 'e.is_paid = ?';
+    $params[] = $isPaidFilter;
+}
+
 $sql = 'SELECT e.id, e.branch_id, b.name AS branch_name, e.shipment_id, '
     . 's.shipment_number, e.title, e.amount, e.expense_date, '
-    . 'e.note, e.created_at, e.updated_at, '
-    . 'at.from_account_id, af.name AS from_account_name '
+    . 'e.note, e.created_at, e.updated_at, e.is_paid, e.paid_at, e.paid_by_user_id, '
+    . 'at.from_account_id, af.name AS from_account_name, at.status AS transfer_status, '
+    . 'u.name AS paid_by_name '
     . 'FROM general_expenses e '
     . 'LEFT JOIN branches b ON b.id = e.branch_id '
     . 'LEFT JOIN shipments s ON s.id = e.shipment_id '
     . 'LEFT JOIN account_transfers at ON at.id = e.account_transfer_id '
     . 'LEFT JOIN accounts af ON af.id = at.from_account_id '
+    . 'LEFT JOIN users u ON u.id = e.paid_by_user_id '
     . 'WHERE ' . implode(' AND ', $where) . ' '
     . 'ORDER BY COALESCE(e.expense_date, DATE(e.created_at)) DESC, e.id DESC '
     . 'LIMIT ? OFFSET ?';

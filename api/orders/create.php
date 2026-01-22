@@ -16,8 +16,11 @@ $customerId = api_int($input['customer_id'] ?? null);
 $collectionId = api_int($input['collection_id'] ?? null);
 $trackingNumber = api_string($input['tracking_number'] ?? null);
 $deliveryType = api_string($input['delivery_type'] ?? null);
+$packageType = api_string($input['package_type'] ?? null);
 $weightType = api_string($input['weight_type'] ?? null);
-$rate = api_float($input['rate'] ?? null);
+$rateKg = api_float($input['rate_kg'] ?? null);
+$rateCbm = api_float($input['rate_cbm'] ?? null);
+$legacyRate = api_float($input['rate'] ?? null);
 $note = api_string($input['note'] ?? null);
 
 $role = $user['role'] ?? '';
@@ -26,16 +29,23 @@ $isWarehouse = $role === 'Warehouse';
 if (!$deliveryType) {
     $deliveryType = 'pickup';
 }
+if (!$packageType) {
+    $packageType = 'bag';
+}
 
 if (!$shipmentId || !$customerId || !$trackingNumber || !$weightType) {
     api_error('shipment_id, customer_id, tracking_number, weight_type are required', 422);
 }
 
 $allowedDelivery = ['pickup', 'delivery'];
+$allowedPackage = ['bag', 'box'];
 $allowedWeight = ['actual', 'volumetric'];
 
 if (!in_array($deliveryType, $allowedDelivery, true)) {
     api_error('Invalid delivery_type', 422);
+}
+if (!in_array($packageType, $allowedPackage, true)) {
+    api_error('Invalid package_type', 422);
 }
 if (!in_array($weightType, $allowedWeight, true)) {
     api_error('Invalid weight_type', 422);
@@ -44,7 +54,8 @@ if (!in_array($weightType, $allowedWeight, true)) {
 $db = db();
 
 $shipmentStmt = $db->prepare(
-    'SELECT id, status, origin_country_id, default_rate, shipping_type FROM shipments WHERE id = ? AND deleted_at IS NULL'
+    'SELECT id, status, origin_country_id, default_rate_kg, default_rate_cbm, shipping_type '
+    . 'FROM shipments WHERE id = ? AND deleted_at IS NULL'
 );
 $shipmentStmt->execute([$shipmentId]);
 $shipment = $shipmentStmt->fetch();
@@ -67,14 +78,26 @@ if ($role === 'Warehouse' && ($shipment['status'] ?? '') !== 'active') {
 $unitType = $weightType === 'volumetric' ? 'cbm' : 'kg';
 
 if ($isWarehouse) {
-    $rate = null;
+    $rateKg = null;
+    $rateCbm = null;
 }
-if ($rate === null) {
-    $rate = $shipment['default_rate'] !== null ? (float) $shipment['default_rate'] : null;
+if ($legacyRate !== null && $rateKg === null && $rateCbm === null) {
+    $rateKg = $legacyRate;
+    $rateCbm = $legacyRate;
 }
-if ($rate === null) {
-    $rate = 0.0;
+if ($rateKg === null) {
+    $rateKg = $shipment['default_rate_kg'] !== null ? (float) $shipment['default_rate_kg'] : null;
 }
+if ($rateCbm === null) {
+    $rateCbm = $shipment['default_rate_cbm'] !== null ? (float) $shipment['default_rate_cbm'] : null;
+}
+if ($rateKg === null) {
+    $rateKg = 0.0;
+}
+if ($rateCbm === null) {
+    $rateCbm = 0.0;
+}
+$rate = $weightType === 'volumetric' ? (float) $rateCbm : (float) $rateKg;
 
 $customerStmt = $db->prepare('SELECT id, sub_branch_id, profile_country_id FROM customers WHERE id = ? AND deleted_at IS NULL');
 $customerStmt->execute([$customerId]);
@@ -166,10 +189,10 @@ $db->beginTransaction();
 try {
     $stmt = $db->prepare(
         'INSERT INTO orders '
-        . '(shipment_id, customer_id, sub_branch_id, collection_id, tracking_number, delivery_type, '
-        . 'unit_type, qty, weight_type, actual_weight, w, d, h, rate, base_price, adjustments_total, '
+        . '(shipment_id, customer_id, sub_branch_id, collection_id, tracking_number, delivery_type, package_type, '
+        . 'unit_type, qty, weight_type, actual_weight, w, d, h, rate_kg, rate_cbm, rate, base_price, adjustments_total, '
         . 'total_price, note, fulfillment_status, notification_status, created_by_user_id) '
-        . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
 
     $stmt->execute([
@@ -179,6 +202,7 @@ try {
         $collectionId,
         $trackingNumber,
         $deliveryType,
+        $packageType,
         $unitType,
         $qty,
         $weightType,
@@ -186,6 +210,8 @@ try {
         $w,
         $d,
         $h,
+        $rateKg,
+        $rateCbm,
         $rate,
         $basePrice,
         $adjustmentsTotal,
@@ -234,10 +260,25 @@ try {
     $db->commit();
 } catch (PDOException $e) {
     $db->rollBack();
-    if ((int) $e->getCode() === 23000) {
-        api_error('Tracking number already exists for this shipment', 409);
+    $errorInfo = $e->errorInfo ?? [];
+    $driverCode = isset($errorInfo[1]) ? (int) $errorInfo[1] : null;
+    $sqlState = (string) $e->getCode();
+
+    if ($sqlState === '23000' || $driverCode === 1062) {
+        api_error('Tracking number already exists', 409);
     }
-    api_error('Failed to create order', 500);
+    if ($driverCode === 1452) {
+        api_error('Invalid reference for shipment, customer, or collection', 422);
+    }
+    if ($driverCode === 1048) {
+        api_error('Missing required field for order', 422);
+    }
+    if ($driverCode === 1366) {
+        api_error('Invalid field value for order', 422);
+    }
+
+    error_log('orders.create failed: ' . $e->getMessage());
+    api_error('Failed to create order', 500, ['details' => $e->getMessage()]);
 }
 
 api_json(['ok' => true, 'id' => $orderId]);

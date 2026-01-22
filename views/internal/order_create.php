@@ -47,6 +47,39 @@ $isWarehouse = ($user['role'] ?? '') === 'Warehouse';
                 <span>Tracking number</span>
                 <input type="text" name="tracking_number" required>
             </label>
+            <label class="order-create-package">
+                <span>Package type</span>
+                <div class="option-group option-group-equal">
+                    <label class="option-pill">
+                        <input type="radio" name="package_type" value="bag" checked required>
+                        <span>
+                            <svg class="pill-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M7 9v-.5a5 5 0 0 1 10 0V9"></path>
+                                <path d="M5 9h14l-1.2 10.2a2 2 0 0 1-2 1.8H8.2a2 2 0 0 1-2-1.8L5 9z"></path>
+                            </svg>
+                            Bag
+                        </span>
+                    </label>
+                    <label class="option-pill">
+                        <input type="radio" name="package_type" value="box">
+                        <span>
+                            <svg class="pill-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M3 7.5L12 3l9 4.5-9 4.5-9-4.5z"></path>
+                                <path d="M3 7.5v9l9 4.5 9-4.5v-9"></path>
+                                <path d="M12 12v9"></path>
+                            </svg>
+                            Box
+                        </span>
+                    </label>
+                </div>
+            </label>
+            <label class="full">
+                <span>Tracking label</span>
+                <div class="inline-actions">
+                    <button class="button ghost small" type="button" data-tracking-generate>Generate barcode</button>
+                    <button class="button ghost small" type="button" data-tracking-print disabled>Print label</button>
+                </div>
+            </label>
             <label>
                 <span>Customer</span>
                 <select name="customer_id" data-customer-select data-placeholder="Type to search (2+ chars)" required>
@@ -94,8 +127,12 @@ $isWarehouse = ($user['role'] ?? '') === 'Warehouse';
             </label>
             <?php if (!$isWarehouse): ?>
                 <label>
-                    <span>Rate</span>
-                    <input type="number" step="0.01" name="rate">
+                    <span>Rate (KG)</span>
+                    <input type="number" step="0.01" name="rate_kg">
+                </label>
+                <label>
+                    <span>Rate (CBM)</span>
+                    <input type="number" step="0.01" name="rate_cbm">
                 </label>
             <?php endif; ?>
             <label class="full">

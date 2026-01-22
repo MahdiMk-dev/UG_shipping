@@ -9,5 +9,6 @@ api_require_method('GET');
 require_role(['Admin', 'Owner']);
 
 $settings = company_settings();
+unset($settings['domain_expiry']);
 
 api_json(['ok' => true, 'data' => $settings]);

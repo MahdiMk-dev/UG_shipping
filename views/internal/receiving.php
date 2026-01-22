@@ -7,6 +7,7 @@ $user = internal_require_user();
 $canManage = in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch'], true);
 internal_page_start($user, 'receiving', 'Receiving', 'Scan and confirm deliveries at the main or sub branch.');
 $unmatchedCols = $canManage ? 7 : 6;
+$reportedCols = $canManage ? 7 : 6;
 ?>
 <div data-receiving-page>
     <section class="panel">
@@ -91,6 +92,43 @@ $unmatchedCols = $canManage ? 7 : 6;
             <button class="button ghost small" type="button" data-receiving-unmatched-prev>Previous</button>
             <span class="page-label" data-receiving-unmatched-page>Page 1</span>
             <button class="button ghost small" type="button" data-receiving-unmatched-next>Next</button>
+        </div>
+    </section>
+
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <h3>Reported weight differences</h3>
+                <p>Orders received with a reported weight for admin follow-up.</p>
+            </div>
+            <div class="panel-actions">
+                <button class="button ghost small" type="button" data-receiving-reported-refresh>Refresh</button>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Tracking</th>
+                        <th>Shipment</th>
+                        <th>Branch</th>
+                        <th>System weight</th>
+                        <th>Reported weight</th>
+                        <th>Reported at</th>
+                        <?php if ($canManage): ?>
+                            <th>Reported by</th>
+                        <?php endif; ?>
+                    </tr>
+                </thead>
+                <tbody data-receiving-reported-table>
+                    <tr><td colspan="<?= $reportedCols ?>" class="muted">Loading reported orders...</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="table-pagination">
+            <button class="button ghost small" type="button" data-receiving-reported-prev>Previous</button>
+            <span class="page-label" data-receiving-reported-page>Page 1</span>
+            <button class="button ghost small" type="button" data-receiving-reported-next>Next</button>
         </div>
     </section>
 

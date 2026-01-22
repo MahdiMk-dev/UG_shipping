@@ -5,6 +5,7 @@ require_once __DIR__ . '/../../app/api.php';
 require_once __DIR__ . '/../../app/auth.php';
 require_once __DIR__ . '/../../app/permissions.php';
 require_once __DIR__ . '/../../app/services/balance_service.php';
+require_once __DIR__ . '/../../app/services/shipment_service.php';
 require_once __DIR__ . '/../../app/company.php';
 
 api_require_method('POST');
@@ -61,7 +62,10 @@ try {
     }
 
     $orderStmt = $db->prepare(
-        'SELECT id, customer_id, sub_branch_id, total_price FROM orders '
+        'SELECT o.id, o.customer_id, o.sub_branch_id, o.total_price, o.tracking_number, '
+        . 'o.weight_type, o.actual_weight, o.w, o.d, o.h, o.unit_type, s.shipping_type '
+        . 'FROM orders o '
+        . 'JOIN shipments s ON s.id = o.shipment_id '
         . 'WHERE ' . implode(' AND ', $orderWhere) . ' '
         . 'LIMIT 1'
     );
@@ -71,6 +75,8 @@ try {
     $matched = false;
     $matchedOrderId = null;
     $matchedBranchId = null;
+    $systemWeight = null;
+    $weightUnit = null;
 
     if ($order) {
         $matched = true;
@@ -87,6 +93,18 @@ try {
             'UPDATE orders SET fulfillment_status = ?, updated_at = NOW(), updated_by_user_id = ? '
             . 'WHERE id = ?'
         )->execute([$receivedStatus, $user['id'] ?? null, $matchedOrderId]);
+
+        $weightType = (string) ($order['weight_type'] ?? 'actual');
+        $weightUnit = $weightType === 'volumetric' ? 'cbm' : 'kg';
+        $systemWeight = compute_qty(
+            (string) ($order['unit_type'] ?? $weightUnit),
+            $weightType,
+            $order['actual_weight'] !== null ? (float) $order['actual_weight'] : null,
+            $order['w'] !== null ? (float) $order['w'] : null,
+            $order['d'] !== null ? (float) $order['d'] : null,
+            $order['h'] !== null ? (float) $order['h'] : null,
+            $order['shipping_type'] ?? null
+        );
 
         if (!$isMainBranch && $matchedBranchId) {
             $customerId = (int) ($order['customer_id'] ?? 0);
@@ -157,6 +175,7 @@ try {
         $matchedOrderId,
         $note,
     ]);
+    $scanId = (int) $db->lastInsertId();
 
     $db->commit();
 } catch (PDOException $e) {
@@ -164,4 +183,12 @@ try {
     api_error('Failed to record scan', 500);
 }
 
-api_json(['ok' => true, 'matched' => $matched, 'matched_order_id' => $matchedOrderId]);
+api_json([
+    'ok' => true,
+    'matched' => $matched,
+    'matched_order_id' => $matchedOrderId,
+    'scan_id' => $scanId ?? null,
+    'system_weight' => $systemWeight,
+    'weight_unit' => $weightUnit,
+    'tracking_number' => $order['tracking_number'] ?? $trackingNumber,
+]);

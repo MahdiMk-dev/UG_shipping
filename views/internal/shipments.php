@@ -79,7 +79,12 @@ $canEdit = in_array($user['role'] ?? '', ['Admin', 'Owner', 'Main Branch', 'Ware
                 </thead>
                 <tbody data-shipments-table>
                     <tr>
-                        <td colspan="9" class="muted">Loading shipments...</td>
+                        <td colspan="9" class="loading-cell">
+                            <div class="loading-inline">
+                                <span class="spinner" aria-hidden="true"></span>
+                                <span class="loading-text">Shipments are loading, please wait...</span>
+                            </div>
+                        </td>
                     </tr>
                 </tbody>
             </table>
