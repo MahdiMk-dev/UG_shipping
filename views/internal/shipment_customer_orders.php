@@ -183,6 +183,53 @@ $packingListUrl = ($shipmentId && $customerId)
                     <button class="button primary small" type="submit">Save changes</button>
                 </form>
                 <div class="notice-stack" data-order-edit-status></div>
+                <section class="drawer-section" data-order-edit-media-panel>
+                    <div class="panel-header">
+                        <div>
+                            <h3>Order media</h3>
+                            <p data-order-edit-media-title>Upload and manage attachments for this order.</p>
+                        </div>
+                    </div>
+                    <form class="grid-form" data-order-edit-media-form enctype="multipart/form-data">
+                        <input type="hidden" name="entity_type" value="order">
+                        <input type="hidden" name="entity_id" data-order-edit-media-id>
+                        <label>
+                            <span>Title</span>
+                            <input type="text" name="title" placeholder="Attachment title">
+                        </label>
+                        <label>
+                            <span>Description</span>
+                            <input type="text" name="description" placeholder="Optional notes">
+                        </label>
+                        <label>
+                            <span>File</span>
+                            <input type="file" name="file" required>
+                        </label>
+                        <button class="button primary small" type="submit">Upload</button>
+                    </form>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Title</th>
+                                    <th>Type</th>
+                                    <th>Uploaded</th>
+                                    <th>Download</th>
+                                    <th>Remove</th>
+                                </tr>
+                            </thead>
+                            <tbody data-order-edit-media-table>
+                                <tr><td colspan="5" class="muted">No attachments loaded.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="table-pagination" data-order-edit-media-pagination>
+                        <button class="button ghost small" type="button" data-order-edit-media-prev>Previous</button>
+                        <span class="page-label" data-order-edit-media-page>Page 1</span>
+                        <button class="button ghost small" type="button" data-order-edit-media-next>Next</button>
+                    </div>
+                    <div class="notice-stack" data-order-edit-media-status></div>
+                </section>
             </div>
         </div>
     <?php endif; ?>

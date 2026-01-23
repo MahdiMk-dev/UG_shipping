@@ -61,6 +61,12 @@ function internal_page_start(array $user, string $active, string $title, string 
             'create' => BASE_URL . '/views/internal/supplier_create',
             'create_roles' => ['Admin', 'Owner', 'Main Branch'],
         ],
+        'partners' => [
+            'label' => 'Partners',
+            'view' => BASE_URL . '/views/internal/partners',
+            'create' => BASE_URL . '/views/internal/partner_create',
+            'create_roles' => ['Admin', 'Owner'],
+        ],
         'branches' => [
             'label' => 'Branches',
             'view' => BASE_URL . '/views/internal/branches',
@@ -127,6 +133,9 @@ function internal_page_start(array $user, string $active, string $title, string 
     }
     if (!in_array($role, ['Admin', 'Owner', 'Main Branch'], true)) {
         unset($navGroups['suppliers']);
+    }
+    if (!in_array($role, ['Admin', 'Owner', 'Main Branch', 'Sub Branch'], true)) {
+        unset($navGroups['partners']);
     }
     if (in_array($role, ['Staff', 'Sub Branch', 'Warehouse', 'Main Branch'], true)) {
         unset($navGroups['branches'], $navGroups['users']);
@@ -201,6 +210,15 @@ function internal_page_start(array $user, string $active, string $title, string 
             . '<circle cx="17" cy="8" r="3"></circle>'
             . '<path d="M2 20a5 5 0 0110 0"></path>'
             . '<path d="M12 20a5 5 0 0110 0"></path>'
+            . '</svg>',
+        'partners' => '<svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">'
+            . '<path d="M7 7h10"></path>'
+            . '<path d="M7 12h6"></path>'
+            . '<path d="M7 17h10"></path>'
+            . '<circle cx="5" cy="7" r="2"></circle>'
+            . '<circle cx="5" cy="17" r="2"></circle>'
+            . '<circle cx="19" cy="7" r="2"></circle>'
+            . '<circle cx="19" cy="17" r="2"></circle>'
             . '</svg>',
         'company' => '<svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">'
             . '<path d="M4 20h16"></path>'
@@ -306,6 +324,7 @@ function internal_page_start(array $user, string $active, string $title, string 
         ['item', 'attachments'],
         ['group', 'staff'],
         ['group', 'suppliers'],
+        ['group', 'partners'],
         ['group', 'branches'],
         ['group', 'users'],
         ['item', 'company'],

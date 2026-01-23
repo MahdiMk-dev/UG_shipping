@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS account_transfers (
         'staff_expense',
         'general_expense',
         'shipment_expense',
+        'partner_transaction',
         'adjustment',
         'other'
     ) NOT NULL,
@@ -94,6 +95,7 @@ CREATE TABLE IF NOT EXISTS account_entries (
         'staff_expense',
         'general_expense',
         'shipment_expense',
+        'partner_transaction',
         'adjustment',
         'other'
     ) NOT NULL,
@@ -146,6 +148,7 @@ WHERE entry_type NOT IN (
     'staff_expense',
     'general_expense',
     'shipment_expense',
+    'partner_transaction',
     'adjustment',
     'other'
 );
@@ -159,9 +162,62 @@ WHERE entry_type NOT IN (
     'staff_expense',
     'general_expense',
     'shipment_expense',
+    'partner_transaction',
     'adjustment',
     'other'
 );
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'account_transfers'
+          AND COLUMN_NAME = 'entry_type'
+          AND COLUMN_TYPE LIKE '%partner_transaction%'
+    ),
+    'SELECT 1',
+    'ALTER TABLE account_transfers MODIFY entry_type '
+        'ENUM('
+            '\'customer_payment\','
+            '\'branch_transfer\','
+            '\'supplier_transaction\','
+            '\'staff_expense\','
+            '\'general_expense\','
+            '\'shipment_expense\','
+            '\'partner_transaction\','
+            '\'adjustment\','
+            '\'other\''
+        ') NOT NULL'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @stmt = (SELECT IF(
+    EXISTS(
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'account_entries'
+          AND COLUMN_NAME = 'entry_type'
+          AND COLUMN_TYPE LIKE '%partner_transaction%'
+    ),
+    'SELECT 1',
+    'ALTER TABLE account_entries MODIFY entry_type '
+        'ENUM('
+            '\'customer_payment\','
+            '\'branch_transfer\','
+            '\'supplier_transaction\','
+            '\'staff_expense\','
+            '\'general_expense\','
+            '\'shipment_expense\','
+            '\'partner_transaction\','
+            '\'adjustment\','
+            '\'other\''
+        ') NOT NULL'
+));
+PREPARE stmt FROM @stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 SET @stmt = (SELECT IF(
     EXISTS(
@@ -459,6 +515,65 @@ CREATE TABLE IF NOT EXISTS supplier_profiles (
     updated_by_user_id INT UNSIGNED NULL,
     deleted_at DATETIME NULL,
     KEY idx_supplier_profiles_type (type)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS partners (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    type VARCHAR(30) NOT NULL,
+    name VARCHAR(150) NOT NULL,
+    phone VARCHAR(40) NULL,
+    email VARCHAR(120) NULL,
+    address VARCHAR(255) NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'active',
+    opening_balance DECIMAL(18,2) NOT NULL DEFAULT 0,
+    current_balance DECIMAL(18,2) NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    KEY idx_partners_name (name),
+    KEY idx_partners_type (type),
+    KEY idx_partners_status (status)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS partner_transactions (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    tx_date DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    tx_type VARCHAR(40) NOT NULL,
+    currency_code CHAR(3) NOT NULL,
+    amount DECIMAL(18,2) NOT NULL,
+    description TEXT NULL,
+    partner_id INT UNSIGNED NULL,
+    from_partner_id INT UNSIGNED NULL,
+    to_partner_id INT UNSIGNED NULL,
+    from_admin_account_id INT UNSIGNED NULL,
+    to_admin_account_id INT UNSIGNED NULL,
+    created_by_user_id INT UNSIGNED NOT NULL,
+    branch_id INT UNSIGNED NULL,
+    reference_no VARCHAR(50) NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'posted',
+    void_reason VARCHAR(255) NULL,
+    voided_by_user_id INT UNSIGNED NULL,
+    voided_at DATETIME NULL,
+    meta JSON NULL,
+    KEY idx_ptx_partner (partner_id, tx_date),
+    KEY idx_ptx_from_to (from_partner_id, to_partner_id, tx_date),
+    KEY idx_ptx_status (status),
+    KEY idx_ptx_date (tx_date),
+    CONSTRAINT fk_partner_tx_partner
+        FOREIGN KEY (partner_id) REFERENCES partners(id),
+    CONSTRAINT fk_partner_tx_from_partner
+        FOREIGN KEY (from_partner_id) REFERENCES partners(id),
+    CONSTRAINT fk_partner_tx_to_partner
+        FOREIGN KEY (to_partner_id) REFERENCES partners(id),
+    CONSTRAINT fk_partner_tx_from_account
+        FOREIGN KEY (from_admin_account_id) REFERENCES accounts(id),
+    CONSTRAINT fk_partner_tx_to_account
+        FOREIGN KEY (to_admin_account_id) REFERENCES accounts(id),
+    CONSTRAINT fk_partner_tx_created_by
+        FOREIGN KEY (created_by_user_id) REFERENCES users(id),
+    CONSTRAINT fk_partner_tx_branch
+        FOREIGN KEY (branch_id) REFERENCES branches(id),
+    CONSTRAINT fk_partner_tx_voided_by
+        FOREIGN KEY (voided_by_user_id) REFERENCES users(id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS supplier_invoices (

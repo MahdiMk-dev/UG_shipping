@@ -174,6 +174,7 @@ Audit:
 - Endpoint filenames mirror actions (list/create/update/delete).
 
 ## Change Log (keep current)
+- 2026-01-26: Added Partners module with partner ledger transactions, signed balance convention, and admin account cash integration.
 - 2026-01-25: Added net-by-shipment report with paid/unpaid order breakdown.
 - 2026-01-25: Company and shipment expenses default to unpaid; payments use account transfers and lock edits/deletes until canceled; points expenses auto-mark paid without transfers.
 - 2026-01-24: Customer profile sections use tabbed view, order labels support barcode generation/printing, tracking numbers are unique across all shipments, and orders store package type (bag/box).

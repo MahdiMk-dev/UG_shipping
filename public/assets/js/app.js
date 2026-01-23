@@ -233,6 +233,9 @@
             initReportsPage();
             initSuppliersPage();
             initSupplierView();
+            initPartnersPage();
+            initPartnerCreate();
+            initPartnerView();
             initCompanyPage();
             return;
         }
@@ -280,6 +283,9 @@
         initReportsPage();
         initSuppliersPage();
         initSupplierView();
+        initPartnersPage();
+        initPartnerCreate();
+        initPartnerView();
         initCompanyPage();
         return;
     }
@@ -1117,6 +1123,9 @@ function initShipmentView() {
     const collectionsTable = page.querySelector('[data-collections-table]');
     const ordersTable = page.querySelector('[data-orders-table]');
     const attachmentsTable = page.querySelector('[data-attachments-table]');
+    const ordersSearchForm = page.querySelector('[data-orders-search-form]');
+    const ordersSearchInput = page.querySelector('[data-orders-search]');
+    const ordersClearButton = page.querySelector('[data-orders-clear]');
     const collectionsPrev = page.querySelector('[data-collections-prev]');
     const collectionsNext = page.querySelector('[data-collections-next]');
     const collectionsPageLabel = page.querySelector('[data-collections-page]');
@@ -1166,6 +1175,7 @@ function initShipmentView() {
     let ordersPage = 0;
     let attachmentsPage = 0;
     let shipmentMediaPage = 0;
+    let ordersFilter = '';
     let collectionsData = [];
     let ordersData = [];
     let attachmentsData = [];
@@ -1542,6 +1552,18 @@ function initShipmentView() {
             label.textContent = `Page ${pageIndex + 1}`;
         }
     };
+    const getFilteredOrders = () => {
+        const query = ordersFilter.trim().toLowerCase();
+        if (!query) {
+            return ordersData;
+        }
+        return ordersData.filter((row) => {
+            const name = String(row.customer_name || '').toLowerCase();
+            const code = String(row.customer_code || '').toLowerCase();
+            const tracking = String(row.tracking_numbers || '').toLowerCase();
+            return name.includes(query) || code.includes(query) || tracking.includes(query);
+        });
+    };
 
     const renderCollections = () => {
         if (!collectionsTable) {
@@ -1578,13 +1600,14 @@ function initShipmentView() {
             return;
         }
         const columnCount = canSeeIncome ? 6 : 5;
-        if (!ordersData.length) {
+        const filteredOrders = getFilteredOrders();
+        if (!filteredOrders.length) {
             ordersTable.innerHTML = `<tr><td colspan="${columnCount}" class="muted">No orders found.</td></tr>`;
-            updatePager(ordersPrev, ordersNext, ordersPageLabel, ordersPage, ordersData);
+            updatePager(ordersPrev, ordersNext, ordersPageLabel, ordersPage, filteredOrders);
             return;
         }
         const canMessage = whatsappStatuses.has(shipment?.status || '');
-        const rows = paginateRows(ordersData, ordersPage);
+        const rows = paginateRows(filteredOrders, ordersPage);
         ordersTable.innerHTML = rows
             .map((row) => {
                 const qtyValue = row.total_qty !== null && row.total_qty !== undefined ? row.total_qty : null;
@@ -1627,7 +1650,7 @@ function initShipmentView() {
                 </tr>`;
             })
             .join('');
-        updatePager(ordersPrev, ordersNext, ordersPageLabel, ordersPage, ordersData);
+        updatePager(ordersPrev, ordersNext, ordersPageLabel, ordersPage, filteredOrders);
     };
 
     if (ordersTable) {
@@ -2007,6 +2030,9 @@ function initShipmentView() {
             collectionsPage = 0;
             ordersPage = 0;
             attachmentsPage = 0;
+            if (ordersSearchInput) {
+                ordersFilter = ordersSearchInput.value.trim();
+            }
             renderCollections();
             renderOrders(shipment);
             renderAttachments();
@@ -2144,7 +2170,7 @@ function initShipmentView() {
     }
     if (ordersNext) {
         ordersNext.addEventListener('click', () => {
-            if (ordersData.length <= (ordersPage + 1) * pageSize) {
+            if (getFilteredOrders().length <= (ordersPage + 1) * pageSize) {
                 return;
             }
             ordersPage += 1;
@@ -2305,6 +2331,34 @@ function initShipmentView() {
                 return;
             }
             openEditDrawer();
+        });
+    }
+
+    const applyOrdersFilter = () => {
+        ordersFilter = ordersSearchInput ? ordersSearchInput.value.trim() : '';
+        ordersPage = 0;
+        if (currentShipment) {
+            renderOrders(currentShipment);
+        }
+    };
+
+    if (ordersSearchForm) {
+        ordersSearchForm.addEventListener('submit', (event) => {
+            event.preventDefault();
+            applyOrdersFilter();
+        });
+    }
+
+    if (ordersSearchInput) {
+        ordersSearchInput.addEventListener('input', applyOrdersFilter);
+    }
+
+    if (ordersClearButton) {
+        ordersClearButton.addEventListener('click', () => {
+            if (ordersSearchInput) {
+                ordersSearchInput.value = '';
+            }
+            applyOrdersFilter();
         });
     }
 
@@ -3193,6 +3247,15 @@ function initShipmentCustomerOrders() {
     const editStatus = page.querySelector('[data-order-edit-status]');
     const editOrderIdField = page.querySelector('[data-order-id-field]');
     const editDrawerCloseButtons = page.querySelectorAll('[data-order-edit-close]');
+    const mediaPanel = page.querySelector('[data-order-edit-media-panel]');
+    const mediaTitle = page.querySelector('[data-order-edit-media-title]');
+    const mediaForm = page.querySelector('[data-order-edit-media-form]');
+    const mediaIdField = page.querySelector('[data-order-edit-media-id]');
+    const mediaTable = page.querySelector('[data-order-edit-media-table]');
+    const mediaStatus = page.querySelector('[data-order-edit-media-status]');
+    const mediaPrev = page.querySelector('[data-order-edit-media-prev]');
+    const mediaNext = page.querySelector('[data-order-edit-media-next]');
+    const mediaPageLabel = page.querySelector('[data-order-edit-media-page]');
     const packageTypeInputs = page.querySelectorAll('[data-order-package-type]');
     const weightTypeSelect = page.querySelector('[data-order-weight-type]');
     const weightTypeInputs = page.querySelectorAll('[data-order-weight-type-input]');
@@ -3206,9 +3269,13 @@ function initShipmentCustomerOrders() {
     const canPrintLabel = page.getAttribute('data-can-print-label') === '1';
     const canSeeIncome = page.getAttribute('data-show-income') !== '0';
     const pageSize = 5;
+    const mediaPageSize = 5;
     let ordersPage = 0;
     let ordersData = [];
     let currentOrder = null;
+    let currentMediaOrderId = null;
+    let mediaPage = 0;
+    let mediaData = [];
     const { role } = getUserContext();
     const canEditRole = ['Admin', 'Owner', 'Main Branch', 'Warehouse'].includes(role || '');
     const canEdit = canEditAttr && canEditRole;
@@ -3275,6 +3342,105 @@ function initShipmentCustomerOrders() {
         notice.textContent = message;
         editStatus.appendChild(notice);
         setTimeout(() => notice.remove(), 7000);
+    };
+
+    const showMediaNotice = (message, type = 'error') => {
+        if (!mediaStatus) {
+            showNotice(message, type);
+            return;
+        }
+        const notice = document.createElement('div');
+        notice.className = `notice ${type}`;
+        notice.textContent = message;
+        mediaStatus.appendChild(notice);
+        setTimeout(() => notice.remove(), 7000);
+    };
+
+    const updateMediaPager = () => {
+        if (mediaPrev) {
+            mediaPrev.disabled = mediaPage === 0;
+        }
+        if (mediaNext) {
+            mediaNext.disabled = mediaData.length <= (mediaPage + 1) * mediaPageSize;
+        }
+        if (mediaPageLabel) {
+            mediaPageLabel.textContent = `Page ${mediaPage + 1}`;
+        }
+    };
+
+    const renderMediaTable = () => {
+        if (!mediaTable) {
+            return;
+        }
+        if (!mediaData.length) {
+            mediaTable.innerHTML = '<tr><td colspan="5" class="muted">No attachments yet.</td></tr>';
+            updateMediaPager();
+            return;
+        }
+        const rows = mediaData.slice(mediaPage * mediaPageSize, mediaPage * mediaPageSize + mediaPageSize);
+        mediaTable.innerHTML = rows
+            .map((att) => {
+                const downloadUrl =
+                    att.download_url || `${window.APP_BASE}/api/attachments/download.php?id=${att.id}`;
+                return `<tr>
+                    <td>${att.title || att.original_name || '-'}</td>
+                    <td>${att.mime_type || '-'}</td>
+                    <td>${att.created_at || '-'}</td>
+                    <td><a class="text-link" href="${downloadUrl}">Download</a></td>
+                    <td><button class="button ghost small" type="button" data-attachment-delete data-attachment-id="${att.id}">Delete</button></td>
+                </tr>`;
+            })
+            .join('');
+        updateMediaPager();
+        if (currentMediaOrderId) {
+            bindMediaDeletes(currentMediaOrderId);
+        }
+    };
+
+    const bindMediaDeletes = (orderId) => {
+        if (!mediaTable) {
+            return;
+        }
+        mediaTable.querySelectorAll('[data-attachment-delete]').forEach((button) => {
+            button.addEventListener('click', async () => {
+                const attachmentId = button.getAttribute('data-attachment-id');
+                if (!attachmentId) {
+                    return;
+                }
+                try {
+                    await fetchJson(`${window.APP_BASE}/api/attachments/delete.php`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ id: attachmentId }),
+                    });
+                    showMediaNotice('Attachment removed.', 'success');
+                    await loadMedia(orderId);
+                } catch (error) {
+                    showMediaNotice(`Delete failed: ${error.message}`, 'error');
+                }
+            });
+        });
+    };
+
+    const loadMedia = async (orderId) => {
+        if (!mediaTable) {
+            return;
+        }
+        mediaTable.innerHTML = '<tr><td colspan="5" class="muted">Loading attachments...</td></tr>';
+        try {
+            const data = await fetchJson(
+                `${window.APP_BASE}/api/attachments/list.php?entity_type=order&entity_id=${encodeURIComponent(
+                    String(orderId)
+                )}`
+            );
+            mediaData = data.data || [];
+            mediaPage = 0;
+            renderMediaTable();
+        } catch (error) {
+            mediaData = [];
+            renderMediaTable();
+            showMediaNotice(`Attachments load failed: ${error.message}`, 'error');
+        }
     };
 
     const setWeightFields = (weightType) => {
@@ -3384,6 +3550,22 @@ function initShipmentCustomerOrders() {
                 adjustmentsList.innerHTML = '';
                 const adjustments = data.adjustments || [];
                 adjustments.forEach((adj) => addAdjustmentRow(adj));
+            }
+            if (currentOrder?.id) {
+                currentMediaOrderId = String(currentOrder.id);
+                if (mediaIdField) {
+                    mediaIdField.value = currentMediaOrderId;
+                }
+                if (mediaTitle) {
+                    const tracking = currentOrder.tracking_number || currentMediaOrderId;
+                    mediaTitle.textContent = `Attachments for order #${tracking}.`;
+                }
+                if (mediaPanel) {
+                    mediaPanel.classList.remove('is-hidden');
+                }
+                if (mediaTable) {
+                    loadMedia(currentOrder.id);
+                }
             }
             openEditDrawer();
         } catch (error) {
@@ -3665,6 +3847,64 @@ function initShipmentCustomerOrders() {
                 closeEditDrawer();
             } catch (error) {
                 showEditNotice(`Update failed: ${error.message}`, 'error');
+            }
+        });
+    }
+
+    if (mediaPrev) {
+        mediaPrev.addEventListener('click', () => {
+            if (mediaPage === 0) {
+                return;
+            }
+            mediaPage -= 1;
+            renderMediaTable();
+        });
+    }
+
+    if (mediaNext) {
+        mediaNext.addEventListener('click', () => {
+            if (mediaData.length <= (mediaPage + 1) * mediaPageSize) {
+                return;
+            }
+            mediaPage += 1;
+            renderMediaTable();
+        });
+    }
+
+    if (mediaForm) {
+        mediaForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const orderId = currentMediaOrderId || '';
+            if (!orderId) {
+                showMediaNotice('Select an order to upload media.', 'error');
+                return;
+            }
+            const fileInput = mediaForm.querySelector('[name="file"]');
+            if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+                showMediaNotice('Choose a file to upload.', 'error');
+                return;
+            }
+            const formData = new FormData(mediaForm);
+            formData.set('entity_type', 'order');
+            formData.set('entity_id', orderId);
+            try {
+                const response = await fetch(`${window.APP_BASE}/api/attachments/upload.php`, {
+                    method: 'POST',
+                    body: formData,
+                    credentials: 'same-origin',
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok || data.ok === false) {
+                    throw new Error(data.error || 'Upload failed.');
+                }
+                showMediaNotice('Attachment uploaded.', 'success');
+                mediaForm.querySelectorAll('input[type="text"]').forEach((input) => {
+                    input.value = '';
+                });
+                fileInput.value = '';
+                await loadMedia(orderId);
+            } catch (error) {
+                showMediaNotice(`Upload failed: ${error.message}`, 'error');
             }
         });
     }
@@ -14546,6 +14786,681 @@ function initReportsPage() {
     setDefaultDates();
     loadShipments();
     loadBranches();
+}
+
+function initPartnersPage() {
+    const page = document.querySelector('[data-partners-page]');
+    if (!page) {
+        return;
+    }
+
+    const filterForm = page.querySelector('[data-partners-filter]');
+    const tableBody = page.querySelector('[data-partners-table]');
+    const statusStack = page.querySelector('[data-partners-status]');
+    const refreshButton = page.querySelector('[data-partners-refresh]');
+    const prevButton = page.querySelector('[data-partners-prev]');
+    const nextButton = page.querySelector('[data-partners-next]');
+    const pageLabel = page.querySelector('[data-partners-page-label]');
+
+    const limit = 10;
+    let offset = 0;
+    let lastFilters = {};
+
+    const escapeHtml = (value) =>
+        String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/\"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+
+    const formatAmount = (value) => {
+        const num = Number(value ?? 0);
+        return Number.isFinite(num) ? num.toFixed(2) : '0.00';
+    };
+
+    const formatBalanceBadge = (value) => {
+        const num = Number(value ?? 0);
+        if (!Number.isFinite(num)) {
+            return '<span class=\"badge neutral\">Unknown</span>';
+        }
+        if (num > 0) {
+            return `<span class=\"badge info\">Payable (we owe) ${formatAmount(num)}</span>`;
+        }
+        if (num < 0) {
+            return `<span class=\"badge warning\">Receivable/Refund ${formatAmount(Math.abs(num))}</span>`;
+        }
+        return '<span class=\"badge neutral\">Settled</span>';
+    };
+
+    const showNotice = (message, type = 'error') => {
+        if (!statusStack) {
+            return;
+        }
+        const notice = document.createElement('div');
+        notice.className = `notice ${type}`;
+        notice.textContent = message;
+        statusStack.appendChild(notice);
+        setTimeout(() => notice.remove(), 6000);
+    };
+
+    const renderRows = (rows = []) => {
+        if (!tableBody) {
+            return;
+        }
+        if (!rows.length) {
+            tableBody.innerHTML = '<tr><td colspan=\"5\" class=\"muted\">No partners found.</td></tr>';
+            return;
+        }
+        tableBody.innerHTML = rows
+            .map((row) => {
+                return `<tr>
+                    <td>${escapeHtml(row.name || '-')}</td>
+                    <td>${escapeHtml(row.type || '-')}</td>
+                    <td>${formatBalanceBadge(row.current_balance)}</td>
+                    <td>${escapeHtml(row.status || '-')}</td>
+                    <td><a class=\"text-link\" href=\"${window.APP_BASE}/views/internal/partner_view?id=${row.id}\">Open</a></td>
+                </tr>`;
+            })
+            .join('');
+    };
+
+    const loadPartners = async (filters = {}) => {
+        if (tableBody) {
+            tableBody.innerHTML = '<tr><td colspan=\"5\" class=\"muted\">Loading partners...</td></tr>';
+        }
+        const params = new URLSearchParams();
+        Object.entries(filters).forEach(([key, value]) => {
+            if (value !== null && value !== undefined && String(value).trim() !== '') {
+                params.append(key, String(value));
+            }
+        });
+        params.append('limit', String(limit));
+        params.append('offset', String(offset));
+        try {
+            const data = await fetchJson(`${window.APP_BASE}/api/partners/list.php?${params.toString()}`);
+            renderRows(data.data || []);
+            if (prevButton) {
+                prevButton.disabled = offset === 0;
+            }
+            if (nextButton) {
+                nextButton.disabled = (data.data || []).length < limit;
+            }
+            if (pageLabel) {
+                pageLabel.textContent = `Page ${Math.floor(offset / limit) + 1}`;
+            }
+        } catch (error) {
+            renderRows([]);
+            showNotice(`Partners load failed: ${error.message}`, 'error');
+        }
+    };
+
+    if (filterForm) {
+        filterForm.addEventListener('submit', (event) => {
+            event.preventDefault();
+            const formData = new FormData(filterForm);
+            offset = 0;
+            lastFilters = Object.fromEntries(formData.entries());
+            loadPartners(lastFilters);
+        });
+    }
+
+    if (refreshButton) {
+        refreshButton.addEventListener('click', () => {
+            if (filterForm) {
+                const formData = new FormData(filterForm);
+                offset = 0;
+                lastFilters = Object.fromEntries(formData.entries());
+                loadPartners(lastFilters);
+            } else {
+                offset = 0;
+                lastFilters = {};
+                loadPartners(lastFilters);
+            }
+        });
+    }
+
+    if (prevButton) {
+        prevButton.addEventListener('click', () => {
+            if (offset === 0) {
+                return;
+            }
+            offset = Math.max(0, offset - limit);
+            loadPartners(lastFilters);
+        });
+    }
+
+    if (nextButton) {
+        nextButton.addEventListener('click', () => {
+            offset += limit;
+            loadPartners(lastFilters);
+        });
+    }
+
+    loadPartners();
+}
+
+function initPartnerCreate() {
+    const page = document.querySelector('[data-partner-create]');
+    if (!page) {
+        return;
+    }
+
+    const form = page.querySelector('[data-partner-create-form]');
+    const statusStack = page.querySelector('[data-partner-create-status]');
+
+    const showNotice = (message, type = 'error') => {
+        if (!statusStack) {
+            return;
+        }
+        const notice = document.createElement('div');
+        notice.className = `notice ${type}`;
+        notice.textContent = message;
+        statusStack.appendChild(notice);
+        setTimeout(() => notice.remove(), 6000);
+    };
+
+    if (form) {
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            if (statusStack) {
+                statusStack.innerHTML = '';
+            }
+            const formData = new FormData(form);
+            const payload = Object.fromEntries(formData.entries());
+            if (!payload.type || !payload.name) {
+                showNotice('Type and name are required.', 'error');
+                return;
+            }
+            try {
+                await fetchJson(`${window.APP_BASE}/api/partners/create.php`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                showNotice('Partner created.', 'success');
+                form.reset();
+            } catch (error) {
+                showNotice(`Create failed: ${error.message}`, 'error');
+            }
+        });
+    }
+}
+
+function initPartnerView() {
+    const page = document.querySelector('[data-partner-view]');
+    if (!page) {
+        return;
+    }
+
+    const partnerId = page.getAttribute('data-partner-id');
+    if (!partnerId) {
+        return;
+    }
+
+    const canEdit = page.getAttribute('data-can-edit') === '1';
+    const detailFields = page.querySelectorAll('[data-partner-detail]');
+    const balanceLabel = page.querySelector('[data-partner-balance-label]');
+    const balanceDate = page.querySelector('[data-partner-balance-date]');
+    const statusStack = page.querySelector('[data-partner-status]');
+    const updateForm = page.querySelector('[data-partner-update-form]');
+    const updateStatus = page.querySelector('[data-partner-update-status]');
+    const txForm = page.querySelector('[data-partner-tx-form]');
+    const txStatus = page.querySelector('[data-partner-tx-status]');
+    const transferForm = page.querySelector('[data-partner-transfer-form]');
+    const transferStatus = page.querySelector('[data-partner-transfer-status]');
+    const statementForm = page.querySelector('[data-partner-statement-filter]');
+    const statementRefresh = page.querySelector('[data-partner-statement-refresh]');
+    const transactionsTable = page.querySelector('[data-partner-transactions]');
+    const transactionsPrev = page.querySelector('[data-partner-transactions-prev]');
+    const transactionsNext = page.querySelector('[data-partner-transactions-next]');
+    const transactionsPageLabel = page.querySelector('[data-partner-transactions-page]');
+    const transactionsStatus = page.querySelector('[data-partner-transactions-status]');
+    const fromAccountField = page.querySelector('[data-partner-from-account]');
+    const toAccountField = page.querySelector('[data-partner-to-account]');
+    const fromAccountSelect = fromAccountField ? fromAccountField.querySelector('select') : null;
+    const toAccountSelect = toAccountField ? toAccountField.querySelector('select') : null;
+
+    const limit = 10;
+    let offset = 0;
+    let currentFilters = {};
+    const partnerOptions = new Map();
+
+    const escapeHtml = (value) =>
+        String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/\"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+
+    const formatAmount = (value) => {
+        const num = Number(value ?? 0);
+        return Number.isFinite(num) ? num.toFixed(2) : '0.00';
+    };
+
+    const formatSigned = (value) => {
+        if (value === null || value === undefined) {
+            return '--';
+        }
+        const num = Number(value ?? 0);
+        if (!Number.isFinite(num)) {
+            return '--';
+        }
+        const sign = num > 0 ? '+' : num < 0 ? '-' : '';
+        return `${sign}${formatAmount(Math.abs(num))}`;
+    };
+
+    const formatBalanceLabel = (value) => {
+        const num = Number(value ?? 0);
+        if (!Number.isFinite(num)) {
+            return 'Unknown';
+        }
+        if (num > 0) {
+            return `Payable (we owe) ${formatAmount(num)}`;
+        }
+        if (num < 0) {
+            return `Receivable/Refund (partner owes us) ${formatAmount(Math.abs(num))}`;
+        }
+        return 'Settled';
+    };
+
+    const showNotice = (stack, message, type = 'error') => {
+        if (!stack) {
+            return;
+        }
+        const notice = document.createElement('div');
+        notice.className = `notice ${type}`;
+        notice.textContent = message;
+        stack.appendChild(notice);
+        setTimeout(() => notice.remove(), 7000);
+    };
+
+    const loadPartner = async () => {
+        try {
+            const data = await fetchJson(`${window.APP_BASE}/api/partners/get.php?id=${encodeURIComponent(partnerId)}`);
+            const partner = data.partner || {};
+            detailFields.forEach((el) => {
+                const key = el.getAttribute('data-partner-detail');
+                let value = partner[key];
+                if (['opening_balance', 'current_balance'].includes(key)) {
+                    value = formatAmount(value);
+                }
+                el.textContent = value !== null && value !== undefined && value !== '' ? value : '--';
+            });
+            if (balanceLabel) {
+                balanceLabel.textContent = formatBalanceLabel(partner.current_balance);
+            }
+            if (balanceDate) {
+                const now = new Date();
+                balanceDate.textContent = now.toLocaleDateString();
+            }
+            if (updateForm) {
+                updateForm.querySelector('[name=\"type\"]').value = partner.type || '';
+                updateForm.querySelector('[name=\"name\"]').value = partner.name || '';
+                updateForm.querySelector('[name=\"phone\"]').value = partner.phone || '';
+                updateForm.querySelector('[name=\"email\"]').value = partner.email || '';
+                updateForm.querySelector('[name=\"address\"]').value = partner.address || '';
+                updateForm.querySelector('[name=\"status\"]').value = partner.status || 'active';
+            }
+        } catch (error) {
+            showNotice(statusStack, `Partner load failed: ${error.message}`, 'error');
+        }
+    };
+
+    const loadAdminAccounts = async () => {
+        if (!fromAccountSelect && !toAccountSelect) {
+            return;
+        }
+        try {
+            const data = await fetchJson(`${window.APP_BASE}/api/accounts/list.php?owner_type=admin&is_active=1`);
+            const accounts = data.data || [];
+            const buildOptions = (select) => {
+                if (!select) {
+                    return;
+                }
+                const current = select.value;
+                select.querySelectorAll('option[data-dynamic]').forEach((option) => option.remove());
+                accounts.forEach((account) => {
+                    const option = document.createElement('option');
+                    option.value = account.id;
+                    const currency = account.currency ? ` ${account.currency}` : '';
+                    option.textContent = `${account.name}${currency}`;
+                    option.setAttribute('data-dynamic', 'true');
+                    select.appendChild(option);
+                });
+                if (current) {
+                    select.value = current;
+                }
+            };
+            buildOptions(fromAccountSelect);
+            buildOptions(toAccountSelect);
+        } catch (error) {
+            showNotice(txStatus || statusStack, `Admin accounts load failed: ${error.message}`, 'error');
+        }
+    };
+
+    const loadPartnerOptions = async () => {
+        if (!transferForm) {
+            return;
+        }
+        const fromSelect = transferForm.querySelector('[name=\"from_partner_id\"]');
+        const toSelect = transferForm.querySelector('[name=\"to_partner_id\"]');
+        if (!fromSelect || !toSelect) {
+            return;
+        }
+        try {
+            const data = await fetchJson(`${window.APP_BASE}/api/partners/list.php?limit=500`);
+            const partners = data.data || [];
+            partnerOptions.clear();
+            const updateSelect = (select) => {
+                const current = select.value;
+                select.querySelectorAll('option[data-dynamic]').forEach((option) => option.remove());
+                partners.forEach((partner) => {
+                    partnerOptions.set(String(partner.id), partner);
+                    const option = document.createElement('option');
+                    option.value = partner.id;
+                    option.textContent = `${partner.name} (${partner.type})`;
+                    option.setAttribute('data-dynamic', 'true');
+                    select.appendChild(option);
+                });
+                if (current) {
+                    select.value = current;
+                }
+            };
+            updateSelect(fromSelect);
+            updateSelect(toSelect);
+            if (!fromSelect.value) {
+                fromSelect.value = partnerId;
+            }
+        } catch (error) {
+            showNotice(transferStatus || statusStack, `Partner list load failed: ${error.message}`, 'error');
+        }
+    };
+
+    const updateTxAccountFields = () => {
+        if (!txForm) {
+            return;
+        }
+        const txType = txForm.querySelector('[name=\"tx_type\"]')?.value || '';
+        const isPayPartner = txType === 'WE_PAY_PARTNER';
+        const isPartnerPays = txType === 'PARTNER_PAYS_US';
+        if (fromAccountField) {
+            fromAccountField.classList.toggle('is-hidden', !isPayPartner);
+            if (fromAccountSelect) {
+                fromAccountSelect.required = isPayPartner;
+                if (!isPayPartner) {
+                    fromAccountSelect.value = '';
+                }
+            }
+        }
+        if (toAccountField) {
+            toAccountField.classList.toggle('is-hidden', !isPartnerPays);
+            if (toAccountSelect) {
+                toAccountSelect.required = isPartnerPays;
+                if (!isPartnerPays) {
+                    toAccountSelect.value = '';
+                }
+            }
+        }
+    };
+
+    const renderTransactions = (rows = []) => {
+        if (!transactionsTable) {
+            return;
+        }
+        if (!rows.length) {
+            const colspan = canEdit ? 8 : 7;
+            transactionsTable.innerHTML = `<tr><td colspan=\"${colspan}\" class=\"muted\">No transactions found.</td></tr>`;
+            return;
+        }
+        transactionsTable.innerHTML = rows
+            .map((row) => {
+                const actions = [];
+                if (canEdit && row.status === 'posted' && row.tx_type !== 'REVERSAL') {
+                    actions.push(`<button class=\"text-link\" type=\"button\" data-partner-void data-id=\"${row.id}\">Void</button>`);
+                }
+                return `<tr>
+                    <td>${escapeHtml(row.tx_date || '-')}</td>
+                    <td>${escapeHtml(row.display_type || row.tx_type || '-')}</td>
+                    <td>${formatSigned(row.movement)}</td>
+                    <td>${formatSigned(row.payment)}</td>
+                    <td>${escapeHtml(row.admin_account || '--')}</td>
+                    <td>${escapeHtml(row.description || '--')}</td>
+                    <td>${escapeHtml(row.status || '--')}</td>
+                    ${canEdit ? `<td>${actions.join(' ') || '--'}</td>` : ''}
+                </tr>`;
+            })
+            .join('');
+
+        transactionsTable.querySelectorAll('[data-partner-void]').forEach((button) => {
+            button.addEventListener('click', async () => {
+                const id = button.getAttribute('data-id');
+                if (!id) {
+                    return;
+                }
+                const reason = await showConfirmDialog({
+                    title: 'Void transaction',
+                    message: 'Void this transaction? Add a reason.',
+                    confirmLabel: 'Void transaction',
+                    requireInput: true,
+                    inputPlaceholder: 'Reason'
+                });
+                if (!reason || !reason.trim()) {
+                    return;
+                }
+                try {
+                    await fetchJson(`${window.APP_BASE}/api/partners/tx/void.php`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ id, reason: reason.trim() }),
+                    });
+                    showNotice(transactionsStatus || statusStack, 'Transaction voided.', 'success');
+                    loadPartner();
+                    loadTransactions();
+                } catch (error) {
+                    showNotice(transactionsStatus || statusStack, `Void failed: ${error.message}`, 'error');
+                }
+            });
+        });
+    };
+
+    const loadTransactions = async () => {
+        if (!transactionsTable) {
+            return;
+        }
+        const colspan = canEdit ? 8 : 7;
+        transactionsTable.innerHTML = `<tr><td colspan=\"${colspan}\" class=\"muted\">Loading transactions...</td></tr>`;
+        const params = new URLSearchParams({ partner_id: String(partnerId) });
+        Object.entries(currentFilters).forEach(([key, value]) => {
+            if (value !== null && value !== undefined && String(value).trim() !== '') {
+                params.append(key, String(value));
+            }
+        });
+        params.append('limit', String(limit));
+        params.append('offset', String(offset));
+        try {
+            const data = await fetchJson(`${window.APP_BASE}/api/partners/statement.php?${params.toString()}`);
+            renderTransactions(data.data || []);
+            if (transactionsPrev) {
+                transactionsPrev.disabled = offset === 0;
+            }
+            if (transactionsNext) {
+                transactionsNext.disabled = (data.data || []).length < limit;
+            }
+            if (transactionsPageLabel) {
+                transactionsPageLabel.textContent = `Page ${Math.floor(offset / limit) + 1}`;
+            }
+        } catch (error) {
+            renderTransactions([]);
+            showNotice(transactionsStatus || statusStack, `Statement load failed: ${error.message}`, 'error');
+        }
+    };
+
+    if (statementForm) {
+        statementForm.addEventListener('submit', (event) => {
+            event.preventDefault();
+            const formData = new FormData(statementForm);
+            offset = 0;
+            currentFilters = Object.fromEntries(formData.entries());
+            loadTransactions();
+        });
+    }
+
+    if (statementRefresh) {
+        statementRefresh.addEventListener('click', () => {
+            if (statementForm) {
+                const formData = new FormData(statementForm);
+                offset = 0;
+                currentFilters = Object.fromEntries(formData.entries());
+            } else {
+                offset = 0;
+                currentFilters = {};
+            }
+            loadTransactions();
+        });
+    }
+
+    if (transactionsPrev) {
+        transactionsPrev.addEventListener('click', () => {
+            if (offset === 0) {
+                return;
+            }
+            offset = Math.max(0, offset - limit);
+            loadTransactions();
+        });
+    }
+
+    if (transactionsNext) {
+        transactionsNext.addEventListener('click', () => {
+            offset += limit;
+            loadTransactions();
+        });
+    }
+
+    if (updateForm) {
+        updateForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            if (updateStatus) {
+                updateStatus.innerHTML = '';
+            }
+            const formData = new FormData(updateForm);
+            const payload = Object.fromEntries(formData.entries());
+            if (!payload.type || !payload.name) {
+                showNotice(updateStatus, 'Type and name are required.', 'error');
+                return;
+            }
+            try {
+                await fetchJson(`${window.APP_BASE}/api/partners/update.php`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                showNotice(updateStatus, 'Partner updated.', 'success');
+                loadPartner();
+            } catch (error) {
+                showNotice(updateStatus, `Update failed: ${error.message}`, 'error');
+            }
+        });
+    }
+
+    if (txForm) {
+        const txTypeSelect = txForm.querySelector('[name=\"tx_type\"]');
+        const currencyInput = txForm.querySelector('[name=\"currency_code\"]');
+        if (txTypeSelect) {
+            txTypeSelect.addEventListener('change', updateTxAccountFields);
+        }
+        if (currencyInput) {
+            currencyInput.addEventListener('input', () => {
+                currencyInput.value = currencyInput.value.toUpperCase();
+            });
+        }
+        updateTxAccountFields();
+
+        txForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            if (txStatus) {
+                txStatus.innerHTML = '';
+            }
+            const formData = new FormData(txForm);
+            const payload = Object.fromEntries(formData.entries());
+            payload.partner_id = partnerId;
+            if (!payload.tx_type || !payload.amount || !payload.currency_code) {
+                showNotice(txStatus, 'Type, amount, and currency are required.', 'error');
+                return;
+            }
+            payload.currency_code = String(payload.currency_code).toUpperCase();
+            try {
+                await fetchJson(`${window.APP_BASE}/api/partners/tx/create.php`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                showNotice(txStatus, 'Transaction recorded.', 'success');
+                txForm.reset();
+                if (currencyInput) {
+                    currencyInput.value = 'USD';
+                }
+                updateTxAccountFields();
+                loadPartner();
+                loadTransactions();
+            } catch (error) {
+                showNotice(txStatus, `Save failed: ${error.message}`, 'error');
+            }
+        });
+    }
+
+    if (transferForm) {
+        const currencyInput = transferForm.querySelector('[name=\"currency_code\"]');
+        if (currencyInput) {
+            currencyInput.addEventListener('input', () => {
+                currencyInput.value = currencyInput.value.toUpperCase();
+            });
+        }
+        transferForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            if (transferStatus) {
+                transferStatus.innerHTML = '';
+            }
+            const formData = new FormData(transferForm);
+            const payload = Object.fromEntries(formData.entries());
+            payload.tx_type = 'PARTNER_TO_PARTNER_TRANSFER';
+            if (!payload.from_partner_id || !payload.to_partner_id) {
+                showNotice(transferStatus, 'From and to partners are required.', 'error');
+                return;
+            }
+            if (payload.from_partner_id === payload.to_partner_id) {
+                showNotice(transferStatus, 'Partners must be different.', 'error');
+                return;
+            }
+            if (!payload.amount || !payload.currency_code) {
+                showNotice(transferStatus, 'Amount and currency are required.', 'error');
+                return;
+            }
+            payload.currency_code = String(payload.currency_code).toUpperCase();
+            try {
+                await fetchJson(`${window.APP_BASE}/api/partners/tx/create.php`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                showNotice(transferStatus, 'Transfer recorded.', 'success');
+                transferForm.reset();
+                if (currencyInput) {
+                    currencyInput.value = 'USD';
+                }
+                loadPartner();
+                loadTransactions();
+            } catch (error) {
+                showNotice(transferStatus, `Transfer failed: ${error.message}`, 'error');
+            }
+        });
+    }
+
+    loadPartner();
+    loadAdminAccounts();
+    loadPartnerOptions();
+    loadTransactions();
 }
 
 function initCompanyPage() {

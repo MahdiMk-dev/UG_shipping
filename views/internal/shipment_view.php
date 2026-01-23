@@ -231,6 +231,11 @@ if ($shipmentId) {
                         <?php endif; ?>
                     </div>
                     <p>Grouped totals for each customer in this shipment.</p>
+                    <form class="filter-bar" data-orders-search-form>
+                        <input type="text" name="q" placeholder="Search customer or tracking" data-orders-search>
+                        <button class="button primary" type="submit">Search</button>
+                        <button class="button ghost" type="button" data-orders-clear>Clear</button>
+                    </form>
                     <div class="table-wrap">
                         <table>
                             <thead>

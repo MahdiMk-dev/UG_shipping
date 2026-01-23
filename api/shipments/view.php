@@ -131,9 +131,11 @@ $orders = $ordersStmt->fetchAll();
 
 if ($readOnly) {
     $customerOrdersStmt = $db->prepare(
-        'SELECT o.customer_id, c.name AS customer_name, COALESCE(c.phone, ca.phone) AS customer_phone, '
+        'SELECT o.customer_id, c.name AS customer_name, c.code AS customer_code, '
+        . 'COALESCE(c.phone, ca.phone) AS customer_phone, '
         . 'COUNT(*) AS order_count, SUM(o.total_price) AS total_price, SUM(o.qty) AS total_qty, '
-        . "GROUP_CONCAT(DISTINCT o.unit_type ORDER BY o.unit_type SEPARATOR ', ') AS unit_types "
+        . "GROUP_CONCAT(DISTINCT o.unit_type ORDER BY o.unit_type SEPARATOR ', ') AS unit_types, "
+        . "GROUP_CONCAT(DISTINCT o.tracking_number ORDER BY o.id SEPARATOR ', ') AS tracking_numbers "
         . 'FROM orders o '
         . 'LEFT JOIN customers c ON c.id = o.customer_id '
         . 'LEFT JOIN customer_accounts ca ON ca.id = c.account_id '
@@ -144,9 +146,11 @@ if ($readOnly) {
     $customerOrdersStmt->execute([$shipment['id'], $branchId]);
 } else {
     $customerOrdersStmt = $db->prepare(
-        'SELECT o.customer_id, c.name AS customer_name, COALESCE(c.phone, ca.phone) AS customer_phone, '
+        'SELECT o.customer_id, c.name AS customer_name, c.code AS customer_code, '
+        . 'COALESCE(c.phone, ca.phone) AS customer_phone, '
         . 'COUNT(*) AS order_count, SUM(o.total_price) AS total_price, SUM(o.qty) AS total_qty, '
-        . "GROUP_CONCAT(DISTINCT o.unit_type ORDER BY o.unit_type SEPARATOR ', ') AS unit_types "
+        . "GROUP_CONCAT(DISTINCT o.unit_type ORDER BY o.unit_type SEPARATOR ', ') AS unit_types, "
+        . "GROUP_CONCAT(DISTINCT o.tracking_number ORDER BY o.id SEPARATOR ', ') AS tracking_numbers "
         . 'FROM orders o '
         . 'LEFT JOIN customers c ON c.id = o.customer_id '
         . 'LEFT JOIN customer_accounts ca ON ca.id = c.account_id '
